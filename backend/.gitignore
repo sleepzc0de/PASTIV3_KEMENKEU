@@ -1,0 +1,48 @@
+# ============ Environment & Secrets ============
+.env
+.env.local
+.env.*.local
+*.env
+
+# ============ Go Build Artifacts ============
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ============ Go Modules Cache ============
+vendor/
+
+# ============ IDE / Editor ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============ OS Files ============
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============ Logs ============
+*.log
+logs/
+
+# ============ Temporary Files ============
+tmp/
+temp/
+*.tmp
+
+# ============ Air (Go hot reload, jika dipakai) ============
+.air.toml
+tmp/
+
+# ============ Database Local Backup (jaga-jaga) ============
+*.bak
+*.sql.bak
