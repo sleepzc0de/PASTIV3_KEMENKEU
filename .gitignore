@@ -1,0 +1,37 @@
+# ============ Environment & Secrets (SELURUH PROJECT) ============
+.env
+.env.prod
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# ============ Docker / Compose ============
+docker-compose.override.yml
+
+# ============ Certbot / SSL ============
+certbot/conf/
+certbot/www/
+
+# ============ OS Files ============
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============ IDE / Editor ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============ Logs ============
+*.log
+logs/
+
+# ============ Node (kalau ada tooling di root) ============
+node_modules/
+
+# ============ Misc ============
+*.bak
+*.tmp

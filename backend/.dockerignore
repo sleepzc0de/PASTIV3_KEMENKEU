@@ -1,0 +1,9 @@
+.env
+.env.example
+*.md
+.git
+.gitignore
+.vscode
+.idea
+tmp/
+*.log
