@@ -6,7 +6,7 @@
 *.env
 !*.env.example
 
-# ============ Docker / Compose ============
+# ============ Docker ============
 docker-compose.override.yml
 
 # ============ Certbot / SSL ============
@@ -18,20 +18,15 @@ certbot/www/
 Thumbs.db
 desktop.ini
 
-# ============ IDE / Editor ============
+# ============ IDE ============
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
 # ============ Logs ============
 *.log
 logs/
 
-# ============ Node (kalau ada tooling di root) ============
-node_modules/
-
 # ============ Misc ============
 *.bak
 *.tmp
+node_modules/
