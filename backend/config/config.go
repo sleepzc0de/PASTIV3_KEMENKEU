@@ -25,16 +25,19 @@ type Config struct {
 
 	PasswordPepper string
 
-	// SSO Kemenkeu
 	SSOEnv          string
 	SSOClientID     string
 	SSOClientSecret string
 	SSOScope        string
 	SSORedirectURI  string
 
-	// Superadmin permanen
 	SuperadminProtectedEmail string
 	SuperadminProtectedNIP   string
+
+	// ============ Tambahan: HTTP Client config ============
+	HTTPClientTimeoutSeconds int
+	HTTPSProxy               string
+	HTTPProxy                string
 }
 
 var Cfg *Config
@@ -46,6 +49,7 @@ func LoadConfig() {
 
 	accessExp, _ := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRE_MINUTES", "15"))
 	refreshExp, _ := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRE_DAYS", "7"))
+	httpTimeout, _ := strconv.Atoi(getEnv("HTTP_CLIENT_TIMEOUT_SECONDS", "30"))
 
 	Cfg = &Config{
 		AppPort:     getEnv("APP_PORT", "8686"),
@@ -72,6 +76,10 @@ func LoadConfig() {
 
 		SuperadminProtectedEmail: getEnv("SUPERADMIN_PROTECTED_EMAIL", ""),
 		SuperadminProtectedNIP:   getEnv("SUPERADMIN_PROTECTED_NIP", ""),
+
+		HTTPClientTimeoutSeconds: httpTimeout,
+		HTTPSProxy:               getEnv("HTTPS_PROXY", ""),
+		HTTPProxy:                getEnv("HTTP_PROXY", ""),
 	}
 
 	if Cfg.JWTSecret == "" || Cfg.PasswordPepper == "" {
@@ -79,6 +87,16 @@ func LoadConfig() {
 	}
 	if Cfg.SSOClientID == "" || Cfg.SSOClientSecret == "" || Cfg.SSORedirectURI == "" {
 		log.Fatal("[FATAL] Konfigurasi SSO (SSO_CLIENT_ID/SSO_CLIENT_SECRET/SSO_REDIRECT_URI) wajib diisi di .env")
+	}
+
+	// Set proxy ke environment variable Go standar, supaya http.ProxyFromEnvironment terbaca
+	if Cfg.HTTPSProxy != "" {
+		os.Setenv("HTTPS_PROXY", Cfg.HTTPSProxy)
+		log.Println("[INFO] Menggunakan HTTPS_PROXY:", Cfg.HTTPSProxy)
+	}
+	if Cfg.HTTPProxy != "" {
+		os.Setenv("HTTP_PROXY", Cfg.HTTPProxy)
+		log.Println("[INFO] Menggunakan HTTP_PROXY:", Cfg.HTTPProxy)
 	}
 }
 
@@ -89,7 +107,6 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// SSOEndpoints berisi seluruh endpoint OIDC sesuai environment aktif
 type SSOEndpoints struct {
 	BaseURL            string
 	AuthorizeEndpoint  string

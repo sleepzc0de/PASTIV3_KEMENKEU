@@ -21,7 +21,6 @@ import (
 
 const ssoStateTTL = 10 * time.Minute
 
-// ============ STEP 1: Redirect user ke halaman login SSO Kemenkeu ============
 func SSOLogin(c *gin.Context) {
 	endpoints := config.GetSSOEndpoints()
 	cfg := config.Cfg
@@ -44,6 +43,7 @@ func SSOLogin(c *gin.Context) {
 		state, codeVerifier, expiresAt,
 	)
 	if err != nil {
+		log.Println("[SSO ERROR] gagal insert sso_states:", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal menyimpan state SSO")
 		return
 	}
@@ -61,7 +61,6 @@ func SSOLogin(c *gin.Context) {
 	c.Redirect(http.StatusFound, authorizeURL)
 }
 
-// ============ STEP 2: Callback dari SSO Kemenkeu setelah user login ============
 func SSOCallback(c *gin.Context) {
 	cfg := config.Cfg
 	frontendErrorURL := cfg.FrontendURL + "/login?error=sso_failed"
@@ -92,7 +91,7 @@ func SSOCallback(c *gin.Context) {
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	} else if err == nil && time.Now().After(expiresAt) {
-		log.Println("[SSO ERROR] state sudah expired:", state, "expiresAt:", expiresAt)
+		log.Println("[SSO ERROR] state sudah expired:", state)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	} else if err != nil {
@@ -103,7 +102,9 @@ func SSOCallback(c *gin.Context) {
 	database.DB.Exec(`DELETE FROM sso_states WHERE state = @p1`, state)
 
 	endpoints := config.GetSSOEndpoints()
+	httpClient := utils.NewSSOHTTPClient()
 
+	// ============ Tukar authorization code dengan access token ============
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -112,13 +113,22 @@ func SSOCallback(c *gin.Context) {
 	form.Set("client_secret", cfg.SSOClientSecret)
 	form.Set("code_verifier", codeVerifier)
 
-	tokenReq, _ := http.NewRequest(http.MethodPost, endpoints.TokenEndpoint, strings.NewReader(form.Encode()))
-	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	encodedForm := form.Encode()
 
-	httpClient := &http.Client{Timeout: 15 * time.Second}
-	tokenResp, err := httpClient.Do(tokenReq)
+	tokenReq, _ := http.NewRequest(http.MethodPost, endpoints.TokenEndpoint, strings.NewReader(encodedForm))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	tokenReq.Header.Set("User-Agent", "PASTI-V3-Backend/1.0")
+	tokenReq.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(encodedForm)), nil
+	}
+
+	log.Println("[SSO INFO] Mengirim request ke token_endpoint:", endpoints.TokenEndpoint)
+	tokenStart := time.Now()
+	tokenResp, err := utils.DoWithRetry(httpClient, tokenReq, 3)
+	log.Println("[SSO INFO] Total durasi request token_endpoint:", time.Since(tokenStart))
+
 	if err != nil {
-		log.Println("[SSO ERROR] gagal request ke token_endpoint:", err)
+		log.Println("[SSO ERROR] gagal request ke token_endpoint setelah retry:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
@@ -139,12 +149,18 @@ func SSOCallback(c *gin.Context) {
 		return
 	}
 
+	// ============ Ambil profil pegawai dari userinfo endpoint ============
 	userInfoReq, _ := http.NewRequest(http.MethodGet, endpoints.UserinfoEndpoint, nil)
 	userInfoReq.Header.Set("Authorization", "Bearer "+tokenData.AccessToken)
+	userInfoReq.Header.Set("User-Agent", "PASTI-V3-Backend/1.0")
 
-	userInfoResp, err := httpClient.Do(userInfoReq)
+	log.Println("[SSO INFO] Mengirim request ke userinfo_endpoint:", endpoints.UserinfoEndpoint)
+	userInfoStart := time.Now()
+	userInfoResp, err := utils.DoWithRetry(httpClient, userInfoReq, 3)
+	log.Println("[SSO INFO] Total durasi request userinfo_endpoint:", time.Since(userInfoStart))
+
 	if err != nil {
-		log.Println("[SSO ERROR] gagal request ke userinfo_endpoint:", err)
+		log.Println("[SSO ERROR] gagal request ke userinfo_endpoint setelah retry:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
@@ -160,7 +176,7 @@ func SSOCallback(c *gin.Context) {
 
 	var claims map[string]interface{}
 	if err := json.Unmarshal(userInfoBody, &claims); err != nil {
-		log.Println("[SSO ERROR] gagal parse userinfo JSON:", err, "| body:", string(userInfoBody))
+		log.Println("[SSO ERROR] gagal parse userinfo JSON:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
@@ -249,7 +265,6 @@ func upsertEmployee(claims map[string]interface{}, sub, nip, nip9, email string)
 		return "", err
 	}
 
-	// Sudah ada -> update data terbaru setiap kali login (data pegawai bisa berubah: jabatan, satker, dll)
 	_, err = database.DB.Exec(`
 		UPDATE employees SET
 			nip=@p2, nip9=@p3, nik=@p4, name=@p5, email=@p6, preferred_username=@p7,
@@ -295,7 +310,6 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (string, in
 	} else if err != nil {
 		return "", 0, err
 	} else {
-		// User sudah ada — kalau identitas ini termasuk protected, pastikan role & flag tetap terjaga
 		if isProtected {
 			database.DB.Exec(
 				`UPDATE users SET role='superadmin', is_protected=1, is_active=1, full_name=@p1, last_login=SYSUTCDATETIME() WHERE id=@p2`,
