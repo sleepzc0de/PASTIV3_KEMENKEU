@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -70,32 +71,37 @@ func SSOCallback(c *gin.Context) {
 	errParam := c.Query("error")
 
 	if errParam != "" {
+		log.Println("[SSO ERROR] Query param error dari Kemenkeu:", errParam, "| description:", c.Query("error_description"))
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 	if code == "" || state == "" {
+		log.Println("[SSO ERROR] code atau state kosong. code:", code, "state:", state)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 
-	// Validasi state (anti CSRF) + ambil code_verifier (PKCE)
 	var codeVerifier string
 	var expiresAt time.Time
 	err := database.DB.QueryRow(
 		`SELECT code_verifier, expires_at FROM sso_states WHERE state = @p1`, state,
 	).Scan(&codeVerifier, &expiresAt)
 
-	if err == sql.ErrNoRows || (err == nil && time.Now().After(expiresAt)) {
+	if err == sql.ErrNoRows {
+		log.Println("[SSO ERROR] state tidak ditemukan di DB:", state)
+		c.Redirect(http.StatusFound, frontendErrorURL)
+		return
+	} else if err == nil && time.Now().After(expiresAt) {
+		log.Println("[SSO ERROR] state sudah expired:", state, "expiresAt:", expiresAt)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	} else if err != nil {
+		log.Println("[SSO ERROR] gagal query sso_states:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
-	// State hanya boleh dipakai sekali
 	database.DB.Exec(`DELETE FROM sso_states WHERE state = @p1`, state)
 
-	// ============ Tukar authorization code dengan access token ============
 	endpoints := config.GetSSOEndpoints()
 
 	form := url.Values{}
@@ -111,33 +117,50 @@ func SSOCallback(c *gin.Context) {
 
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	tokenResp, err := httpClient.Do(tokenReq)
-	if err != nil || tokenResp.StatusCode != http.StatusOK {
+	if err != nil {
+		log.Println("[SSO ERROR] gagal request ke token_endpoint:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 	defer tokenResp.Body.Close()
 
 	tokenBody, _ := io.ReadAll(tokenResp.Body)
-	var tokenData dto.SSOTokenResponse
-	if err := json.Unmarshal(tokenBody, &tokenData); err != nil || tokenData.AccessToken == "" {
+
+	if tokenResp.StatusCode != http.StatusOK {
+		log.Println("[SSO ERROR] token_endpoint status:", tokenResp.StatusCode, "| response body:", string(tokenBody))
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 
-	// ============ Ambil profil pegawai dari userinfo endpoint ============
+	var tokenData dto.SSOTokenResponse
+	if err := json.Unmarshal(tokenBody, &tokenData); err != nil || tokenData.AccessToken == "" {
+		log.Println("[SSO ERROR] gagal parse token response atau access_token kosong:", string(tokenBody))
+		c.Redirect(http.StatusFound, frontendErrorURL)
+		return
+	}
+
 	userInfoReq, _ := http.NewRequest(http.MethodGet, endpoints.UserinfoEndpoint, nil)
 	userInfoReq.Header.Set("Authorization", "Bearer "+tokenData.AccessToken)
 
 	userInfoResp, err := httpClient.Do(userInfoReq)
-	if err != nil || userInfoResp.StatusCode != http.StatusOK {
+	if err != nil {
+		log.Println("[SSO ERROR] gagal request ke userinfo_endpoint:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 	defer userInfoResp.Body.Close()
 
 	userInfoBody, _ := io.ReadAll(userInfoResp.Body)
+
+	if userInfoResp.StatusCode != http.StatusOK {
+		log.Println("[SSO ERROR] userinfo_endpoint status:", userInfoResp.StatusCode, "| response body:", string(userInfoBody))
+		c.Redirect(http.StatusFound, frontendErrorURL)
+		return
+	}
+
 	var claims map[string]interface{}
 	if err := json.Unmarshal(userInfoBody, &claims); err != nil {
+		log.Println("[SSO ERROR] gagal parse userinfo JSON:", err, "| body:", string(userInfoBody))
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
@@ -153,6 +176,7 @@ func SSOCallback(c *gin.Context) {
 
 	sub := getClaim("sub")
 	if sub == "" {
+		log.Println("[SSO ERROR] claim 'sub' kosong. Full claims:", claims)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
@@ -161,22 +185,22 @@ func SSOCallback(c *gin.Context) {
 	nip := getClaim("nip")
 	nip9 := getClaim("nip9")
 
-	// ============ Upsert data pegawai ke tabel employees ============
 	employeeID, err := upsertEmployee(claims, sub, nip, nip9, email)
 	if err != nil {
+		log.Println("[SSO ERROR] gagal upsertEmployee:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 
-	// ============ Upsert user (akun aplikasi) terkait pegawai ini ============
 	accessToken, expiresIn, err := upsertUserFromSSO(employeeID, sub, email, nip, getClaim("name"))
 	if err != nil {
+		log.Println("[SSO ERROR] gagal upsertUserFromSSO:", err)
 		c.Redirect(http.StatusFound, frontendErrorURL)
 		return
 	}
 
-	// Redirect ke frontend membawa access token di URL fragment (#)
-	// Fragment TIDAK dikirim ke server manapun (termasuk access log kita sendiri), lebih aman dari query string.
+	log.Println("[SSO SUCCESS] Login berhasil untuk sub:", sub, "email:", email)
+
 	redirectURL := cfg.FrontendURL + "/sso/callback#token=" + accessToken + "&expires_in=" + urlItoa(expiresIn)
 	c.Redirect(http.StatusFound, redirectURL)
 }

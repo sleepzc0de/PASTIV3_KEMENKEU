@@ -1,8 +1,7 @@
--- Pastikan database sudah dibuat terlebih dahulu:
--- CREATE DATABASE pasti_v3_db;
--- GO
--- USE pasti_v3_db;
--- GO
+-- ============================================================
+-- Migration 001: Tabel Users & Refresh Tokens
+-- Aman dijalankan berulang kali (idempotent)
+-- ============================================================
 
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'users')
 BEGIN
@@ -10,8 +9,8 @@ BEGIN
         id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
         username NVARCHAR(50) NOT NULL UNIQUE,
         email NVARCHAR(100) NOT NULL UNIQUE,
-        password_hash NVARCHAR(255) NOT NULL,
-        password_salt NVARCHAR(255) NOT NULL,
+        password_hash NVARCHAR(255) NULL,
+        password_salt NVARCHAR(255) NULL,
         full_name NVARCHAR(100) NOT NULL,
         role NVARCHAR(20) NOT NULL DEFAULT 'user',
         is_active BIT NOT NULL DEFAULT 1,
@@ -24,10 +23,8 @@ BEGIN
 
     CREATE INDEX idx_users_username ON users(username);
     CREATE INDEX idx_users_email ON users(email);
-END
-GO
+END;
 
--- Tabel refresh token (opsional tapi direkomendasikan untuk revoke token)
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'refresh_tokens')
 BEGIN
     CREATE TABLE refresh_tokens (
@@ -40,5 +37,23 @@ BEGIN
     );
 
     CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
-END
-GO
+END;
+
+-- Jaga-jaga: kalau tabel users sudah ada dari migrasi versi lama
+-- dengan password_hash/password_salt masih NOT NULL, longgarkan jadi nullable
+-- (user SSO tidak punya password lokal)
+IF EXISTS (
+    SELECT * FROM sys.columns
+    WHERE object_id = OBJECT_ID('users') AND name = 'password_hash' AND is_nullable = 0
+)
+BEGIN
+    ALTER TABLE users ALTER COLUMN password_hash NVARCHAR(255) NULL;
+END;
+
+IF EXISTS (
+    SELECT * FROM sys.columns
+    WHERE object_id = OBJECT_ID('users') AND name = 'password_salt' AND is_nullable = 0
+)
+BEGIN
+    ALTER TABLE users ALTER COLUMN password_salt NVARCHAR(255) NULL;
+END;
