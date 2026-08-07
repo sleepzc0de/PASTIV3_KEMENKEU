@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	mssql "github.com/microsoft/go-mssqldb"
 
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
@@ -25,7 +26,6 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// Cek username/email sudah dipakai
 	var exists int
 	err := database.DB.QueryRow(
 		`SELECT COUNT(1) FROM users WHERE username = @p1 OR email = @p2`,
@@ -73,6 +73,7 @@ func Login(c *gin.Context) {
 	}
 
 	var user models.User
+	var idRaw mssql.UniqueIdentifier
 	var lockedUntil sql.NullTime
 	var passwordHash sql.NullString
 	var passwordSalt sql.NullString
@@ -84,17 +85,18 @@ func Login(c *gin.Context) {
 		req.Username,
 	)
 
-	err := row.Scan(&user.ID, &user.Username, &user.Email, &passwordHash, &passwordSalt,
+	err := row.Scan(&idRaw, &user.Username, &user.Email, &passwordHash, &passwordSalt,
 		&user.FullName, &user.Role, &user.IsActive, &user.FailedLoginAttempts, &lockedUntil)
 
 	if err == sql.ErrNoRows {
-		// Pesan generik agar tidak bocor info apakah username terdaftar
 		utils.ErrorResponse(c, http.StatusUnauthorized, "Username atau password salah")
 		return
 	} else if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Terjadi kesalahan pada server")
 		return
 	}
+
+	user.ID = idRaw.String()
 
 	if !user.IsActive {
 		utils.ErrorResponse(c, http.StatusForbidden, "Akun tidak aktif, hubungi administrator")
@@ -106,7 +108,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// User yang login via SSO tidak memiliki password lokal, tidak bisa login manual
 	if !passwordHash.Valid || !passwordSalt.Valid || passwordHash.String == "" || passwordSalt.String == "" {
 		utils.ErrorResponse(c, http.StatusUnauthorized, "Akun ini terdaftar melalui SSO Kemenkeu, silakan login menggunakan tombol SSO")
 		return
@@ -128,7 +129,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Reset failed attempts & update last login
 	database.DB.Exec(
 		`UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login = SYSUTCDATETIME() WHERE id = @p1`,
 		user.ID,
@@ -153,11 +153,12 @@ func Login(c *gin.Context) {
 	})
 }
 
-// Me - ambil data user yang sedang login (dipakai untuk validasi sesi di frontend)
+// Me - ambil data user + profil pegawai (kalau login via SSO)
 func Me(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var (
+		idRaw        mssql.UniqueIdentifier
 		user         models.User
 		employeeJab  sql.NullString
 		employeeSat  sql.NullString
@@ -172,13 +173,15 @@ func Me(c *gin.Context) {
 		FROM users u
 		LEFT JOIN employees e ON e.id = u.employee_id
 		WHERE u.id = @p1`, userID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.FullName, &user.Role, &user.AuthProvider, &user.IsProtected,
+	).Scan(&idRaw, &user.Username, &user.Email, &user.FullName, &user.Role, &user.AuthProvider, &user.IsProtected,
 		&employeeJab, &employeeSat, &employeeOrg, &employeeNIP, &employeePict)
 
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
 		return
 	}
+
+	user.ID = idRaw.String()
 
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data user", gin.H{
 		"id":            user.ID,
