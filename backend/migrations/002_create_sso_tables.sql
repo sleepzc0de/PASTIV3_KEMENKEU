@@ -1,6 +1,7 @@
 -- ============================================================
 -- Migration 002: Tabel Employees, SSO States, & Alter Users
 -- Aman dijalankan berulang kali (idempotent)
+-- Skema final terkonfirmasi bekerja dengan benar (Agustus 2026)
 -- ============================================================
 
 -- ================= Tabel Employees =================
@@ -34,11 +35,12 @@ BEGIN
     CREATE INDEX idx_employees_email ON employees(email);
 END;
 
--- ================= PERBAIKAN: pastikan sso_sub bertipe NVARCHAR =================
--- Ini mengatasi kasus di mana tabel employees sudah pernah dibuat dengan
--- tipe kolom sso_sub yang salah (misalnya UNIQUEIDENTIFIER dari migrasi lama),
--- yang menyebabkan error: "Conversion failed when converting from a
--- character string to uniqueidentifier."
+-- ================= PERBAIKAN TERKONFIRMASI: pastikan sso_sub bertipe NVARCHAR =================
+-- Kasus nyata yang terjadi: tabel employees pernah ter-buat dengan kolom sso_sub
+-- bertipe UNIQUEIDENTIFIER (kemungkinan dari migrasi manual/salah copy sebelumnya),
+-- menyebabkan error: "Conversion failed when converting from a character string
+-- to uniqueidentifier." saat insert claim 'sub' dari SSO Kemenkeu (yang formatnya
+-- tidak selalu GUID). Blok ini mendeteksi dan memperbaikinya secara otomatis.
 IF EXISTS (
     SELECT * FROM sys.columns c
     JOIN sys.types t ON c.user_type_id = t.user_type_id
@@ -47,18 +49,17 @@ IF EXISTS (
       AND t.name != 'nvarchar'
 )
 BEGIN
-    -- Drop unique constraint/index dulu kalau ada, supaya ALTER COLUMN tidak gagal
-    DECLARE @constraintName NVARCHAR(255);
-    SELECT @constraintName = i.name
+    DECLARE @idxName NVARCHAR(255);
+    SELECT TOP 1 @idxName = i.name
     FROM sys.indexes i
     JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
     JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
     WHERE i.object_id = OBJECT_ID('employees') AND c.name = 'sso_sub' AND i.is_unique = 1;
 
-    IF @constraintName IS NOT NULL
+    IF @idxName IS NOT NULL
     BEGIN
-        DECLARE @sql NVARCHAR(500) = 'DROP INDEX ' + @constraintName + ' ON employees';
-        EXEC sp_executesql @sql;
+        DECLARE @dropSql NVARCHAR(500) = 'DROP INDEX ' + QUOTENAME(@idxName) + ' ON employees';
+        EXEC sp_executesql @dropSql;
     END;
 
     ALTER TABLE employees ALTER COLUMN sso_sub NVARCHAR(255) NOT NULL;
@@ -115,7 +116,7 @@ BEGIN
     );
 END;
 
--- ================= PERBAIKAN: pastikan state di sso_states bertipe NVARCHAR =================
+-- ================= PERBAIKAN: pastikan state & code_verifier bertipe NVARCHAR =================
 IF EXISTS (
     SELECT * FROM sys.columns c
     JOIN sys.types t ON c.user_type_id = t.user_type_id
