@@ -18,7 +18,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-slate-900">Dashboard PASTI V3</h1>
           <button
-            onClick={logout}
+            onClick={() => logout("manual")}
             className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
           >
             Keluar

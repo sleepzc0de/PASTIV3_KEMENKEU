@@ -1,10 +1,38 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/LoginForm";
+import { Alert } from "@/components/ui/Alert";
 import { ShieldCheck } from "lucide-react";
+
+function LoginErrorBanner() {
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
+  const reason = searchParams.get("reason");
+
+  if (error === "sso_failed") {
+    return (
+      <div className="mb-4">
+        <Alert message={reason ? `Login SSO gagal: ${reason}` : "Login SSO gagal, silakan coba lagi."} />
+      </div>
+    );
+  }
+
+  if (error === "session_expired") {
+    return (
+      <div className="mb-4">
+        <Alert message={reason || "Sesi Anda telah berakhir, silakan masuk kembali."} />
+      </div>
+    );
+  }
+
+  return null;
+}
 
 export default function LoginPage() {
   return (
     <div className="flex min-h-screen">
-      {/* Panel kiri — branding */}
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br from-blue-700 via-blue-800 to-slate-900 p-12 text-white lg:flex">
         <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-white/5" />
         <div className="absolute -bottom-32 -left-10 h-80 w-80 rounded-full bg-white/5" />
@@ -29,7 +57,6 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Panel kanan — form login */}
       <div className="flex w-full flex-col items-center justify-center bg-slate-50 px-6 py-12 lg:w-1/2">
         <div className="w-full max-w-sm">
           <div className="mb-8 text-center lg:text-left">
@@ -38,6 +65,11 @@ export default function LoginPage() {
               Masuk ke akun Anda untuk melanjutkan ke dashboard
             </p>
           </div>
+
+          <Suspense fallback={null}>
+            <LoginErrorBanner />
+          </Suspense>
+
           <LoginForm />
         </div>
       </div>
