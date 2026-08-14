@@ -8,7 +8,6 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine) {
-	// ============ SSO routes (di root, HARUS match persis dengan SSO_REDIRECT_URI terdaftar) ============
 	r.GET("/sso/login", handlers.SSOLogin)
 	r.GET("/sso/callback/login", handlers.SSOCallback)
 
@@ -16,6 +15,7 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		auth := api.Group("/auth")
 		{
+			auth.GET("/captcha", handlers.GenerateCaptcha)
 			auth.POST("/register", handlers.Register)
 			auth.POST("/login", handlers.Login)
 			auth.GET("/me", middleware.AuthRequired(), handlers.Me)

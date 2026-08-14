@@ -17,7 +17,7 @@ interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, captchaId: string, captchaAnswer: string) => Promise<void>;
   logout: (reason?: "manual" | "idle") => void;
   isLoading: boolean;
 }
@@ -37,10 +37,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = Boolean(Cookies.get("pasti_access_token"));
   const isOnProtectedRoute = pathname?.startsWith("/dashboard") ?? false;
 
-  const login = async (username: string, password: string) => {
+  const login = async (
+    username: string,
+    password: string,
+    captchaId: string,
+    captchaAnswer: string
+  ) => {
     setIsLoading(true);
     try {
-      const res = await loginUser(username, password);
+      const res = await loginUser(username, password, captchaId, captchaAnswer);
       const { access_token, expires_in, user } = res.data;
 
       Cookies.set("pasti_access_token", access_token, {
@@ -67,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const target =
       reason === "idle"
         ? "/login?error=session_expired&reason=" +
-          encodeURIComponent("Sesi berakhir karena tidak ada aktivitas")
+        encodeURIComponent("Sesi berakhir karena tidak ada aktivitas")
         : "/login";
 
     window.location.href = target;

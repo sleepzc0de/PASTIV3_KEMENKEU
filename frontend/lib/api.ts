@@ -43,7 +43,31 @@ export interface LoginResponse {
   };
 }
 
-export async function loginUser(username: string, password: string) {
-  const res = await api.post<LoginResponse>("/auth/login", { username, password });
+export interface CaptchaResponse {
+  success: boolean;
+  message: string;
+  data: {
+    captcha_id: string;
+    captcha_image: string;
+  };
+}
+
+export async function fetchCaptcha() {
+  const res = await api.get<CaptchaResponse>("/auth/captcha");
+  return res.data;
+}
+
+export async function loginUser(
+  username: string,
+  password: string,
+  captchaId: string,
+  captchaAnswer: string
+) {
+  const res = await api.post<LoginResponse>("/auth/login", {
+    username,
+    password,
+    captcha_id: captchaId,
+    captcha_answer: captchaAnswer,
+  });
   return res.data;
 }

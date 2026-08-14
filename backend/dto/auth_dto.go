@@ -1,8 +1,10 @@
 package dto
 
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required,min=6"`
+	Username      string `json:"username" binding:"required"`
+	Password      string `json:"password" binding:"required,min=6"`
+	CaptchaID     string `json:"captcha_id" binding:"required"`
+	CaptchaAnswer string `json:"captcha_answer" binding:"required"`
 }
 
 type RegisterRequest struct {

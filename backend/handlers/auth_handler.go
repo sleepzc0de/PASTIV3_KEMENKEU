@@ -68,7 +68,13 @@ func Register(c *gin.Context) {
 func Login(c *gin.Context) {
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Username dan password wajib diisi")
+		utils.ErrorResponse(c, http.StatusBadRequest, "Username, password, dan captcha wajib diisi")
+		return
+	}
+
+	// ============ Validasi Captcha (WAJIB sebelum cek kredensial) ============
+	if !VerifyCaptcha(req.CaptchaID, req.CaptchaAnswer) {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Kode captcha salah atau sudah kedaluwarsa")
 		return
 	}
 

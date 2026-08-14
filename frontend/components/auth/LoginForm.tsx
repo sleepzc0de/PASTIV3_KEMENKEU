@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { User, Lock, Landmark } from "lucide-react";
 import axios from "axios";
@@ -11,23 +11,31 @@ import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { CaptchaField } from "@/components/auth/CaptchaField";
 
 export function LoginForm() {
   const { login, isLoading } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [captchaId, setCaptchaId] = useState("");
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
+    defaultValues: { captcha_answer: "" },
   });
 
   const onSubmit = async (data: LoginFormData) => {
     setServerError(null);
+    if (!captchaId) {
+      setServerError("Captcha belum siap, silakan tunggu sebentar");
+      return;
+    }
     try {
-      await login(data.username, data.password);
+      await login(data.username, data.password, captchaId, data.captcha_answer);
     } catch (err) {
       if (axios.isAxiosError(err) && err.response) {
         setServerError(err.response.data?.message || "Login gagal, silakan coba lagi");
@@ -70,6 +78,19 @@ export function LoginForm() {
           placeholder="Masukkan password Anda"
           error={errors.password?.message}
           {...register("password")}
+        />
+
+        <Controller
+          name="captcha_answer"
+          control={control}
+          render={({ field }) => (
+            <CaptchaField
+              value={field.value}
+              onChange={field.onChange}
+              onCaptchaIdChange={setCaptchaId}
+              error={errors.captcha_answer?.message}
+            />
+          )}
         />
 
         <div className="flex items-center justify-between text-sm">
