@@ -22,11 +22,11 @@ export default function SSOCallbackPage() {
 
     const expiresInDays = expiresIn ? Number(expiresIn) / 86400 : 1 / 96; // fallback ~15 menit
 
-    Cookies.set("pasti_access_token", token, {
-      expires: expiresInDays,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
+   Cookies.set("pasti_access_token", token, {
+  expires: expiresInDays,
+  secure: window.location.protocol === "https:",
+  sameSite: "strict",
+});
 
     // Bersihkan fragment dari URL demi keamanan (agar token tidak tersimpan di history)
     window.history.replaceState(null, "", window.location.pathname);

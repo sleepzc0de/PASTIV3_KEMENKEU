@@ -48,11 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await loginUser(username, password, captchaId, captchaAnswer);
       const { access_token, expires_in, user } = res.data;
 
-      Cookies.set("pasti_access_token", access_token, {
-        expires: expires_in / 86400,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-      });
+     Cookies.set("pasti_access_token", access_token, {
+  expires: expires_in / 86400,
+  secure: typeof window !== "undefined" && window.location.protocol === "https:",
+  sameSite: "strict",
+});
 
       setUser(user);
       router.push("/dashboard");
