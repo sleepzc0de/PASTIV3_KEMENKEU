@@ -14,6 +14,7 @@ import (
 func main() {
 	config.LoadConfig()
 	database.Connect()
+	database.ConnectSLDK()
 
 	if config.Cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)

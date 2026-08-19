@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -34,10 +35,20 @@ type Config struct {
 	SuperadminProtectedEmail string
 	SuperadminProtectedNIP   string
 
-	// ============ Tambahan: HTTP Client config ============
 	HTTPClientTimeoutSeconds int
 	HTTPSProxy               string
 	HTTPProxy                string
+
+	// ============ SLDK Integration ============
+	SLDKDBHost          string
+	SLDKDBPort          string
+	SLDKDBUser          string
+	SLDKDBPassword      string
+	SLDKDBName          string
+	SLDKAssetTable      string
+	SLDKAssetSearchCols []string
+
+	TokenEncryptionKey string
 }
 
 var Cfg *Config
@@ -47,7 +58,7 @@ func LoadConfig() {
 		log.Println("[WARN] .env file tidak ditemukan, menggunakan environment variable sistem")
 	}
 
-	accessExp, _ := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRE_MINUTES", "15"))
+	accessExp, _ := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRE_MINUTES", "25"))
 	refreshExp, _ := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRE_DAYS", "7"))
 	httpTimeout, _ := strconv.Atoi(getEnv("HTTP_CLIENT_TIMEOUT_SECONDS", "30"))
 
@@ -80,23 +91,30 @@ func LoadConfig() {
 		HTTPClientTimeoutSeconds: httpTimeout,
 		HTTPSProxy:               getEnv("HTTPS_PROXY", ""),
 		HTTPProxy:                getEnv("HTTP_PROXY", ""),
+
+		SLDKDBHost:          getEnv("SLDK_DB_HOST", ""),
+		SLDKDBPort:          getEnv("SLDK_DB_PORT", "1433"),
+		SLDKDBUser:          getEnv("SLDK_DB_USER", ""),
+		SLDKDBPassword:      getEnv("SLDK_DB_PASSWORD", ""),
+		SLDKDBName:          getEnv("SLDK_DB_NAME", ""),
+		SLDKAssetTable:      getEnv("SLDK_ASSET_TABLE", ""),
+		SLDKAssetSearchCols: parseCommaList(getEnv("SLDK_ASSET_SEARCH_COLUMNS", "")),
+
+		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 	}
 
 	if Cfg.JWTSecret == "" || Cfg.PasswordPepper == "" {
 		log.Fatal("[FATAL] JWT_SECRET dan PASSWORD_PEPPER wajib diisi di .env")
 	}
 	if Cfg.SSOClientID == "" || Cfg.SSOClientSecret == "" || Cfg.SSORedirectURI == "" {
-		log.Fatal("[FATAL] Konfigurasi SSO (SSO_CLIENT_ID/SSO_CLIENT_SECRET/SSO_REDIRECT_URI) wajib diisi di .env")
+		log.Fatal("[FATAL] Konfigurasi SSO wajib diisi di .env")
 	}
 
-	// Set proxy ke environment variable Go standar, supaya http.ProxyFromEnvironment terbaca
 	if Cfg.HTTPSProxy != "" {
 		os.Setenv("HTTPS_PROXY", Cfg.HTTPSProxy)
-		log.Println("[INFO] Menggunakan HTTPS_PROXY:", Cfg.HTTPSProxy)
 	}
 	if Cfg.HTTPProxy != "" {
 		os.Setenv("HTTP_PROXY", Cfg.HTTPProxy)
-		log.Println("[INFO] Menggunakan HTTP_PROXY:", Cfg.HTTPProxy)
 	}
 }
 
@@ -132,4 +150,28 @@ func GetSSOEndpoints() SSOEndpoints {
 		UserinfoEndpoint:   "https://demo-account.kemenkeu.go.id/connect/userinfo",
 		EndSessionEndpoint: "https://demo-account.kemenkeu.go.id/connect/endsession",
 	}
+}
+
+func parseCommaList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// GetHRIS2BaseURL mengembalikan base URL API HRIS2 sesuai environment,
+// mengikuti environment SSO (SSO_ENV) karena keduanya satu ekosistem Kemenkeu.
+func GetHRIS2BaseURL() string {
+	if Cfg.SSOEnv == "production" {
+		return "https://apigateway.kemenkeu.go.id/gateway/HrisProfil/2.0"
+	}
+	return "https://demo-service.kemenkeu.go.id/hris2/profil"
 }
