@@ -23,9 +23,24 @@ func SetupRoutes(r *gin.Engine) {
 
 		users := api.Group("/users", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
 		{
+			users.GET("", handlers.ListUsers)
+			users.POST("", handlers.CreateUser)
 			users.PUT("/:id/role", handlers.UpdateUserRole)
 			users.PUT("/:id/deactivate", handlers.DeactivateUser)
 			users.DELETE("/:id", handlers.DeleteUser)
+		}
+
+		sldk := api.Group("/sldk", middleware.AuthRequired())
+		{
+			sldk.GET("/assets/columns", handlers.GetAssetColumns)
+			sldk.GET("/assets/search", handlers.SearchAssets)
+		}
+
+		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.
+		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
+		{
+			hris2.GET("/pegawai/search", handlers.SearchPegawai)
+			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
 		}
 	}
 

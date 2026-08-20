@@ -76,13 +76,11 @@ func SSOCallback(c *gin.Context) {
 	errParam := c.Query("error")
 
 	if errParam != "" {
-		errDesc := c.Query("error_description")
-		log.Println("[SSO ERROR] Query param error dari Kemenkeu:", errParam, "| description:", errDesc)
+		log.Println("[SSO ERROR] Query param error dari Kemenkeu:", errParam)
 		redirectError("Kemenkeu menolak: " + errParam)
 		return
 	}
 	if code == "" || state == "" {
-		log.Println("[SSO ERROR] code atau state kosong. code:", code, "state:", state)
 		redirectError("Parameter tidak lengkap dari SSO")
 		return
 	}
@@ -94,16 +92,13 @@ func SSOCallback(c *gin.Context) {
 	).Scan(&codeVerifier, &expiresAt)
 
 	if err == sql.ErrNoRows {
-		log.Println("[SSO ERROR] state tidak ditemukan di DB:", state)
-		redirectError("Sesi login sudah tidak valid, silakan klik tombol SSO lagi dari halaman login (bukan reload)")
+		redirectError("Sesi login sudah tidak valid, silakan klik tombol SSO lagi")
 		return
 	} else if err == nil && time.Now().After(expiresAt) {
-		log.Println("[SSO ERROR] state sudah expired:", state)
-		redirectError("Sesi login sudah kedaluwarsa, silakan coba lagi")
+		redirectError("Sesi login sudah kedaluwarsa")
 		return
 	} else if err != nil {
-		log.Println("[SSO ERROR] gagal query sso_states:", err)
-		redirectError("Kesalahan server saat validasi sesi: " + truncateError(err, 150))
+		redirectError("Kesalahan server saat validasi sesi")
 		return
 	}
 	database.DB.Exec(`DELETE FROM sso_states WHERE state = @p1`, state)
@@ -128,12 +123,9 @@ func SSOCallback(c *gin.Context) {
 		return io.NopCloser(strings.NewReader(encodedForm)), nil
 	}
 
-	tokenStart := time.Now()
 	tokenResp, err := utils.DoWithRetry(httpClient, tokenReq, 3)
-	log.Println("[SSO INFO] Durasi request token_endpoint:", time.Since(tokenStart))
-
 	if err != nil {
-		log.Println("[SSO ERROR] gagal request ke token_endpoint setelah retry:", err)
+		log.Println("[SSO ERROR] gagal request token_endpoint:", err)
 		redirectError("Gagal menghubungi server SSO Kemenkeu (timeout jaringan)")
 		return
 	}
@@ -142,14 +134,12 @@ func SSOCallback(c *gin.Context) {
 	tokenBody, _ := io.ReadAll(tokenResp.Body)
 
 	if tokenResp.StatusCode != http.StatusOK {
-		log.Println("[SSO ERROR] token_endpoint status:", tokenResp.StatusCode, "| body:", string(tokenBody))
-		redirectError(fmt.Sprintf("Server SSO menolak token (status %d): %s", tokenResp.StatusCode, truncateString(string(tokenBody), 100)))
+		redirectError(fmt.Sprintf("Server SSO menolak token (status %d)", tokenResp.StatusCode))
 		return
 	}
 
 	var tokenData dto.SSOTokenResponse
 	if err := json.Unmarshal(tokenBody, &tokenData); err != nil || tokenData.AccessToken == "" {
-		log.Println("[SSO ERROR] gagal parse token response:", string(tokenBody))
 		redirectError("Format respons token tidak valid")
 		return
 	}
@@ -158,12 +148,8 @@ func SSOCallback(c *gin.Context) {
 	userInfoReq.Header.Set("Authorization", "Bearer "+tokenData.AccessToken)
 	userInfoReq.Header.Set("User-Agent", "PASTI-V3-Backend/1.0")
 
-	userInfoStart := time.Now()
 	userInfoResp, err := utils.DoWithRetry(httpClient, userInfoReq, 3)
-	log.Println("[SSO INFO] Durasi request userinfo_endpoint:", time.Since(userInfoStart))
-
 	if err != nil {
-		log.Println("[SSO ERROR] gagal request ke userinfo_endpoint setelah retry:", err)
 		redirectError("Gagal mengambil data profil dari SSO Kemenkeu")
 		return
 	}
@@ -172,14 +158,12 @@ func SSOCallback(c *gin.Context) {
 	userInfoBody, _ := io.ReadAll(userInfoResp.Body)
 
 	if userInfoResp.StatusCode != http.StatusOK {
-		log.Println("[SSO ERROR] userinfo_endpoint status:", userInfoResp.StatusCode, "| body:", string(userInfoBody))
 		redirectError(fmt.Sprintf("Server SSO menolak profil (status %d)", userInfoResp.StatusCode))
 		return
 	}
 
 	var claims map[string]interface{}
 	if err := json.Unmarshal(userInfoBody, &claims); err != nil {
-		log.Println("[SSO ERROR] gagal parse userinfo JSON:", err)
 		redirectError("Format data profil tidak valid")
 		return
 	}
@@ -195,7 +179,6 @@ func SSOCallback(c *gin.Context) {
 
 	sub := getClaim("sub")
 	if sub == "" {
-		log.Println("[SSO ERROR] claim 'sub' kosong. Full claims:", claims)
 		redirectError("Data identitas pegawai tidak lengkap")
 		return
 	}
@@ -204,8 +187,6 @@ func SSOCallback(c *gin.Context) {
 	nip := getClaim("nip")
 	nip9 := getClaim("nip9")
 
-	log.Printf("[SSO DEBUG] sub=%q email=%q nip=%q nip9=%q", sub, email, nip, nip9)
-
 	employeeID, err := upsertEmployee(claims, sub, nip, nip9, email)
 	if err != nil {
 		log.Println("[SSO ERROR] gagal upsertEmployee:", err)
@@ -213,11 +194,18 @@ func SSOCallback(c *gin.Context) {
 		return
 	}
 
-	accessToken, expiresIn, err := upsertUserFromSSO(employeeID, sub, email, nip, getClaim("name"))
+	accessToken, expiresIn, userID, err := upsertUserFromSSO(employeeID, sub, email, nip, getClaim("name"))
 	if err != nil {
 		log.Println("[SSO ERROR] gagal upsertUserFromSSO:", err)
 		redirectError("Gagal membuat sesi akun: " + truncateError(err, 200))
 		return
+	}
+
+	// Simpan access_token & refresh_token SSO (terenkripsi) untuk dipakai
+	// nanti memanggil API HRIS2 atas nama user ini.
+	if err := saveSSOToken(userID, tokenData); err != nil {
+		log.Println("[SSO WARN] gagal menyimpan token SSO untuk integrasi HRIS2:", err)
+		// Tidak fatal — login tetap lanjut, hanya fitur HRIS2 yang tidak akan berfungsi
 	}
 
 	log.Println("[SSO SUCCESS] Login berhasil untuk sub:", sub, "email:", email)
@@ -241,9 +229,6 @@ func urlItoa(i int) string {
 	return url.QueryEscape(string(rune(i)))
 }
 
-// upsertEmployee: kolom "id" (UNIQUEIDENTIFIER) di-scan ke mssql.UniqueIdentifier,
-// lalu dikonversi ke string via .String() agar formatnya valid dipakai kembali
-// sebagai parameter WHERE id=... pada query UPDATE.
 func upsertEmployee(claims map[string]interface{}, sub, nip, nip9, email string) (string, error) {
 	getClaim := func(key string) string {
 		if v, ok := claims[key]; ok && v != nil {
@@ -304,18 +289,18 @@ func upsertEmployee(claims map[string]interface{}, sub, nip, nip9, email string)
 	return existingID, nil
 }
 
-func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (string, int, error) {
+// upsertUserFromSSO sekarang juga mengembalikan userID (untuk dipakai
+// menyimpan token SSO ke tabel sso_tokens).
+func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToken string, expiresIn int, userID string, err error) {
 	isProtected := utils.IsProtectedIdentity(email, nip)
 
 	var userIDRaw mssql.UniqueIdentifier
 	var role string
-	err := database.DB.QueryRow(
+	errQ := database.DB.QueryRow(
 		`SELECT id, role FROM users WHERE employee_id = @p1`, employeeID,
 	).Scan(&userIDRaw, &role)
 
-	var userID string
-
-	if err == sql.ErrNoRows {
+	if errQ == sql.ErrNoRows {
 		userID = uuid.New().String()
 		role = "user"
 		if isProtected {
@@ -332,10 +317,10 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (string, in
 			userID, username, email, fullName, role, isProtected, employeeID,
 		)
 		if err != nil {
-			return "", 0, fmt.Errorf("insert user gagal: %w", err)
+			return "", 0, "", fmt.Errorf("insert user gagal: %w", err)
 		}
-	} else if err != nil {
-		return "", 0, fmt.Errorf("query cek user existing gagal: %w", err)
+	} else if errQ != nil {
+		return "", 0, "", fmt.Errorf("query cek user existing gagal: %w", errQ)
 	} else {
 		userID = userIDRaw.String()
 
@@ -352,13 +337,58 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (string, in
 			)
 		}
 		if err != nil {
-			return "", 0, fmt.Errorf("update user gagal: %w", err)
+			return "", 0, "", fmt.Errorf("update user gagal: %w", err)
 		}
 	}
 
-	accessToken, expiresIn, err := utils.GenerateAccessToken(userID, email, role)
+	accessToken, expiresIn, err = utils.GenerateAccessToken(userID, email, role)
 	if err != nil {
-		return "", 0, fmt.Errorf("generate JWT gagal: %w", err)
+		return "", 0, "", fmt.Errorf("generate JWT gagal: %w", err)
 	}
-	return accessToken, expiresIn, nil
+	return accessToken, expiresIn, userID, nil
+}
+
+// saveSSOToken menyimpan (insert/update) access_token & refresh_token SSO
+// dalam bentuk terenkripsi, dipakai belakangan untuk memanggil API HRIS2.
+func saveSSOToken(userID string, tokenData dto.SSOTokenResponse) error {
+	encAccess, err := utils.EncryptString(tokenData.AccessToken)
+	if err != nil {
+		return fmt.Errorf("enkripsi access_token gagal: %w", err)
+	}
+
+	var encRefresh sql.NullString
+	if tokenData.RefreshToken != "" {
+		er, err := utils.EncryptString(tokenData.RefreshToken)
+		if err == nil {
+			encRefresh = sql.NullString{String: er, Valid: true}
+		}
+	}
+
+	expiresIn := tokenData.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 300 // fallback 5 menit kalau server tidak kirim expires_in
+	}
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+
+	var existingIDRaw mssql.UniqueIdentifier
+	err = database.DB.QueryRow(`SELECT id FROM sso_tokens WHERE user_id = @p1`, userID).Scan(&existingIDRaw)
+
+	if err == sql.ErrNoRows {
+		newID := uuid.New().String()
+		_, err = database.DB.Exec(`
+			INSERT INTO sso_tokens (id, user_id, access_token_enc, refresh_token_enc, expires_at)
+			VALUES (@p1, @p2, @p3, @p4, @p5)`,
+			newID, userID, encAccess, encRefresh, expiresAt,
+		)
+		return err
+	} else if err != nil {
+		return err
+	}
+
+	_, err = database.DB.Exec(`
+		UPDATE sso_tokens SET access_token_enc=@p1, refresh_token_enc=@p2, expires_at=@p3, updated_at=SYSUTCDATETIME()
+		WHERE user_id=@p4`,
+		encAccess, encRefresh, expiresAt, userID,
+	)
+	return err
 }

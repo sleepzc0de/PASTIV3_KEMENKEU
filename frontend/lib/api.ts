@@ -27,6 +27,8 @@ api.interceptors.response.use(
   }
 );
 
+// ============ Auth ============
+
 export interface LoginResponse {
   success: boolean;
   message: string;
@@ -69,5 +71,110 @@ export async function loginUser(
     captcha_id: captchaId,
     captcha_answer: captchaAnswer,
   });
+  return res.data;
+}
+
+// ============ SLDK Integration ============
+
+export interface SLDKColumn {
+  name: string;
+  data_type: string;
+  is_searchable: boolean;
+}
+
+export interface SLDKSearchResponse {
+  success: boolean;
+  message: string;
+  data: {
+    columns: SLDKColumn[];
+    results: Record<string, unknown>[];
+    count: number;
+  };
+}
+
+export async function searchSLDKAssets(query: string, limit = 50) {
+  const res = await api.get<SLDKSearchResponse>("/sldk/assets/search", {
+    params: { q: query, limit },
+  });
+  return res.data;
+}
+
+// ============ HRIS2 Integration ============
+
+export interface HRIS2SearchResponse {
+  success: boolean;
+  message: string;
+  data: unknown; // struktur respons HRIS2 belum terdokumentasi, ditangani fleksibel di komponen
+}
+
+export async function searchHRIS2Pegawai(query: string) {
+  const res = await api.get<HRIS2SearchResponse>("/hris2/pegawai/search", {
+    params: { q: query },
+  });
+  return res.data;
+}
+
+// ============ User Management ============
+
+export interface UserListItem {
+  id: string;
+  username: string;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  auth_provider: string;
+  is_protected: boolean;
+  nip: string | null;
+  jabatan: string | null;
+  satker: string | null;
+  created_at: string;
+}
+
+export interface ListUsersResponse {
+  success: boolean;
+  message: string;
+  data: UserListItem[];
+}
+
+export async function listUsers() {
+  const res = await api.get<ListUsersResponse>("/users");
+  return res.data;
+}
+
+export interface CreateUserPayload {
+  source: "hris2" | "manual";
+  nip?: string;
+  username: string;
+  password: string;
+  email?: string;
+  full_name?: string;
+  role: "user" | "admin";
+}
+
+export async function createUser(payload: CreateUserPayload) {
+  const res = await api.post("/users", payload);
+  return res.data;
+}
+
+export async function searchPegawaiByNIP(nip: string) {
+  const res = await api.get<{ success: boolean; message: string; data: Record<string, unknown> }>(
+    `/hris2/pegawai/by-nip/${encodeURIComponent(nip)}`
+  );
+  return res.data;
+}
+
+export async function updateUserRole(userId: string, role: string) {
+  const res = await api.put(`/users/${userId}/role`, { role });
+  return res.data;
+}
+
+export async function deactivateUser(userId: string) {
+  const res = await api.put(`/users/${userId}/deactivate`);
+  return res.data;
+}
+
+export async function deleteUser(userId: string) {
+  const res = await api.delete(`/users/${userId}`);
   return res.data;
 }
