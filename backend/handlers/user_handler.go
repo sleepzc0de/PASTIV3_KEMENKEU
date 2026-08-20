@@ -303,3 +303,126 @@ func DeactivateUser(c *gin.Context) {
 
 	utils.SuccessResponse(c, http.StatusOK, "User berhasil dinonaktifkan", nil)
 }
+
+// UpdateUser mengubah data dasar user (nama, email, role, status aktif),
+// dan password secara opsional. Tidak berlaku untuk akun protected.
+func UpdateUser(c *gin.Context) {
+	targetID := c.Param("id")
+
+	var req dto.UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Data tidak valid: "+err.Error())
+		return
+	}
+
+	var isProtected bool
+	var authProvider string
+	err := database.DB.QueryRow(`SELECT is_protected, auth_provider FROM users WHERE id = @p1`, targetID).
+		Scan(&isProtected, &authProvider)
+	if err == sql.ErrNoRows {
+		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+		return
+	} else if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Terjadi kesalahan server")
+		return
+	}
+
+	if isProtected {
+		utils.ErrorResponse(c, http.StatusForbidden, "Akun superadmin permanen ini tidak dapat diubah")
+		return
+	}
+
+	// Cegah bentrok email dengan user lain
+	var emailOwner string
+	err = database.DB.QueryRow(`SELECT id FROM users WHERE email = @p1 AND id != @p2`, req.Email, targetID).Scan(&emailOwner)
+	if err == nil {
+		utils.ErrorResponse(c, http.StatusConflict, "Email sudah digunakan oleh user lain")
+		return
+	} else if err != sql.ErrNoRows {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memeriksa email")
+		return
+	}
+
+	if req.Password != "" {
+		if len(req.Password) < 8 {
+			utils.ErrorResponse(c, http.StatusBadRequest, "Password baru minimal 8 karakter")
+			return
+		}
+		if authProvider == "sso" {
+			utils.ErrorResponse(c, http.StatusBadRequest, "Akun SSO Kemenkeu tidak memiliki password lokal, tidak bisa diatur di sini")
+			return
+		}
+
+		hash, salt, err := utils.HashPassword(req.Password)
+		if err != nil {
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses password")
+			return
+		}
+
+		_, err = database.DB.Exec(`
+			UPDATE users SET full_name=@p1, email=@p2, role=@p3, is_active=@p4,
+			       password_hash=@p5, password_salt=@p6, updated_at=SYSUTCDATETIME()
+			WHERE id=@p7`,
+			req.FullName, req.Email, req.Role, req.IsActive, hash, salt, targetID,
+		)
+		if err != nil {
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+			return
+		}
+	} else {
+		_, err = database.DB.Exec(`
+			UPDATE users SET full_name=@p1, email=@p2, role=@p3, is_active=@p4, updated_at=SYSUTCDATETIME()
+			WHERE id=@p5`,
+			req.FullName, req.Email, req.Role, req.IsActive, targetID,
+		)
+		if err != nil {
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
+			return
+		}
+	}
+
+	utils.SuccessResponse(c, http.StatusOK, "User berhasil diperbarui", nil)
+}
+
+// GetUserDetail mengambil data 1 user untuk keperluan mengisi form edit.
+func GetUserDetail(c *gin.Context) {
+	targetID := c.Param("id")
+
+	var idRaw mssql.UniqueIdentifier
+	var u dto.UserListItem
+	var nip, jabatan, satker sql.NullString
+	var createdAt sql.NullTime
+
+	err := database.DB.QueryRow(`
+		SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active,
+		       u.auth_provider, u.is_protected, e.nip, e.jabatan, e.satker, u.created_at
+		FROM users u
+		LEFT JOIN employees e ON e.id = u.employee_id
+		WHERE u.id = @p1`, targetID,
+	).Scan(&idRaw, &u.Username, &u.Email, &u.FullName, &u.Role, &u.IsActive,
+		&u.AuthProvider, &u.IsProtected, &nip, &jabatan, &satker, &createdAt)
+
+	if err == sql.ErrNoRows {
+		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+		return
+	} else if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data user")
+		return
+	}
+
+	u.ID = idRaw.String()
+	if nip.Valid {
+		u.NIP = &nip.String
+	}
+	if jabatan.Valid {
+		u.Jabatan = &jabatan.String
+	}
+	if satker.Valid {
+		u.Satker = &satker.String
+	}
+	if createdAt.Valid {
+		u.CreatedAt = createdAt.Time.Format("2006-01-02 15:04")
+	}
+
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data user", u)
+}

@@ -178,3 +178,21 @@ export async function deleteUser(userId: string) {
   const res = await api.delete(`/users/${userId}`);
   return res.data;
 }
+
+export async function getUserDetail(userId: string) {
+  const res = await api.get<{ success: boolean; message: string; data: UserListItem }>(`/users/${userId}`);
+  return res.data;
+}
+
+export interface UpdateUserPayload {
+  full_name: string;
+  email: string;
+  role: "user" | "admin";
+  is_active: boolean;
+  password?: string;
+}
+
+export async function updateUser(userId: string, payload: UpdateUserPayload) {
+  const res = await api.put(`/users/${userId}`, payload);
+  return res.data;
+}
