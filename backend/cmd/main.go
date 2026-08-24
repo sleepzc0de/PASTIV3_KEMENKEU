@@ -22,6 +22,7 @@ func main() {
 
 	r := gin.Default()
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.SecurityHeadersMiddleware())
 
 	routes.SetupRoutes(r)
 

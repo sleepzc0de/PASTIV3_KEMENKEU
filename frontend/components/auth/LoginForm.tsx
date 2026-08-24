@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { User, Lock, Landmark } from "lucide-react";
+import { User, Lock, Landmark, X, Info } from "lucide-react";
 import axios from "axios";
 
 import { loginSchema, LoginFormData } from "@/lib/validation";
@@ -17,6 +17,7 @@ export function LoginForm() {
   const { login, isLoading } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const [captchaId, setCaptchaId] = useState("");
+  const [showForgotPasswordInfo, setShowForgotPasswordInfo] = useState(false);
 
   const {
     register,
@@ -98,15 +99,49 @@ export function LoginForm() {
             <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-blue-600" />
             Ingat saya
           </label>
-          <a href="#" className="font-medium text-blue-600 hover:underline">
+          <button
+            type="button"
+            onClick={() => setShowForgotPasswordInfo(true)}
+            className="font-medium text-blue-600 hover:underline"
+          >
             Lupa password?
-          </a>
+          </button>
         </div>
 
         <Button type="submit" isLoading={isLoading}>
           {isLoading ? "Memproses..." : "Masuk"}
         </Button>
       </form>
+
+      {showForgotPasswordInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100">
+                  <Info className="h-5 w-5 text-blue-600" />
+                </div>
+                <h2 className="text-base font-semibold text-slate-900">Lupa Password</h2>
+              </div>
+              <button
+                onClick={() => setShowForgotPasswordInfo(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mt-4 text-sm text-slate-600">
+              Untuk reset password, silakan hubungi Administrator sistem PASTI. Jika akun Anda
+              terdaftar melalui SSO Kemenkeu, gunakan tombol{" "}
+              <span className="font-medium">&quot;Masuk dengan SSO Kemenkeu&quot;</span> di atas —
+              password Anda dikelola langsung oleh sistem SSO Kemenkeu, bukan oleh PASTI.
+            </p>
+            <Button onClick={() => setShowForgotPasswordInfo(false)} className="mt-5">
+              Mengerti
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
