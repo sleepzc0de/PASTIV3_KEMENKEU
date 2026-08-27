@@ -59,6 +59,10 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/rup/paket-penyedia/local", handlers.ListLocalPaketPenyedia)
 			inaproc.POST("/rup/paket-penyedia/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketPenyedia)
 
+			inaproc.GET("/rup/paket-swakelola", handlers.GetPaketSwakelola)
+			inaproc.GET("/rup/paket-swakelola/local", handlers.ListLocalPaketSwakelola)
+			inaproc.POST("/rup/paket-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketSwakelola)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

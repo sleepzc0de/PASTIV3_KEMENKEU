@@ -1044,3 +1044,224 @@ func getInt64FromAny(m map[string]interface{}, key string) interface{} {
 	}
 	return nil
 }
+
+// ============================================================
+// Endpoint 4: Paket Swakelola
+// ============================================================
+
+func GetPaketSwakelola(c *gin.Context) {
+	cfg := config.Cfg
+	if cfg.InaprocToken == "" {
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
+		return
+	}
+
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
+	tahun := c.Query("tahun")
+	status := c.Query("status")
+	limitStr := c.DefaultQuery("limit", "50")
+	cursor := c.Query("cursor")
+
+	if tahun == "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
+		return
+	}
+
+	limit := clampLimit(limitStr)
+
+	params := url.Values{}
+	params.Set("kode_klpd", kodeKLPD)
+	params.Set("tahun", tahun)
+	params.Set("limit", strconv.Itoa(limit))
+	if status != "" {
+		params.Set("status", status)
+	}
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-swakelola", params)
+	if err != nil {
+		log.Println("[INAPROC ERROR] gagal request paket-swakelola:", err)
+		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
+		return
+	}
+	forwardInaprocResponse(c, body, statusCode)
+}
+
+type syncPaketSwakelolaRequest struct {
+	KodeKLPD string `json:"kode_klpd"`
+	Tahun    string `json:"tahun" binding:"required"`
+	Status   string `json:"status"`
+}
+
+func SyncPaketSwakelola(c *gin.Context) {
+	var req syncPaketSwakelolaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "tahun wajib diisi")
+		return
+	}
+	if req.KodeKLPD == "" {
+		req.KodeKLPD = kemenkeuKLPDCode
+	}
+
+	adminUserID := c.GetString("user_id")
+	startedAt := time.Now()
+	totalSynced := 0
+	cursor := ""
+	pageCount := 0
+	const maxPages = 200
+
+	for {
+		pageCount++
+		if pageCount > maxPages {
+			logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
+			return
+		}
+
+		params := url.Values{}
+		params.Set("kode_klpd", req.KodeKLPD)
+		params.Set("tahun", req.Tahun)
+		params.Set("limit", "1000")
+		if req.Status != "" {
+			params.Set("status", req.Status)
+		}
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-swakelola", params)
+		if err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal request paket-swakelola:", err)
+			logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "failed", totalSynced, err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
+			return
+		}
+
+		if statusCode != http.StatusOK {
+			errMsg := extractInaprocErrorMessage(body, statusCode)
+			logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "failed", totalSynced, errMsg, adminUserID, startedAt)
+			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
+			return
+		}
+
+		var envelope struct {
+			Data []map[string]interface{} `json:"data"`
+			Meta struct {
+				HasMore bool   `json:"has_more"`
+				Cursor  string `json:"cursor"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal parse paket-swakelola:", err, "| body:", string(body))
+			logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
+			return
+		}
+
+		if pageCount == 1 && len(envelope.Data) > 0 {
+			log.Printf("[INAPROC SYNC DEBUG] Contoh baris paket-swakelola: %+v", envelope.Data[0])
+		}
+
+		for _, row := range envelope.Data {
+			if err := upsertPaketSwakelola(row); err != nil {
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-swakelola:", err)
+				continue
+			}
+			totalSynced++
+		}
+
+		if !envelope.Meta.HasMore || envelope.Meta.Cursor == "" {
+			break
+		}
+		cursor = envelope.Meta.Cursor
+	}
+
+	logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "success", totalSynced, "", adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+}
+
+// generatePaketSwakelolaRowHash: hash seluruh isi baris, konsisten dengan
+// pola 3 endpoint sebelumnya (mengantisipasi field yang terlihat unik
+// ternyata tidak selalu benar-benar unik di sisi API).
+func generatePaketSwakelolaRowHash(row map[string]interface{}) string {
+	b, err := json.Marshal(row)
+	if err != nil {
+		b = []byte(fmt.Sprintf("%v", row))
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func upsertPaketSwakelola(row map[string]interface{}) error {
+	rowKey := generatePaketSwakelolaRowHash(row)
+
+	kdKLPD := getStr(row, "kd_klpd")
+	kdSatker := getStr(row, "kd_satker")
+	kdRup := getStr(row, "kd_rup")
+	namaKLPD := getStr(row, "nama_klpd")
+	namaSatker := getStr(row, "nama_satker")
+	namaPaket := getStr(row, "nama_paket")
+	tahunAnggaran := getStr(row, "tahun_anggaran")
+	status := getStr(row, "status")
+
+	var exists int
+	database.DB.QueryRow(`SELECT COUNT(1) FROM inaproc_paket_swakelola WHERE row_key = @p1`, rowKey).Scan(&exists)
+
+	if exists > 0 {
+		_, err := database.DB.Exec(`UPDATE inaproc_paket_swakelola SET updated_at=SYSUTCDATETIME() WHERE row_key=@p1`, rowKey)
+		return err
+	}
+
+	_, err := database.DB.Exec(`
+		INSERT INTO inaproc_paket_swakelola (
+			row_key, kd_klpd, kd_satker, kd_rup, nama_klpd, nama_satker, nama_paket, tahun_anggaran, status
+		) VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)`,
+		rowKey, kdKLPD, kdSatker, kdRup, namaKLPD, namaSatker, namaPaket, tahunAnggaran, status,
+	)
+	return err
+}
+
+func ListLocalPaketSwakelola(c *gin.Context) {
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
+	tahun := c.Query("tahun")
+	status := c.Query("status")
+	limit := clampLimit(c.DefaultQuery("limit", "50"))
+
+	query := `SELECT row_key, kd_klpd, kd_satker, kd_rup, nama_klpd, nama_satker, nama_paket,
+		tahun_anggaran, status, synced_at
+		FROM inaproc_paket_swakelola WHERE kd_klpd = @p1`
+	args := []interface{}{kodeKLPD}
+	argIdx := 2
+
+	if tahun != "" {
+		query += fmt.Sprintf(" AND tahun_anggaran = @p%d", argIdx)
+		args = append(args, tahun)
+		argIdx++
+	}
+	if status != "" {
+		query += fmt.Sprintf(" AND status = @p%d", argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+
+	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	results, err := rowsToMaps(rows)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
+		return
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
+}

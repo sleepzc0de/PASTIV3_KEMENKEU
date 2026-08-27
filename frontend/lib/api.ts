@@ -375,3 +375,45 @@ export async function syncPaketPenyedia(payload: SyncPaketPenyediaPayload) {
   const res = await api.post("/inaproc/rup/paket-penyedia/sync", payload);
   return res.data;
 }
+// ============ Inaproc - Paket Swakelola ============
+
+export interface PaketSwakelolaItem {
+  kd_klpd: string;
+  kd_satker: number;
+  kd_rup: number;
+  nama_klpd: string;
+  nama_satker: string;
+  nama_paket: string;
+  tahun_anggaran: number;
+  status: string;
+}
+
+export interface PaketSwakelolaResponse {
+  success: boolean;
+  data: PaketSwakelolaItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketSwakelolaParams {
+  kode_klpd?: string;
+  tahun: number;
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketSwakelola(params: PaketSwakelolaParams) {
+  const res = await api.get<PaketSwakelolaResponse>("/inaproc/rup/paket-swakelola", { params });
+  return res.data;
+}
+
+export interface SyncPaketSwakelolaPayload {
+  kode_klpd: string;
+  tahun: string;
+  status?: string;
+}
+
+export async function syncPaketSwakelola(payload: SyncPaketSwakelolaPayload) {
+  const res = await api.post("/inaproc/rup/paket-swakelola/sync", payload);
+  return res.data;
+}
