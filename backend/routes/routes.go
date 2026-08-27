@@ -44,6 +44,19 @@ func SetupRoutes(r *gin.Engine) {
 			hris2.GET("/pegawai/search", handlers.SearchPegawai)
 			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
 		}
+
+		inaproc := api.Group("/inaproc", middleware.AuthRequired())
+		{
+			inaproc.GET("/rup/history-kaji-ulang", handlers.GetHistoryKajiUlang)
+			inaproc.GET("/rup/history-kaji-ulang/local", handlers.ListLocalKajiUlang)
+			inaproc.POST("/rup/history-kaji-ulang/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncHistoryKajiUlang)
+
+			inaproc.GET("/rup/paket-anggaran-penyedia", handlers.GetPaketAnggaranPenyedia)
+			inaproc.GET("/rup/paket-anggaran-penyedia/local", handlers.ListLocalPaketAnggaran)
+			inaproc.POST("/rup/paket-anggaran-penyedia/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketAnggaranPenyedia)
+
+			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
+		}
 	}
 
 	r.GET("/health", func(c *gin.Context) {

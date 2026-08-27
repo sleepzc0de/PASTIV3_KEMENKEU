@@ -49,6 +49,8 @@ type Config struct {
 	SLDKAssetSearchCols []string
 
 	TokenEncryptionKey string
+	InaprocBaseURL     string
+	InaprocToken       string
 }
 
 var Cfg *Config
@@ -101,6 +103,8 @@ func LoadConfig() {
 		SLDKAssetSearchCols: parseCommaList(getEnv("SLDK_ASSET_SEARCH_COLUMNS", "")),
 
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
+		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),
+		InaprocToken:       getEnv("INAPROC_TOKEN", ""),
 	}
 
 	if Cfg.JWTSecret == "" || Cfg.PasswordPepper == "" {

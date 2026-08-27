@@ -10,7 +10,9 @@ import {
   ChevronsRight,
   ShieldCheck,
   X,
-  Users2
+  Users2,
+  FileClock,
+  Wallet
 } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
 
@@ -24,6 +26,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Data Aset (SLDK)", href: "/dashboard/assets", icon: DatabaseZap },
+  { label: "Kaji Ulang RUP (Inaproc)", href: "/dashboard/pengadaan", icon: FileClock },
+  { label: "Paket Anggaran (Inaproc)", href: "/dashboard/pengadaan/paket-anggaran", icon: Wallet },
   { label: "Cari Pegawai (HRIS2)", href: "/dashboard/pegawai", icon: Users2, roles: ["admin", "superadmin"] },
   { label: "Manajemen Pengguna", href: "/dashboard/users", icon: Users, roles: ["admin", "superadmin"] },
 ];

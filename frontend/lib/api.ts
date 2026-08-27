@@ -196,3 +196,132 @@ export async function updateUser(userId: string, payload: UpdateUserPayload) {
   const res = await api.put(`/users/${userId}`, payload);
   return res.data;
 }
+
+// ============ Inaproc Integration (RUP - History Kaji Ulang) ============
+
+export interface KajiUlangItem {
+  datamart_id: string;
+  tahun_anggaran: string;
+  kd_klpd: string;
+  nama_klpd: string;
+  jenis_klpd: string;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_satker: string;
+  kd_rup_lama: string;
+  kd_rup_baru: string;
+  jenis_paket: string;
+  jenis_revisi: string;
+  alasan_kajiulang: string;
+  tgl_kaji_ulang: string;
+  _event_date: string;
+  _inserted_date: string;
+}
+
+export interface InaprocMeta {
+  limit: number;
+  has_more: boolean;
+  cursor: string | null;
+}
+
+export interface HistoryKajiUlangResponse {
+  success: boolean;
+  data: KajiUlangItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface HistoryKajiUlangParams {
+  kode_klpd?: string;
+  tahun: number;
+  jenis_paket?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getHistoryKajiUlang(params: HistoryKajiUlangParams) {
+  const res = await api.get<HistoryKajiUlangResponse>("/inaproc/rup/history-kaji-ulang", {
+    params,
+  });
+  return res.data;
+}
+
+// ============ Inaproc Sync ============
+
+export interface SyncKajiUlangPayload {
+  kode_klpd: string;
+  tahun: string;
+  jenis_paket?: string;
+}
+
+export async function syncHistoryKajiUlang(payload: SyncKajiUlangPayload) {
+  const res = await api.post("/inaproc/rup/history-kaji-ulang/sync", payload);
+  return res.data;
+}
+
+export async function listLocalKajiUlang(params: HistoryKajiUlangParams) {
+  const res = await api.get<{ success: boolean; data: { results: Record<string, unknown>[]; count: number } }>(
+    "/inaproc/rup/history-kaji-ulang/local",
+    { params }
+  );
+  return res.data;
+}
+
+export async function getInaprocSyncLog() {
+  const res = await api.get<{ success: boolean; data: Record<string, unknown>[] }>("/inaproc/sync-log");
+  return res.data;
+}
+
+// ============ Inaproc - Paket Anggaran Penyedia ============
+
+export interface PaketAnggaranItem {
+  asal_dana: string;
+  asal_dana_klpd: string;
+  asal_dana_satker: string;
+  jenis_klpd: string;
+  kd_kegiatan: number;
+  kd_klpd: string;
+  kd_komponen: number;
+  kd_rup: number;
+  kd_rup_lokal: number;
+  kd_satker: number;
+  kd_satker_str: string;
+  kd_subkegiatan: number;
+  mak: string;
+  nama_klpd: string;
+  nama_satker: string;
+  pagu: number;
+  status_aktif_rup: boolean;
+  status_delete_rup: boolean;
+  status_umumkan_rup: string;
+  sumber_dana: string;
+  tahun_anggaran: number;
+  tahun_anggaran_dana: number;
+}
+
+export interface PaketAnggaranResponse {
+  success: boolean;
+  data: PaketAnggaranItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketAnggaranParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketAnggaranPenyedia(params: PaketAnggaranParams) {
+  const res = await api.get<PaketAnggaranResponse>("/inaproc/rup/paket-anggaran-penyedia", { params });
+  return res.data;
+}
+
+export interface SyncPaketAnggaranPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketAnggaranPenyedia(payload: SyncPaketAnggaranPayload) {
+  const res = await api.post("/inaproc/rup/paket-anggaran-penyedia/sync", payload);
+  return res.data;
+}
