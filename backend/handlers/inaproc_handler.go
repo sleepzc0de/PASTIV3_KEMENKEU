@@ -557,15 +557,13 @@ func SyncPaketAnggaranPenyedia(c *gin.Context) {
 // primary key deterministik karena API tidak menyediakan ID unik eksplisit
 // yang terbukti andal (pelajaran dari endpoint History Kaji Ulang).
 func generatePaketRowHash(row map[string]interface{}) string {
-	tahunAnggaran := getStr(row, "tahun_anggaran")
-	kdSatker := getStr(row, "kd_satker")
-	kdRup := getStr(row, "kd_rup")
-	kdRupLokal := getStr(row, "kd_rup_lokal")
-	kdKomponen := getStr(row, "kd_komponen")
-	kdKegiatan := getStr(row, "kd_kegiatan")
-
-	raw := fmt.Sprintf("pap|%s|%s|%s|%s|%s|%s", tahunAnggaran, kdSatker, kdRup, kdRupLokal, kdKomponen, kdKegiatan)
-	sum := sha256.Sum256([]byte(raw))
+	b, err := json.Marshal(row)
+	if err != nil {
+		// Fallback yang sangat tidak mungkin terjadi, tapi tetap sediakan
+		// nilai unik agar tidak collision total.
+		b = []byte(fmt.Sprintf("%v", row))
+	}
+	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
