@@ -1,0 +1,63 @@
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'inaproc_paket_penyedia')
+BEGIN
+    CREATE TABLE inaproc_paket_penyedia (
+        row_key NVARCHAR(255) PRIMARY KEY,
+        tahun_anggaran NVARCHAR(10) NULL,
+        kd_klpd NVARCHAR(20) NULL,
+        nama_klpd NVARCHAR(255) NULL,
+        jenis_klpd NVARCHAR(100) NULL,
+        kd_satker NVARCHAR(50) NULL,
+        kd_satker_str NVARCHAR(50) NULL,
+        nama_satker NVARCHAR(255) NULL,
+        kd_rup NVARCHAR(50) NULL,
+        nama_paket NVARCHAR(500) NULL,
+        pagu BIGINT NULL,
+        kd_metode_pengadaan NVARCHAR(20) NULL,
+        metode_pengadaan NVARCHAR(255) NULL,
+        kd_jenis_pengadaan NVARCHAR(20) NULL,
+        jenis_pengadaan NVARCHAR(255) NULL,
+        status_pradipa NVARCHAR(50) NULL,
+        status_pdn NVARCHAR(50) NULL,
+        status_ukm NVARCHAR(50) NULL,
+        alasan_non_ukm NVARCHAR(500) NULL,
+        status_konsolidasi NVARCHAR(50) NULL,
+        tipe_paket NVARCHAR(50) NULL,
+        kd_rup_swakelola NVARCHAR(50) NULL,
+        kd_rup_lokal NVARCHAR(50) NULL,
+        volume_pekerjaan NVARCHAR(255) NULL,
+        uraian_pekerjaan NVARCHAR(MAX) NULL,
+        spesifikasi_pekerjaan NVARCHAR(MAX) NULL,
+        tgl_awal_pemilihan DATETIME2 NULL,
+        tgl_akhir_pemilihan DATETIME2 NULL,
+        tgl_awal_kontrak DATETIME2 NULL,
+        tgl_akhir_kontrak DATETIME2 NULL,
+        tgl_awal_pemanfaatan DATETIME2 NULL,
+        tgl_akhir_pemanfaatan DATETIME2 NULL,
+        tgl_buat_paket DATETIME2 NULL,
+        tgl_pengumuman_paket DATETIME2 NULL,
+        nip_ppk NVARCHAR(50) NULL,
+        nama_ppk NVARCHAR(255) NULL,
+        username_ppk NVARCHAR(100) NULL,
+        status_aktif_rup BIT NULL,
+        status_delete_rup BIT NULL,
+        status_umumkan_rup NVARCHAR(50) NULL,
+        status_dikecualikan BIT NULL,
+        alasan_dikecualikan NVARCHAR(500) NULL,
+        tahun_pertama NVARCHAR(10) NULL,
+        kode_rup_tahun_pertama NVARCHAR(50) NULL,
+        nomor_kontrak NVARCHAR(255) NULL,
+        spp_aspek_ekonomi BIT NULL,
+        spp_aspek_sosial BIT NULL,
+        spp_aspek_lingkungan BIT NULL,
+        detail_lokasi NVARCHAR(MAX) NULL,
+        event_date DATETIME2 NULL,
+        inserted_date_src DATETIME2 NULL,
+        synced_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+
+    CREATE INDEX idx_ipp_kd_klpd_tahun ON inaproc_paket_penyedia(kd_klpd, tahun_anggaran);
+    CREATE INDEX idx_ipp_kd_satker ON inaproc_paket_penyedia(kd_satker);
+    CREATE INDEX idx_ipp_kd_rup ON inaproc_paket_penyedia(kd_rup);
+    CREATE INDEX idx_ipp_status_umumkan ON inaproc_paket_penyedia(status_umumkan_rup);
+END;
