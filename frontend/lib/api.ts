@@ -461,3 +461,52 @@ export async function syncProgramMaster(payload: SyncProgramMasterPayload) {
   const res = await api.post("/inaproc/rup/program-master/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Paket Swakelola Terumumkan ============
+
+export interface PaketSwakelolaTerumumkanItem {
+  jenis_klpd: string;
+  kd_klpd: string;
+  kd_rup: number;
+  kd_satker: number;
+  nama_klpd: string;
+  nama_paket: string;
+  nama_ppk: string;
+  nama_satker: string;
+  nip_ppk: string;
+  pagu: number;
+  status_aktif_rup: boolean;
+  status_umumkan_rup: string;
+  tahun_anggaran: number;
+  tgl_awal_pelaksanaan_kontrak: string;
+  tgl_akhir_pelaksanaan_kontrak: string;
+  volume_pekerjaan: string;
+}
+
+export interface PaketSwakelolaTerumumkanResponse {
+  success: boolean;
+  data: PaketSwakelolaTerumumkanItem[] | null;
+  meta?: InaprocMeta;
+}
+
+export interface PaketSwakelolaTerumumkanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketSwakelolaTerumumkan(params: PaketSwakelolaTerumumkanParams) {
+  const res = await api.get<PaketSwakelolaTerumumkanResponse>("/inaproc/rup/paket-swakelola-terumumkan", { params });
+  return res.data;
+}
+
+export interface SyncPaketSwakelolaTerumumkanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketSwakelolaTerumumkan(payload: SyncPaketSwakelolaTerumumkanPayload) {
+  const res = await api.post("/inaproc/rup/paket-swakelola-terumumkan/sync", payload);
+  return res.data;
+}
