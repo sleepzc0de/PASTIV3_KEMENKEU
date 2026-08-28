@@ -417,3 +417,47 @@ export async function syncPaketSwakelola(payload: SyncPaketSwakelolaPayload) {
   const res = await api.post("/inaproc/rup/paket-swakelola/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Program Master ============
+
+export interface ProgramMasterItem {
+  is_deleted: boolean;
+  jenis_klpd: string;
+  kd_klpd: string;
+  kd_program: number;
+  kd_program_lokal: number;
+  kd_program_str: string;
+  kd_satker: number;
+  nama_klpd: string;
+  nama_program: string;
+  pagu_program: number;
+  tahun_anggaran: number;
+}
+
+export interface ProgramMasterResponse {
+  success: boolean;
+  data: ProgramMasterItem[] | null;
+  meta?: InaprocMeta;
+}
+
+export interface ProgramMasterParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getProgramMaster(params: ProgramMasterParams) {
+  const res = await api.get<ProgramMasterResponse>("/inaproc/rup/program-master", { params });
+  return res.data;
+}
+
+export interface SyncProgramMasterPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncProgramMaster(payload: SyncProgramMasterPayload) {
+  const res = await api.post("/inaproc/rup/program-master/sync", payload);
+  return res.data;
+}

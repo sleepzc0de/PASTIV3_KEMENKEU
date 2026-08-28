@@ -63,6 +63,10 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/rup/paket-swakelola/local", handlers.ListLocalPaketSwakelola)
 			inaproc.POST("/rup/paket-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketSwakelola)
 
+			inaproc.GET("/rup/program-master", handlers.GetProgramMaster)
+			inaproc.GET("/rup/program-master/local", handlers.ListLocalProgramMaster)
+			inaproc.POST("/rup/program-master/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncProgramMaster)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}
