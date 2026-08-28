@@ -510,3 +510,50 @@ export async function syncPaketSwakelolaTerumumkan(payload: SyncPaketSwakelolaTe
   const res = await api.post("/inaproc/rup/paket-swakelola-terumumkan/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Paket Penyedia Terumumkan ============
+
+export interface PaketPenyediaTerumumkanItem {
+  kd_klpd: string;
+  nama_klpd: string;
+  kd_satker: number;
+  nama_satker: string;
+  kd_rup: number;
+  nama_paket: string;
+  pagu: number;
+  metode_pengadaan: string;
+  jenis_pengadaan: string;
+  status_umumkan_rup: string;
+  nama_ppk: string;
+  tahun_anggaran: number;
+  tgl_awal_pemilihan: string;
+  tgl_akhir_pemilihan: string;
+}
+
+export interface PaketPenyediaTerumumkanResponse {
+  success: boolean;
+  data: PaketPenyediaTerumumkanItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketPenyediaTerumumkanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketPenyediaTerumumkan(params: PaketPenyediaTerumumkanParams) {
+  const res = await api.get<PaketPenyediaTerumumkanResponse>("/inaproc/rup/paket-penyedia-terumumkan", { params });
+  return res.data;
+}
+
+export interface SyncPaketPenyediaTerumumkanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketPenyediaTerumumkan(payload: SyncPaketPenyediaTerumumkanPayload) {
+  const res = await api.post("/inaproc/rup/paket-penyedia-terumumkan/sync", payload);
+  return res.data;
+}

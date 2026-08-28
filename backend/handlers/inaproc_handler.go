@@ -1746,3 +1746,274 @@ func ListLocalPaketSwakelolaTerumumkan(c *gin.Context) {
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
 }
+
+// ============================================================
+// Endpoint 7: Paket Penyedia Terumumkan
+// ============================================================
+
+func GetPaketPenyediaTerumumkan(c *gin.Context) {
+	cfg := config.Cfg
+	if cfg.InaprocToken == "" {
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
+		return
+	}
+
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
+	tahun := c.Query("tahun")
+	limitStr := c.DefaultQuery("limit", "50")
+	cursor := c.Query("cursor")
+
+	if tahun == "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
+		return
+	}
+
+	limit := clampLimit(limitStr)
+
+	params := url.Values{}
+	params.Set("kode_klpd", kodeKLPD)
+	params.Set("tahun", tahun)
+	params.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-penyedia-terumumkan", params)
+	if err != nil {
+		log.Println("[INAPROC ERROR] gagal request paket-penyedia-terumumkan:", err)
+		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
+		return
+	}
+	forwardInaprocResponse(c, body, statusCode)
+}
+
+type syncPaketPenyediaTerumumkanRequest struct {
+	KodeKLPD string `json:"kode_klpd"`
+	Tahun    string `json:"tahun" binding:"required"`
+}
+
+func SyncPaketPenyediaTerumumkan(c *gin.Context) {
+	var req syncPaketPenyediaTerumumkanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "tahun wajib diisi")
+		return
+	}
+	if req.KodeKLPD == "" {
+		req.KodeKLPD = kemenkeuKLPDCode
+	}
+
+	adminUserID := c.GetString("user_id")
+	startedAt := time.Now()
+	totalSynced := 0
+	cursor := ""
+	pageCount := 0
+	const maxPages = 500
+
+	for {
+		pageCount++
+		if pageCount > maxPages {
+			logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
+			return
+		}
+
+		params := url.Values{}
+		params.Set("kode_klpd", req.KodeKLPD)
+		params.Set("tahun", req.Tahun)
+		params.Set("limit", "1000")
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-penyedia-terumumkan", params)
+		if err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal request paket-penyedia-terumumkan:", err)
+			logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
+			return
+		}
+
+		if statusCode != http.StatusOK {
+			errMsg := extractInaprocErrorMessage(body, statusCode)
+			logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, errMsg, adminUserID, startedAt)
+			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
+			return
+		}
+
+		var envelope struct {
+			Data []map[string]interface{} `json:"data"`
+			Meta struct {
+				HasMore bool   `json:"has_more"`
+				Cursor  string `json:"cursor"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal parse paket-penyedia-terumumkan:", err, "| body:", string(body))
+			logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
+			return
+		}
+
+		if pageCount == 1 && len(envelope.Data) > 0 {
+			log.Printf("[INAPROC SYNC DEBUG] Contoh baris paket-penyedia-terumumkan: %+v", envelope.Data[0])
+		}
+
+		for _, row := range envelope.Data {
+			if err := upsertPaketPenyediaTerumumkan(row); err != nil {
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-penyedia-terumumkan:", err)
+				continue
+			}
+			totalSynced++
+		}
+
+		if !envelope.Meta.HasMore || envelope.Meta.Cursor == "" {
+			break
+		}
+		cursor = envelope.Meta.Cursor
+	}
+
+	logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+}
+
+func generatePaketPenyediaTerumumkanRowHash(row map[string]interface{}) string {
+	b, err := json.Marshal(row)
+	if err != nil {
+		b = []byte(fmt.Sprintf("%v", row))
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func upsertPaketPenyediaTerumumkan(row map[string]interface{}) error {
+	rowKey := generatePaketPenyediaTerumumkanRowHash(row)
+
+	alasanDikecualikan := getStr(row, "alasan_dikecualikan")
+	alasanNonUkm := getStr(row, "alasan_non_ukm")
+	jenisKLPD := getStr(row, "jenis_klpd")
+	jenisPengadaan := getStr(row, "jenis_pengadaan")
+	kdJenisPengadaan := getStr(row, "kd_jenis_pengadaan")
+	kdKLPD := getStr(row, "kd_klpd")
+	kdMetodePengadaan := getStr(row, "kd_metode_pengadaan")
+	kdRup := getStr(row, "kd_rup")
+	kdRupLokal := getStr(row, "kd_rup_lokal")
+	kdRupSwakelola := getStr(row, "kd_rup_swakelola")
+	kdSatker := getStr(row, "kd_satker")
+	kdSatkerStr := getStr(row, "kd_satker_str")
+	kodeRupTahunPertama := getStr(row, "kode_rup_tahun_pertama")
+	metodePengadaan := getStr(row, "metode_pengadaan")
+	namaKLPD := getStr(row, "nama_klpd")
+	namaPaket := getStr(row, "nama_paket")
+	namaPpk := getStr(row, "nama_ppk")
+	namaSatker := getStr(row, "nama_satker")
+	nipPpk := getStr(row, "nip_ppk")
+	nomorKontrak := getStr(row, "nomor_kontrak")
+	pagu := getInt64FromAny(row, "pagu")
+	spesifikasiPekerjaan := getStr(row, "spesifikasi_pekerjaan")
+	sppAspekEkonomi := getBoolAny(row, "spp_aspek_ekonomi")
+	sppAspekLingkungan := getBoolAny(row, "spp_aspek_lingkungan")
+	sppAspekSosial := getBoolAny(row, "spp_aspek_sosial")
+	statusAktifRup := getBoolAny(row, "status_aktif_rup")
+	statusDeleteRup := getBoolAny(row, "status_delete_rup")
+	statusDikecualikan := getBoolAny(row, "status_dikecualikan")
+	statusKonsolidasi := getStr(row, "status_konsolidasi")
+	statusPdn := getStr(row, "status_pdn")
+	statusPradipa := getStr(row, "status_pradipa")
+	statusUkm := getStr(row, "status_ukm")
+	statusUmumkanRup := getStr(row, "status_umumkan_rup")
+	tahunAnggaran := getStr(row, "tahun_anggaran")
+	tahunPertama := getStr(row, "tahun_pertama")
+	tglAkhirKontrak := parseInaprocTime(getStr(row, "tgl_akhir_kontrak"))
+	tglAkhirPemanfaatan := parseInaprocTime(getStr(row, "tgl_akhir_pemanfaatan"))
+	tglAkhirPemilihan := parseInaprocTime(getStr(row, "tgl_akhir_pemilihan"))
+	tglAwalKontrak := parseInaprocTime(getStr(row, "tgl_awal_kontrak"))
+	tglAwalPemanfaatan := parseInaprocTime(getStr(row, "tgl_awal_pemanfaatan"))
+	tglAwalPemilihan := parseInaprocTime(getStr(row, "tgl_awal_pemilihan"))
+	tglBuatPaket := parseInaprocTime(getStr(row, "tgl_buat_paket"))
+	tglPengumumanPaket := parseInaprocTime(getStr(row, "tgl_pengumuman_paket"))
+	tipePaket := getStr(row, "tipe_paket")
+	uraianPekerjaan := getStr(row, "urarian_pekerjaan", "uraian_pekerjaan")
+	usernamePpk := getStr(row, "username_ppk")
+	volumePekerjaan := getStr(row, "volume_pekerjaan")
+
+	var exists int
+	database.DB.QueryRow(`SELECT COUNT(1) FROM inaproc_paket_penyedia_terumumkan WHERE row_key = @p1`, rowKey).Scan(&exists)
+
+	if exists > 0 {
+		_, err := database.DB.Exec(`UPDATE inaproc_paket_penyedia_terumumkan SET updated_at=SYSUTCDATETIME() WHERE row_key=@p1`, rowKey)
+		return err
+	}
+
+	_, err := database.DB.Exec(`
+		INSERT INTO inaproc_paket_penyedia_terumumkan (
+			row_key, alasan_dikecualikan, alasan_non_ukm, jenis_klpd, jenis_pengadaan,
+			kd_jenis_pengadaan, kd_klpd, kd_metode_pengadaan, kd_rup, kd_rup_lokal,
+			kd_rup_swakelola, kd_satker, kd_satker_str, kode_rup_tahun_pertama, metode_pengadaan,
+			nama_klpd, nama_paket, nama_ppk, nama_satker, nip_ppk,
+			nomor_kontrak, pagu, spesifikasi_pekerjaan, spp_aspek_ekonomi, spp_aspek_lingkungan,
+			spp_aspek_sosial, status_aktif_rup, status_delete_rup, status_dikecualikan, status_konsolidasi,
+			status_pdn, status_pradipa, status_ukm, status_umumkan_rup, tahun_anggaran,
+			tahun_pertama, tgl_akhir_kontrak, tgl_akhir_pemanfaatan, tgl_akhir_pemilihan, tgl_awal_kontrak,
+			tgl_awal_pemanfaatan, tgl_awal_pemilihan, tgl_buat_paket, tgl_pengumuman_paket, tipe_paket,
+			uraian_pekerjaan, username_ppk, volume_pekerjaan
+		) VALUES (
+			@p1, @p2, @p3, @p4, @p5,
+			@p6, @p7, @p8, @p9, @p10,
+			@p11, @p12, @p13, @p14, @p15,
+			@p16, @p17, @p18, @p19, @p20,
+			@p21, @p22, @p23, @p24, @p25,
+			@p26, @p27, @p28, @p29, @p30,
+			@p31, @p32, @p33, @p34, @p35,
+			@p36, @p37, @p38, @p39, @p40,
+			@p41, @p42, @p43, @p44, @p45,
+			@p46, @p47, @p48
+		)`,
+		rowKey, alasanDikecualikan, alasanNonUkm, jenisKLPD, jenisPengadaan,
+		kdJenisPengadaan, kdKLPD, kdMetodePengadaan, kdRup, kdRupLokal,
+		kdRupSwakelola, kdSatker, kdSatkerStr, kodeRupTahunPertama, metodePengadaan,
+		namaKLPD, namaPaket, namaPpk, namaSatker, nipPpk,
+		nomorKontrak, pagu, spesifikasiPekerjaan, sppAspekEkonomi, sppAspekLingkungan,
+		sppAspekSosial, statusAktifRup, statusDeleteRup, statusDikecualikan, statusKonsolidasi,
+		statusPdn, statusPradipa, statusUkm, statusUmumkanRup, tahunAnggaran,
+		tahunPertama, tglAkhirKontrak, tglAkhirPemanfaatan, tglAkhirPemilihan, tglAwalKontrak,
+		tglAwalPemanfaatan, tglAwalPemilihan, tglBuatPaket, tglPengumumanPaket, tipePaket,
+		uraianPekerjaan, usernamePpk, volumePekerjaan,
+	)
+	return err
+}
+
+func ListLocalPaketPenyediaTerumumkan(c *gin.Context) {
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
+	tahun := c.Query("tahun")
+	limit := clampLimit(c.DefaultQuery("limit", "50"))
+
+	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, nama_paket,
+		pagu, metode_pengadaan, status_umumkan_rup, nama_ppk,
+		tgl_awal_pemilihan, tgl_akhir_pemilihan, tahun_anggaran, synced_at
+		FROM inaproc_paket_penyedia_terumumkan WHERE kd_klpd = @p1`
+	args := []interface{}{kodeKLPD}
+
+	if tahun != "" {
+		query += " AND tahun_anggaran = @p2"
+		args = append(args, tahun)
+	}
+
+	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	results, err := rowsToMaps(rows)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
+		return
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
+}
