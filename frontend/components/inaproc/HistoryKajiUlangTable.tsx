@@ -65,7 +65,6 @@ export function HistoryKajiUlangTable() {
           cursor: useCursor,
         });
 
-        // "data" bisa null dari API kalau hasil kosong — selalu fallback ke [].
         const newRows = res.data ?? [];
         setRows((prev) => (useCursor ? [...prev, ...newRows] : newRows));
         setCursor(res.meta?.cursor || undefined);
@@ -221,8 +220,11 @@ export function HistoryKajiUlangTable() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
-                  <tr key={row.datamart_id} className="hover:bg-slate-50">
+                {rows.map((row, idx) => (
+                  <tr
+                    key={`${row.kd_satker}-${row.kd_rup_lama}-${row.kd_rup_baru}-${row.tgl_kaji_ulang}-${idx}`}
+                    className="hover:bg-slate-50"
+                  >
                     <td className="whitespace-nowrap px-4 py-2.5 text-slate-700">{row.nama_satker || "-"}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-600">{row.kd_rup_lama || "-"}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-600">{row.kd_rup_baru || "-"}</td>

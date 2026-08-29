@@ -243,6 +243,17 @@ func SyncHistoryKajiUlang(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+
+	deleteArgs := []interface{}{req.KodeKLPD, req.Tahun}
+	deleteQuery := `DELETE FROM inaproc_history_kaji_ulang WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`
+	if req.JenisPaket != "" {
+		deleteQuery += ` AND jenis_paket = @p3`
+		deleteArgs = append(deleteArgs, req.JenisPaket)
+	}
+	if _, err := database.DB.Exec(deleteQuery, deleteArgs...); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama history-kaji-ulang:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -486,6 +497,14 @@ func SyncPaketAnggaranPenyedia(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_paket_anggaran_penyedia WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-anggaran-penyedia:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -807,6 +826,17 @@ func SyncPaketPenyedia(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+
+	deleteArgs := []interface{}{req.KodeKLPD, req.Tahun}
+	deleteQuery := `DELETE FROM inaproc_paket_penyedia WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`
+	if req.Status != "" {
+		deleteQuery += ` AND status_umumkan_rup = @p3`
+		deleteArgs = append(deleteArgs, req.Status)
+	}
+	if _, err := database.DB.Exec(deleteQuery, deleteArgs...); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-penyedia:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -1129,6 +1159,16 @@ func SyncPaketSwakelola(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+	deleteArgs := []interface{}{req.KodeKLPD, req.Tahun}
+	deleteQuery := `DELETE FROM inaproc_paket_swakelola WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`
+	if req.Status != "" {
+		deleteQuery += ` AND status = @p3`
+		deleteArgs = append(deleteArgs, req.Status)
+	}
+	if _, err := database.DB.Exec(deleteQuery, deleteArgs...); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-swakelola:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -1345,6 +1385,13 @@ func SyncProgramMaster(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_program_master WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama program-master:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -1559,6 +1606,13 @@ func SyncPaketSwakelolaTerumumkan(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_paket_swakelola_terumumkan WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-swakelola-terumumkan:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
@@ -1804,6 +1858,14 @@ func SyncPaketPenyediaTerumumkan(c *gin.Context) {
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
+
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_paket_penyedia_terumumkan WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-penyedia-terumumkan:", err)
+	}
+
 	totalSynced := 0
 	cursor := ""
 	pageCount := 0
