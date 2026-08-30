@@ -17,7 +17,8 @@ import {
   Boxes,
   LayoutList,
   ClipboardCheck,
-  PackageCheck
+  PackageCheck,
+  WalletCards
 } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
 
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Data Aset (SLDK)", href: "/dashboard/assets", icon: DatabaseZap },
   { label: "Kaji Ulang RUP (Inaproc)", href: "/dashboard/pengadaan", icon: FileClock },
   { label: "Paket Anggaran (Inaproc)", href: "/dashboard/pengadaan/paket-anggaran", icon: Wallet },
+  { label: "Anggaran Swakelola (Inaproc)", href: "/dashboard/pengadaan/anggaran-swakelola", icon: WalletCards },
   { label: "Paket Penyedia (Inaproc)", href: "/dashboard/pengadaan/paket-penyedia", icon: Package },
   { label: "Penyedia Terumumkan (Inaproc)", href: "/dashboard/pengadaan/penyedia-terumumkan", icon: PackageCheck },
   { label: "Paket Swakelola (Inaproc)", href: "/dashboard/pengadaan/paket-swakelola", icon: Boxes },
