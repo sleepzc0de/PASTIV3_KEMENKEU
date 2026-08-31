@@ -79,6 +79,10 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/rup/paket-anggaran-swakelola/local", handlers.ListLocalPaketAnggaranSwakelola)
 			inaproc.POST("/rup/paket-anggaran-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketAnggaranSwakelola)
 
+			inaproc.GET("/tender/jadwal-tahapan-non-tender", handlers.GetJadwalTahapanNonTender)
+			inaproc.GET("/tender/jadwal-tahapan-non-tender/local", handlers.ListLocalJadwalTahapanNonTender)
+			inaproc.POST("/tender/jadwal-tahapan-non-tender/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncJadwalTahapanNonTender)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

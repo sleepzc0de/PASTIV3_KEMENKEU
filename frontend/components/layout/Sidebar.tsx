@@ -1,24 +1,29 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   DatabaseZap,
   Users,
-  ChevronsLeft,
-  ChevronsRight,
-  ShieldCheck,
-  X,
   Users2,
   FileClock,
   Wallet,
+  WalletCards,
   Package,
-  Boxes,
-  LayoutList,
-  ClipboardCheck,
   PackageCheck,
-  WalletCards
+  Boxes,
+  ClipboardCheck,
+  LayoutList,
+  ShoppingCart,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronDown,
+  ShieldCheck,
+  X,
+  Gavel,
+  CalendarClock,
 } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
 
@@ -26,22 +31,48 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  roles?: string[]; // kalau undefined, terlihat semua role
+  roles?: string[];
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Data Aset (SLDK)", href: "/dashboard/assets", icon: DatabaseZap },
-  { label: "Kaji Ulang RUP (Inaproc)", href: "/dashboard/pengadaan", icon: FileClock },
-  { label: "Paket Anggaran (Inaproc)", href: "/dashboard/pengadaan/paket-anggaran", icon: Wallet },
-  { label: "Anggaran Swakelola (Inaproc)", href: "/dashboard/pengadaan/anggaran-swakelola", icon: WalletCards },
-  { label: "Paket Penyedia (Inaproc)", href: "/dashboard/pengadaan/paket-penyedia", icon: Package },
-  { label: "Penyedia Terumumkan (Inaproc)", href: "/dashboard/pengadaan/penyedia-terumumkan", icon: PackageCheck },
-  { label: "Paket Swakelola (Inaproc)", href: "/dashboard/pengadaan/paket-swakelola", icon: Boxes },
-  { label: "Swakelola Terumumkan (Inaproc)", href: "/dashboard/pengadaan/swakelola-terumumkan", icon: ClipboardCheck },
-  { label: "Program Master (Inaproc)", href: "/dashboard/pengadaan/program-master", icon: LayoutList },
-  { label: "Cari Pegawai (HRIS2)", href: "/dashboard/pegawai", icon: Users2, roles: ["admin", "superadmin"] },
-  { label: "Manajemen Pengguna", href: "/dashboard/users", icon: Users, roles: ["admin", "superadmin"] },
+interface NavGroup {
+  label: string;
+  icon: React.ElementType;
+  roles?: string[];
+  children: NavItem[];
+}
+
+type NavEntry =
+  | ({ type: "item" } & NavItem)
+  | ({ type: "group" } & NavGroup);
+
+const NAV_ENTRIES: NavEntry[] = [
+  { type: "item", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { type: "item", label: "Data Aset (SLDK)", href: "/dashboard/assets", icon: DatabaseZap },
+  {
+    type: "group",
+    label: "Pengadaan (Inaproc)",
+    icon: ShoppingCart,
+    children: [
+      { label: "Kaji Ulang RUP", href: "/dashboard/pengadaan", icon: FileClock },
+      { label: "Paket Anggaran", href: "/dashboard/pengadaan/paket-anggaran", icon: Wallet },
+      { label: "Anggaran Swakelola", href: "/dashboard/pengadaan/anggaran-swakelola", icon: WalletCards },
+      { label: "Paket Penyedia", href: "/dashboard/pengadaan/paket-penyedia", icon: Package },
+      { label: "Penyedia Terumumkan", href: "/dashboard/pengadaan/penyedia-terumumkan", icon: PackageCheck },
+      { label: "Paket Swakelola", href: "/dashboard/pengadaan/paket-swakelola", icon: Boxes },
+      { label: "Swakelola Terumumkan", href: "/dashboard/pengadaan/swakelola-terumumkan", icon: ClipboardCheck },
+      { label: "Program Master", href: "/dashboard/pengadaan/program-master", icon: LayoutList },
+    ],
+  },
+  {
+    type: "group",
+    label: "Tender (Inaproc)",
+    icon: Gavel,
+    children: [
+      { label: "Jadwal Non Tender", href: "/dashboard/tender/jadwal-non-tender", icon: CalendarClock },
+    ],
+  },
+  { type: "item", label: "Cari Pegawai (HRIS2)", href: "/dashboard/pegawai", icon: Users2, roles: ["admin", "superadmin"] },
+  { type: "item", label: "Manajemen Pengguna", href: "/dashboard/users", icon: Users, roles: ["admin", "superadmin"] },
 ];
 
 interface SidebarProps {
@@ -55,7 +86,34 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
   const pathname = usePathname();
   const { profile } = useDashboard();
 
-  const visibleItems = NAV_ITEMS.filter((item) => !item.roles || (profile && item.roles.includes(profile.role)));
+  const pengadaanGroup = NAV_ENTRIES.find(
+    (e): e is { type: "group" } & NavGroup => e.type === "group"
+  );
+  const isInPengadaanRoute =
+    pengadaanGroup?.children.some((c) => pathname === c.href) ?? false;
+
+  const [pengadaanOpen, setPengadaanOpen] = useState(isInPengadaanRoute);
+
+  // Auto-expand grup kalau user sedang berada di salah satu halaman
+  // Inaproc, supaya konteks navigasi tetap terlihat.
+  useEffect(() => {
+    if (isInPengadaanRoute) {
+      setPengadaanOpen(true);
+    }
+  }, [isInPengadaanRoute]);
+
+  const canSee = (roles?: string[]) => !roles || (profile && roles.includes(profile.role));
+
+  const handleGroupClick = () => {
+    // Kalau sidebar sedang diciutkan, buka dulu sidebar-nya supaya
+    // submenu bisa terlihat, baru toggle grup.
+    if (collapsed) {
+      onToggleCollapse();
+      setPengadaanOpen(true);
+      return;
+    }
+    setPengadaanOpen((prev) => !prev);
+  };
 
   const sidebarContent = (
     <div className="flex h-full flex-col bg-slate-900 text-slate-200">
@@ -78,24 +136,76 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
 
       {/* Nav Items */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
-        {visibleItems.map((item) => {
-          const isActive = pathname === item.href;
-          const Icon = item.icon;
+        {NAV_ENTRIES.map((entry) => {
+          if (entry.type === "item") {
+            if (!canSee(entry.roles)) return null;
+            const isActive = pathname === entry.href;
+            const Icon = entry.icon;
+            return (
+              <Link
+                key={entry.href}
+                href={entry.href}
+                onClick={onCloseMobile}
+                title={collapsed ? entry.label : undefined}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  isActive ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                } ${collapsed ? "justify-center" : ""}`}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span className="truncate">{entry.label}</span>}
+              </Link>
+            );
+          }
+
+          // entry.type === "group"
+          if (!canSee(entry.roles)) return null;
+          const GroupIcon = entry.icon;
+          const hasActiveChild = entry.children.some((c) => pathname === c.href);
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onCloseMobile}
-              title={collapsed ? item.label : undefined}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              } ${collapsed ? "justify-center" : ""}`}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </Link>
+            <div key={entry.label}>
+              <button
+                onClick={handleGroupClick}
+                title={collapsed ? entry.label : undefined}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  hasActiveChild && !pengadaanOpen
+                    ? "bg-blue-600/20 text-blue-300"
+                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                } ${collapsed ? "justify-center" : ""}`}
+              >
+                <GroupIcon className="h-5 w-5 shrink-0" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 truncate text-left">{entry.label}</span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 transition-transform ${pengadaanOpen ? "rotate-180" : ""}`}
+                    />
+                  </>
+                )}
+              </button>
+
+              {!collapsed && pengadaanOpen && (
+                <div className="mt-1 space-y-0.5 border-l border-slate-800 pl-3.5 ml-3.5">
+                  {entry.children.map((child) => {
+                    const isActive = pathname === child.href;
+                    const ChildIcon = child.icon;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={onCloseMobile}
+                        className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                        }`}
+                      >
+                        <ChildIcon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

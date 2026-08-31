@@ -613,3 +613,46 @@ export async function syncPaketAnggaranSwakelola(payload: SyncPaketAnggaranSwake
   const res = await api.post("/inaproc/rup/paket-anggaran-swakelola/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Tender: Jadwal Tahapan Non Tender ============
+
+export interface JadwalTahapanNonTenderItem {
+  kd_akt: number;
+  kd_klpd: string;
+  kd_nontender: number;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_akt: string;
+  nama_tahapan: string;
+  tahun_anggaran: number;
+  tgl_akhir: string;
+  tgl_awal: string;
+}
+
+export interface JadwalTahapanNonTenderResponse {
+  success: boolean;
+  data: JadwalTahapanNonTenderItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface JadwalTahapanNonTenderParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getJadwalTahapanNonTender(params: JadwalTahapanNonTenderParams) {
+  const res = await api.get<JadwalTahapanNonTenderResponse>("/inaproc/tender/jadwal-tahapan-non-tender", { params });
+  return res.data;
+}
+
+export interface SyncJadwalTahapanNonTenderPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncJadwalTahapanNonTender(payload: SyncJadwalTahapanNonTenderPayload) {
+  const res = await api.post("/inaproc/tender/jadwal-tahapan-non-tender/sync", payload);
+  return res.data;
+}

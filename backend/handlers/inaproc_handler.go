@@ -2317,3 +2317,16 @@ func ListLocalPaketAnggaranSwakelola(c *gin.Context) {
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
 }
+
+// generateInaprocRowHash: hash generik dari seluruh isi baris JSON, dipakai
+// sebagai row_key deterministik untuk tabel-tabel Inaproc yang tidak
+// menyediakan ID unik yang andal (pola yang berulang di hampir semua
+// endpoint Inaproc yang sudah diintegrasikan).
+func generateInaprocRowHash(row map[string]interface{}) string {
+	b, err := json.Marshal(row)
+	if err != nil {
+		b = []byte(fmt.Sprintf("%v", row))
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
