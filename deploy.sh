@@ -103,6 +103,10 @@ Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
   backend/.env    rahasia aplikasi, koneksi database, SSO, token Inaproc (dibuat dari
                   backend/.env.example; Anda yang mengisi nilai database & SSO).
 
+Variabel lingkungan:
+  HEALTH_TIMEOUT=180   detik menunggu tiap layanan sehat (bawaan 90)
+  SKIP_DB_CHECK=1      lewati pemeriksaan keterjangkauan server database sebelum build
+
 Log setiap deploy ditambahkan ke deploy.log.
 EOF
 }
@@ -643,6 +647,35 @@ prepare_backend_env() {
   validate_backend_env
 }
 
+# Server database biasanya BERBEDA dari server aplikasi. Pastikan port-nya terjangkau sebelum build
+# (5-15 menit) dan sebelum mengubah apa pun. Kegagalan paling umum: firewall server database belum
+# mengizinkan IP server ini. Bisa dilewati dengan SKIP_DB_CHECK=1.
+check_db_reachable() {
+  local host port
+  host=$(env_get "$BACKEND_ENV" DB_HOST)
+  port=$(env_get "$BACKEND_ENV" DB_PORT); port=${port:-1433}
+  step "Memeriksa koneksi ke server database ($host:$port)"
+  if [ -n "${SKIP_DB_CHECK:-}" ]; then
+    log "SKIP_DB_CHECK: pemeriksaan dilewati."
+    return 0
+  fi
+  if [ "$host" = "host.docker.internal" ]; then
+    log "DB_HOST=host.docker.internal (database di server yang sama): diuji dari dalam container saat migrasi."
+    return 0
+  fi
+  valid_port "$port" || die "DB_PORT di backend/.env tidak valid: '$port'"
+  # host/port dikirim sebagai argumen (bukan disisipkan ke perintah), jadi nilai aneh di .env tidak dieksekusi.
+  if timeout 5 bash -c 'exec 3<>"/dev/tcp/$0/$1"' "$host" "$port" 2>/dev/null; then
+    ok "Server database terjangkau ($host:$port)"
+    return 0
+  fi
+  err "Server database $host:$port TIDAK terjangkau dari server ini (IP server ini kemungkinan: $(primary_ip))."
+  err "Periksa: (1) firewall server database mengizinkan IP server ini ke port $port;"
+  err "         (2) SQL Server mengaktifkan TCP/IP di port $port;  (3) DB_HOST/DB_PORT di backend/.env."
+  err "Bila Anda yakin koneksinya benar, lewati pemeriksaan ini:  SKIP_DB_CHECK=1 ./deploy.sh ..."
+  die "Belum ada yang diubah di server."
+}
+
 # ----------------------------------------------------------------------------
 # Tahap 3: kode
 # ----------------------------------------------------------------------------
@@ -943,6 +976,7 @@ main() {
   check_ports          # container & port, sebelum mengubah apa pun di server
   sync_code            # setelah ini kode di disk sudah terbaru
   prepare_backend_env  # membuat/validasi backend/.env (bisa berhenti dengan instruksi)
+  check_db_reachable   # server database terjangkau? (gagal cepat, sebelum build)
   confirm_production   # hanya untuk prod
 
   snapshot_images
