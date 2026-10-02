@@ -772,3 +772,94 @@ export async function syncNonTenderEkontrak(payload: SyncNonTenderEkontrakPayloa
   const res = await api.post("/inaproc/tender/non-tender-ekontrak/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Tender: Non Tender E-Kontrak Kontrak ============
+
+export interface NonTenderEkontrakKontrakItem {
+  // Satker & KLPD
+  kd_klpd: string;
+  jenis_klpd: string | null;
+  nama_klpd: string | null;
+  kd_lpse: number | null;
+  kd_satker: string | null;
+  kd_satker_str: string | null;
+  nama_satker: string | null;
+  alamat_satker: string | null;
+
+  // Paket
+  kd_nontender: number;
+  tahun_anggaran: number;
+  nama_paket: string | null;
+  mtd_pengadaan: string | null;
+  lingkup_pekerjaan: string | null;
+  informasi_lainnya: string | null;
+
+  // Kontrak
+  no_kontrak: string | null;
+  no_sppbj: string | null;
+  jenis_kontrak: string | null;
+  status_kontrak: string | null;
+  kota_kontrak: string | null;
+  tgl_kontrak: string | null;
+  tgl_kontrak_awal: string | null;
+  tgl_kontrak_akhir: string | null;
+  tgl_penetapan_status_kontrak: string | null;
+  alasan_penetapan_status_kontrak: string | null;
+  apakah_addendum: string | null;
+  versi_addendum: number | null;
+  alasan_addendum: string | null;
+
+  // Nilai
+  nilai_kontrak: number | null;
+  nilai_pdn_kontrak: number | null;
+  nilai_umk_kontrak: number | null;
+  alasan_ubah_nilai_kontrak: string | null;
+  alasan_nilai_kontrak_10_persen: string | null;
+
+  // PPK
+  nama_ppk: string | null;
+  nip_ppk: string | null;
+  jabatan_ppk: string | null;
+  no_sk_ppk: string | null;
+
+  // Penyedia
+  nama_penyedia: string | null;
+  bentuk_usaha_penyedia: string | null;
+  tipe_penyedia: string | null;
+  npwp_penyedia: string | null;
+  npwp16_penyedia: string | null;
+  wakil_sah_penyedia: string | null;
+  jabatan_wakil_penyedia: string | null;
+  anggota_kso: string | null;
+  nama_rek_bank: string | null;
+  no_rek_bank: string | null;
+  nama_pemilik_rek_bank: string | null;
+}
+
+export interface NonTenderEkontrakKontrakResponse {
+  success: boolean;
+  data: NonTenderEkontrakKontrakItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderEkontrakKontrakParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderEkontrakKontrak(params: NonTenderEkontrakKontrakParams) {
+  const res = await api.get<NonTenderEkontrakKontrakResponse>("/inaproc/tender/non-tender-ekontrak-kontrak", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderEkontrakKontrakPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderEkontrakKontrak(payload: SyncNonTenderEkontrakKontrakPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-ekontrak-kontrak/sync", payload);
+  return res.data;
+}

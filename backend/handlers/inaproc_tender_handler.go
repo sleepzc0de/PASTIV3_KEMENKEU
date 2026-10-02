@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -639,6 +640,274 @@ func ListLocalNonTenderEkontrak(c *gin.Context) {
 	query := `SELECT row_key, kd_klpd, kd_tender, tahun_anggaran, nama_paket, alamat_satker,
 		bapbast_history_json, spmkspp_history_json, penilaian_kinerja_penyedia, synced_at
 		FROM inaproc_non_tender_ekontrak WHERE kd_klpd = @p1`
+	args := []interface{}{kodeKLPD}
+
+	if tahun != "" {
+		query += " AND tahun_anggaran = @p2"
+		args = append(args, tahun)
+	}
+
+	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	results, err := rowsToMaps(rows)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
+		return
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
+}
+
+// ============================================================
+// TENDER Endpoint 4: Non Tender E-Kontrak Kontrak
+// ============================================================
+//
+// Respons berbentuk datar (±47 field). Nama kolom di tabel
+// inaproc_non_tender_ekontrak_kontrak sama persis dengan nama field API, jadi
+// INSERT dibangun dari daftar nama di bawah (bukan satu variabel per field).
+// Daftar ini HARUS sinkron dengan migrasi 017.
+var (
+	// Disimpan sebagai NVARCHAR; nilai kosong/null disimpan sebagai NULL.
+	nonTenderEkontrakKontrakTextFields = []string{
+		"kd_klpd", "jenis_klpd", "nama_klpd", "kd_lpse", "kd_satker", "kd_satker_str", "nama_satker", "alamat_satker",
+		"kd_nontender", "tahun_anggaran", "nama_paket", "mtd_pengadaan", "lingkup_pekerjaan", "informasi_lainnya",
+		"no_kontrak", "no_sppbj", "jenis_kontrak", "status_kontrak", "kota_kontrak",
+		"alasan_penetapan_status_kontrak", "apakah_addendum", "alasan_addendum",
+		"alasan_ubah_nilai_kontrak", "alasan_nilai_kontrak_10_persen",
+		"nama_ppk", "nip_ppk", "jabatan_ppk", "no_sk_ppk",
+		"nama_penyedia", "bentuk_usaha_penyedia", "tipe_penyedia", "npwp_penyedia", "npwp16_penyedia",
+		"wakil_sah_penyedia", "jabatan_wakil_penyedia", "anggota_kso",
+		"nama_rek_bank", "no_rek_bank", "nama_pemilik_rek_bank",
+	}
+	// DECIMAL(24,2): nilai rupiah bisa berpecahan, jadi tidak dipotong ke BIGINT.
+	nonTenderEkontrakKontrakDecimalFields = []string{"nilai_kontrak", "nilai_pdn_kontrak", "nilai_umk_kontrak"}
+	nonTenderEkontrakKontrakIntFields     = []string{"versi_addendum"}
+	nonTenderEkontrakKontrakDateFields    = []string{
+		"tgl_kontrak", "tgl_kontrak_awal", "tgl_kontrak_akhir", "tgl_penetapan_status_kontrak",
+	}
+)
+
+// Semua field yang sudah punya kolom sendiri; sisanya masuk ke extra_json.
+func nonTenderEkontrakKontrakKnownFields() []string {
+	var all []string
+	all = append(all, nonTenderEkontrakKontrakTextFields...)
+	all = append(all, nonTenderEkontrakKontrakDecimalFields...)
+	all = append(all, nonTenderEkontrakKontrakIntFields...)
+	all = append(all, nonTenderEkontrakKontrakDateFields...)
+	return all
+}
+
+// Urutan kolom di sini harus sama dengan urutan argumen di
+// insertNonTenderEkontrakKontrak. Nama kolom berasal dari konstanta di atas,
+// bukan dari input pengguna.
+var nonTenderEkontrakKontrakInsertSQL = buildNonTenderEkontrakKontrakInsertSQL()
+
+func buildNonTenderEkontrakKontrakInsertSQL() string {
+	cols := []string{"row_key"}
+	cols = append(cols, nonTenderEkontrakKontrakKnownFields()...)
+	cols = append(cols, "extra_json")
+
+	placeholders := make([]string, len(cols))
+	for i := range cols {
+		placeholders[i] = "@p" + strconv.Itoa(i+1)
+	}
+	return "INSERT INTO inaproc_non_tender_ekontrak_kontrak (" + strings.Join(cols, ", ") +
+		") VALUES (" + strings.Join(placeholders, ", ") + ")"
+}
+
+func GetNonTenderEkontrakKontrak(c *gin.Context) {
+	cfg := config.Cfg
+	if cfg.InaprocToken == "" {
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
+		return
+	}
+
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
+	tahun := c.Query("tahun")
+	limitStr := c.DefaultQuery("limit", "50")
+	cursor := c.Query("cursor")
+
+	if tahun == "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
+		return
+	}
+
+	limit := clampLimit(limitStr)
+
+	params := url.Values{}
+	params.Set("kode_klpd", kodeKLPD)
+	params.Set("tahun", tahun)
+	params.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-ekontrak-kontrak", params)
+	if err != nil {
+		log.Println("[INAPROC ERROR] gagal request non-tender-ekontrak-kontrak:", err)
+		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
+		return
+	}
+	forwardInaprocResponse(c, body, statusCode)
+}
+
+type syncNonTenderEkontrakKontrakRequest struct {
+	KodeKLPD string `json:"kode_klpd"`
+	Tahun    string `json:"tahun" binding:"required"`
+}
+
+func SyncNonTenderEkontrakKontrak(c *gin.Context) {
+	var req syncNonTenderEkontrakKontrakRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "tahun wajib diisi")
+		return
+	}
+	if req.KodeKLPD == "" {
+		req.KodeKLPD = kemenkeuKLPDCodeTender
+	}
+
+	adminUserID := c.GetString("user_id")
+	startedAt := time.Now()
+
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_non_tender_ekontrak_kontrak WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama non-tender-ekontrak-kontrak:", err)
+	}
+
+	totalSynced := 0
+	cursor := ""
+	pageCount := 0
+	const maxPages = 200
+
+	for {
+		pageCount++
+		if pageCount > maxPages {
+			logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
+			return
+		}
+
+		params := url.Values{}
+		params.Set("kode_klpd", req.KodeKLPD)
+		params.Set("tahun", req.Tahun)
+		params.Set("limit", "1000")
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-ekontrak-kontrak", params)
+		if err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal request non-tender-ekontrak-kontrak:", err)
+			logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
+			return
+		}
+
+		if statusCode != http.StatusOK {
+			errMsg := extractInaprocErrorMessage(body, statusCode)
+			logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, errMsg, adminUserID, startedAt)
+			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
+			return
+		}
+
+		var envelope struct {
+			Data []map[string]interface{} `json:"data"`
+			Meta struct {
+				HasMore bool   `json:"has_more"`
+				Cursor  string `json:"cursor"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal parse non-tender-ekontrak-kontrak:", err, "| body:", string(body))
+			logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
+			return
+		}
+
+		if pageCount == 1 && len(envelope.Data) > 0 {
+			log.Printf("[INAPROC SYNC DEBUG] Contoh baris non-tender-ekontrak-kontrak: %+v", envelope.Data[0])
+		}
+
+		for _, row := range envelope.Data {
+			if err := insertNonTenderEkontrakKontrak(row); err != nil {
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris non-tender-ekontrak-kontrak:", err)
+				continue
+			}
+			totalSynced++
+		}
+
+		if !envelope.Meta.HasMore || envelope.Meta.Cursor == "" {
+			break
+		}
+		cursor = envelope.Meta.Cursor
+	}
+
+	logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+}
+
+// getDecimalString membaca field numerik (angka JSON atau string angka) dan
+// mengembalikannya sebagai string desimal untuk kolom DECIMAL, tanpa memotong
+// pecahan. Mengembalikan nil (NULL) kalau kosong atau bukan angka.
+func getDecimalString(m map[string]interface{}, key string) interface{} {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case string:
+		if _, err := strconv.ParseFloat(val, 64); err == nil {
+			return val
+		}
+	}
+	return nil
+}
+
+// Urutan argumen harus sama dengan urutan kolom di nonTenderEkontrakKontrakInsertSQL.
+func nonTenderEkontrakKontrakArgs(row map[string]interface{}) []interface{} {
+	args := []interface{}{generateInaprocRowHash(row)}
+	for _, f := range nonTenderEkontrakKontrakTextFields {
+		args = append(args, nullIfEmpty(getStr(row, f)))
+	}
+	for _, f := range nonTenderEkontrakKontrakDecimalFields {
+		args = append(args, getDecimalString(row, f))
+	}
+	for _, f := range nonTenderEkontrakKontrakIntFields {
+		args = append(args, getInt64FromAny(row, f))
+	}
+	for _, f := range nonTenderEkontrakKontrakDateFields {
+		args = append(args, parseInaprocTime(getStr(row, f)))
+	}
+	args = append(args, extraFieldsColumn(row, nonTenderEkontrakKontrakKnownFields()))
+	return args
+}
+
+func insertNonTenderEkontrakKontrak(row map[string]interface{}) error {
+	_, err := database.DB.Exec(nonTenderEkontrakKontrakInsertSQL, nonTenderEkontrakKontrakArgs(row)...)
+	return err
+}
+
+func ListLocalNonTenderEkontrakKontrak(c *gin.Context) {
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
+	tahun := c.Query("tahun")
+	limit := clampLimit(c.DefaultQuery("limit", "50"))
+
+	query := `SELECT row_key, kd_klpd, kd_nontender, tahun_anggaran, no_kontrak, nama_paket,
+		nama_penyedia, nilai_kontrak, status_kontrak, tgl_kontrak, synced_at
+		FROM inaproc_non_tender_ekontrak_kontrak WHERE kd_klpd = @p1`
 	args := []interface{}{kodeKLPD}
 
 	if tahun != "" {

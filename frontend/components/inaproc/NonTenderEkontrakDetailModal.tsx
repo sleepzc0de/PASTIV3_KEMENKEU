@@ -3,33 +3,12 @@
 import { useEffect } from "react";
 import { X, MapPin, FileText, ClipboardList, Star } from "lucide-react";
 import { NonTenderEkontrakItem } from "@/lib/api";
+import { formatDate, formatCurrency } from "@/lib/format";
+import { DetailEntry } from "@/components/inaproc/DetailEntry";
 
 interface NonTenderEkontrakDetailModalProps {
   item: NonTenderEkontrakItem;
   onClose: () => void;
-}
-
-// Tanggal dari Inaproc datang dalam dua bentuk: ISO UTC ("2021-12-06T00:00:00.000000Z")
-// dan teks lokal tanpa zona ("May 7, 2021 12:00:00 AM"). ISO diformat sebagai UTC
-// supaya tanggalnya tidak bergeser; sisanya apa adanya. Bentuk yang tidak bisa
-// dibaca ditampilkan mentah.
-function formatDate(value?: string | null): string {
-  if (!value) return "-";
-  const isUtc = value.endsWith("Z");
-  // Sebagian browser menolak pecahan detik lebih dari 3 digit.
-  const date = new Date(value.replace(/(\.\d{3})\d+/, "$1"));
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: isUtc ? "UTC" : undefined,
-  });
-}
-
-function formatCurrency(n?: number | null): string {
-  if (n === undefined || n === null) return "-";
-  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
 }
 
 export function NonTenderEkontrakDetailModal({ item, onClose }: NonTenderEkontrakDetailModalProps) {
@@ -83,7 +62,7 @@ export function NonTenderEkontrakDetailModal({ item, onClose }: NonTenderEkontra
 
           <Section icon={FileText} title="Riwayat BAP / BAST" count={bapBast.length}>
             {bapBast.map((h, idx) => (
-              <Entry
+              <DetailEntry
                 key={idx}
                 fields={[
                   ["No. BAP", h.no_bap],
@@ -102,7 +81,7 @@ export function NonTenderEkontrakDetailModal({ item, onClose }: NonTenderEkontra
 
           <Section icon={ClipboardList} title="Riwayat SPMK / SPP" count={spmkSpp.length}>
             {spmkSpp.map((h, idx) => (
-              <Entry
+              <DetailEntry
                 key={idx}
                 fields={[
                   ["No. SPMK/SPP", h.no_spmk_spp],
@@ -162,21 +141,5 @@ function Section({
         <div className="space-y-3">{children}</div>
       )}
     </section>
-  );
-}
-
-// Menampilkan pasangan label/nilai; pasangan yang nilainya kosong dilewati
-// (false muncul dari ekspresi `nilai && format(nilai)` di pemanggil).
-function Entry({ fields }: { fields: [string, string | false | null | undefined][] }) {
-  const visible = fields.filter(([, value]) => value);
-  return (
-    <dl className="grid grid-cols-1 gap-x-4 gap-y-2.5 rounded-lg border border-slate-200 p-3 text-sm sm:grid-cols-2">
-      {visible.map(([label, value]) => (
-        <div key={label} className="min-w-0">
-          <dt className="text-xs text-slate-500">{label}</dt>
-          <dd className="break-words font-medium text-slate-800">{value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }

@@ -16,6 +16,7 @@ import {
   CalendarClock,
   CalendarRange,
   FileSignature,
+  ScrollText,
 } from "lucide-react";
 
 export interface NavItem {
@@ -125,6 +126,12 @@ export const NAV_ENTRIES: NavEntry[] = [
         href: "/dashboard/tender/non-tender-ekontrak",
         icon: FileSignature,
         description: "Riwayat BAP/BAST, SPMK/SPP, dan penilaian kinerja penyedia",
+      },
+      {
+        label: "Kontrak Non Tender",
+        href: "/dashboard/tender/non-tender-ekontrak-kontrak",
+        icon: ScrollText,
+        description: "Data kontrak, nilai, penyedia, dan PPK",
       },
     ],
   },
