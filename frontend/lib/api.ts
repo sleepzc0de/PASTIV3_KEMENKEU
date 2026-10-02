@@ -699,3 +699,76 @@ export async function syncJadwalTahapanTender(payload: SyncJadwalTahapanTenderPa
   const res = await api.post("/inaproc/tender/jadwal-tahapan-tender/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Tender: Non Tender E-Kontrak ============
+
+// Riwayat BAP/BAST (Berita Acara Pembayaran / Serah Terima).
+export interface BapBastHistoryItem {
+  besar_pembayaran: number | null;
+  jabatan_penandatangan_sk: string | null;
+  jabatan_wakil_penyedia: string | null;
+  no_bap: string | null;
+  no_bast: string | null;
+  progres_pekerjaan: number | null;
+  tgl_bap: string | null;
+  tgl_bast: string | null;
+  wakil_sah_penyedia: string | null;
+}
+
+// Riwayat SPMK/SPP (Surat Perintah Mulai Kerja / Surat Perintah Pelaksanaan).
+export interface SpmkSppHistoryItem {
+  alamat_pengiriman: string | null;
+  jabatan_wakil_penyedia: string | null;
+  kota_spmk_spp: string | null;
+  no_spmk_spp: string | null;
+  tgl_mulai_pekerjaan: string | null;
+  tgl_selesai_pekerjaan: string | null;
+  tgl_spmk_spp: string | null;
+  wakil_sah_penyedia: string | null;
+  waktu_penyelesaian: string | null;
+}
+
+export interface PenilaianKinerjaPenyediaItem {
+  indikator_penilaian: string;
+  nilai_indikator: number | null;
+}
+
+export interface NonTenderEkontrakItem {
+  alamat_satker: string;
+  kd_klpd: string;
+  kd_tender: number;
+  tahun_anggaran: number;
+  nama_paket: string;
+  // Ketiga field di bawah selalu array dari API ([] kalau kosong).
+  bapbast_history_json: BapBastHistoryItem[];
+  spmkspp_history_json: SpmkSppHistoryItem[];
+  penilaian_kinerja_penyedia: PenilaianKinerjaPenyediaItem[];
+}
+
+export interface NonTenderEkontrakResponse {
+  success: boolean;
+  data: NonTenderEkontrakItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderEkontrakParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderEkontrak(params: NonTenderEkontrakParams) {
+  const res = await api.get<NonTenderEkontrakResponse>("/inaproc/tender/non-tender-ekontrak", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderEkontrakPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderEkontrak(payload: SyncNonTenderEkontrakPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-ekontrak/sync", payload);
+  return res.data;
+}
