@@ -50,14 +50,14 @@ export default function UsersPage() {
 
   return (
     <div className="w-full space-y-6">
-      <div className="flex items-center justify-between rounded-xl bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-4 rounded-xl bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Manajemen Pengguna</h1>
           <p className="mt-1 text-sm text-slate-500">Kelola akun pengguna PASTI V3</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+          className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
         >
           <UserPlus className="h-4 w-4" />
           Tambah Pengguna
@@ -78,10 +78,10 @@ export default function UsersPage() {
             <thead className="border-b border-slate-200 bg-slate-50">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-slate-600">Nama</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Username</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Role</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Sumber</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
+                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Username</th>
+                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Role</th>
+                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Sumber</th>
+                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Status</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
               </tr>
             </thead>
@@ -97,16 +97,30 @@ export default function UsersPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">{u.email}</p>
+                    <p className="break-all text-xs text-slate-400">{u.email}</p>
+                    {/* Di mobile kolom Username/Role/Sumber/Status disembunyikan; ringkasannya dipindah ke sini. */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">{u.role}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          u.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {u.is_active ? "Aktif" : "Nonaktif"}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        @{u.username} · {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
+                      </span>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{u.username}</td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 text-slate-600 md:table-cell">{u.username}</td>
+                  <td className="hidden px-4 py-3 md:table-cell">
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">{u.role}</span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
+                  <td className="hidden px-4 py-3 text-xs text-slate-500 md:table-cell">
                     {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 md:table-cell">
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                         u.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
@@ -120,7 +134,7 @@ export default function UsersPage() {
                       <button
                         onClick={() => setEditUserId(u.id)}
                         title="Edit"
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                        className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-blue-600 md:p-1.5"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -129,14 +143,14 @@ export default function UsersPage() {
                           <button
                             onClick={() => handleDeactivate(u.id)}
                             title="Nonaktifkan"
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-amber-600"
+                            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-600 md:p-1.5"
                           >
                             <Ban className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(u.id)}
                             title="Hapus"
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 md:p-1.5"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>

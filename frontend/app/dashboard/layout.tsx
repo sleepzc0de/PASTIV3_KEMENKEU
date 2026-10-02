@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { DashboardProvider } from "@/lib/dashboard-context";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
@@ -27,18 +27,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   };
 
+  // Identitas fungsi harus stabil: dipakai sebagai dependency effect di Sidebar.
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
+
   return (
     <DashboardProvider>
-      <div className="flex min-h-screen bg-slate-50">
+      <div className="flex min-h-dvh bg-slate-50">
         <Sidebar
           collapsed={collapsed}
           onToggleCollapse={toggleCollapse}
           mobileOpen={mobileOpen}
-          onCloseMobile={() => setMobileOpen(false)}
+          onCloseMobile={closeMobile}
         />
 
+        {/* min-w-0: supaya konten lebar (mis. tabel) tidak melebarkan halaman di layar kecil. */}
         <div
-          className={`flex min-h-screen w-full flex-1 flex-col transition-all duration-200 ${
+          className={`flex min-h-dvh w-full min-w-0 flex-1 flex-col transition-all duration-200 ${
             mounted ? (collapsed ? "md:pl-[72px]" : "md:pl-64") : ""
           }`}
         >

@@ -1,72 +1,61 @@
 "use client";
 
+import { AlertCircle, RefreshCcw } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
-import { Loader2, Building2, IdCard, BadgeCheck } from "lucide-react";
+import { WelcomeBanner } from "@/components/dashboard/WelcomeBanner";
+import { ProfileCard } from "@/components/dashboard/ProfileCard";
+import { QuickAccess } from "@/components/dashboard/QuickAccess";
+import { SyncActivityCard } from "@/components/dashboard/SyncActivityCard";
 
 export default function DashboardPage() {
-  const { profile, isLoadingProfile } = useDashboard();
+  const { profile, isLoadingProfile, refetchProfile } = useDashboard();
 
   if (isLoadingProfile) {
     return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      <div role="status" aria-label="Memuat dashboard" className="w-full animate-pulse space-y-6">
+        <div className="h-48 rounded-2xl bg-slate-200" />
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="h-80 rounded-xl bg-slate-200" />
+          <div className="h-80 rounded-xl bg-slate-200 xl:col-span-2" />
+        </div>
       </div>
     );
   }
 
+  if (!profile) {
+    return (
+      <div className="flex w-full flex-col items-center gap-3 rounded-xl bg-white px-6 py-16 text-center shadow-sm">
+        <AlertCircle className="h-8 w-8 text-red-500" />
+        <div>
+          <h1 className="text-base font-semibold text-slate-900">Data profil tidak dapat dimuat</h1>
+          <p className="mt-1 text-sm text-slate-500">Periksa koneksi Anda, lalu coba lagi.</p>
+        </div>
+        <button
+          onClick={refetchProfile}
+          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          <RefreshCcw className="h-4 w-4" />
+          Coba Lagi
+        </button>
+      </div>
+    );
+  }
+
+  const isAdmin = ["admin", "superadmin"].includes(profile.role);
+
   return (
     <div className="w-full space-y-6">
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-bold text-slate-900">Dashboard PASTI V3</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Selamat datang kembali,{" "}
-          <span className="font-semibold text-slate-900">{profile?.full_name}</span>
-        </p>
-      </div>
+      <WelcomeBanner profile={profile} />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <InfoCard
-          icon={BadgeCheck}
-          label="Role"
-          value={profile?.role || "-"}
-          color="blue"
-        />
-        {profile?.jabatan && (
-          <InfoCard icon={IdCard} label="Jabatan" value={profile.jabatan} color="purple" />
-        )}
-        {profile?.satker && (
-          <InfoCard icon={Building2} label="Satuan Kerja" value={profile.satker} color="green" />
-        )}
-      </div>
-    </div>
-  );
-}
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-3">
+        <div className="order-last space-y-6 xl:order-none xl:col-span-1">
+          <ProfileCard profile={profile} />
+          {isAdmin && <SyncActivityCard />}
+        </div>
 
-function InfoCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  color: "blue" | "purple" | "green";
-}) {
-  const colorMap = {
-    blue: "bg-blue-50 text-blue-600",
-    purple: "bg-purple-50 text-purple-600",
-    green: "bg-green-50 text-green-600",
-  };
-
-  return (
-    <div className="flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm">
-      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${colorMap[color]}`}>
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">{label}</p>
-        <p className="truncate text-sm font-semibold text-slate-900">{value}</p>
+        <div className="xl:col-span-2">
+          <QuickAccess role={profile.role} />
+        </div>
       </div>
     </div>
   );
