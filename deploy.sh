@@ -2,11 +2,14 @@
 # =============================================================================
 # deploy.sh - Deploy PASTI V3 ke VPS Ubuntu dengan Docker Compose.
 #
-# Jalankan dari folder repo di VPS:
+# Jalankan dari folder repo di VPS. Ada dua environment:
 #
-#   ./deploy.sh                  # tarik kode terbaru dari branch yang sedang aktif, lalu deploy
-#   ./deploy.sh production_v3    # pindah ke branch tertentu, lalu deploy
+#   ./deploy.sh dev     # development  (branch bawaan: development)
+#   ./deploy.sh prod    # production   (branch bawaan: production_v3; https://pasti.kemenkeu.go.id)
+#   ./deploy.sh         # mengulang environment yang sudah tercatat di folder ini
 #   ./deploy.sh --help
+#
+# Satu folder = satu environment. Untuk dev dan prod di server yang sama, clone repo ke dua folder.
 #
 # Yang dilakukan, berurutan:
 #   1. Cek prasyarat (git, curl, Docker + Compose; menawarkan memasang Docker bila belum ada)
@@ -24,7 +27,11 @@
 set -Eeuo pipefail
 
 ORIG_ARGS=("$@")
-TARGET_BRANCH=""
+CLI_ENV=""          # environment dari argumen: dev | prod
+CLI_BRANCH=""       # branch dari --branch (menimpa DEPLOY_BRANCH)
+ENVIRONMENT=""      # environment yang dipakai: dev | prod
+DEPLOY_BRANCH=""    # branch bawaan environment ini (dari deploy.env)
+CONTAINER_PREFIX="pasti"
 NO_PULL=0
 NO_MIGRATE=0
 FORCE=0
@@ -61,25 +68,36 @@ die()  { err "$*"; exit 1; }
 
 usage() {
   cat <<'EOF'
-Pemakaian: ./deploy.sh [branch] [opsi]
+Pemakaian: ./deploy.sh <environment> [opsi]
 
-  branch          (opsional) pindah ke branch ini sebelum deploy. Tanpa ini, memakai
-                  branch yang sedang aktif di server.
+Environment:
+  dev, development   server development (mis. http://IP:3001). Branch bawaan: development
+  prod, production   server production (https://pasti.kemenkeu.go.id). Branch bawaan: production_v3.
+                     Meminta konfirmasi dan memeriksa backend/.env lebih ketat.
+
+Satu folder = satu environment. Folder mengingat environment-nya (ENVIRONMENT di deploy.env),
+jadi setelah deploy pertama cukup ./deploy.sh tanpa argumen. Untuk menjalankan dev DAN prod di
+server yang sama, clone repo ke dua folder berbeda (mis. ~/pasti-dev dan ~/pasti-prod).
 
 Opsi:
+  --branch <nama> deploy dari branch ini, bukan branch bawaan environment
   --no-pull       jangan tarik kode; deploy kode yang ada di server apa adanya
   --no-migrate    lewati migrasi database
   --fresh         build tanpa cache dan tarik base image terbaru (lebih lambat)
   --force         buang perubahan lokal pada file yang dilacak git di server
                   (git reset --hard origin/<branch>). Hati-hati.
-  -y, --yes       jawab "ya" otomatis pada konfirmasi (mis. memasang Docker)
+  -y, --yes       jawab "ya" otomatis pada konfirmasi (termasuk konfirmasi deploy prod)
   -h, --help      tampilkan bantuan ini
 
 Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
-  deploy.env      URL publik backend dan port. Contoh isi:
-                    NEXT_PUBLIC_API_ROOT_URL=http://203.0.113.10:8686
-                    NEXT_PUBLIC_API_URL=http://203.0.113.10:8686/api/v1
-                    BIND_ADDRESS=0.0.0.0     # 127.0.0.1 bila diakses lewat Nginx di server ini
+  deploy.env      environment, branch, URL publik backend, port, dan awalan nama container.
+                  Contoh isi (prod):
+                    ENVIRONMENT=prod
+                    DEPLOY_BRANCH=production_v3
+                    CONTAINER_PREFIX=pasti-prod
+                    NEXT_PUBLIC_API_ROOT_URL=https://pasti.kemenkeu.go.id
+                    NEXT_PUBLIC_API_URL=https://pasti.kemenkeu.go.id/api/v1
+                    BIND_ADDRESS=127.0.0.1     # hanya lewat Nginx/reverse proxy di server ini
                     BACKEND_PORT=8686
                     FRONTEND_PORT=3000
   backend/.env    rahasia aplikasi, koneksi database, SSO, token Inaproc (dibuat dari
@@ -89,9 +107,22 @@ Log setiap deploy ditambahkan ke deploy.log.
 EOF
 }
 
+set_env_arg() {
+  [ -z "$CLI_ENV" ] || [ "$CLI_ENV" = "$1" ] || die "Hanya boleh satu environment (dev atau prod)."
+  CLI_ENV=$1
+}
+
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
+      dev|development) set_env_arg dev ;;
+      prod|production) set_env_arg prod ;;
+      --branch)
+        [ $# -ge 2 ] || die "--branch membutuhkan nama branch."
+        CLI_BRANCH=$2
+        shift
+        ;;
+      --branch=*)   CLI_BRANCH=${1#--branch=} ;;
       --no-pull)    NO_PULL=1 ;;
       --no-migrate) NO_MIGRATE=1 ;;
       --fresh)      FRESH=1 ;;
@@ -99,15 +130,12 @@ parse_args() {
       -y|--yes)     ASSUME_YES=1 ;;
       -h|--help)    usage; exit 0 ;;
       -*)           die "Opsi tidak dikenal: $1 (lihat --help)" ;;
-      *)
-        [ -z "$TARGET_BRANCH" ] || die "Hanya boleh satu nama branch."
-        TARGET_BRANCH="$1"
-        ;;
+      *)            die "Argumen tidak dikenal: '$1'. Environment yang valid: dev atau prod. Untuk memilih branch pakai --branch <nama>." ;;
     esac
     shift
   done
-  if [ -n "$TARGET_BRANCH" ] && ! [[ "$TARGET_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
-    die "Nama branch tidak valid: $TARGET_BRANCH"
+  if [ -n "$CLI_BRANCH" ] && ! [[ "$CLI_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+    die "Nama branch tidak valid: $CLI_BRANCH"
   fi
 }
 
@@ -314,51 +342,128 @@ preflight_system() {
 # ----------------------------------------------------------------------------
 # Tahap 2: konfigurasi
 # ----------------------------------------------------------------------------
-run_wizard() {
-  step "Pengaturan awal (hanya sekali; disimpan di deploy.env)"
-  local ip default_root root bind="0.0.0.0" ans
-  ip=$(primary_ip)
-  default_root="http://${ip}:8686"
+env_label() { if [ "$ENVIRONMENT" = "prod" ]; then printf 'PRODUCTION'; else printf 'DEVELOPMENT'; fi; }
 
-  cat <<EOF
-    Masukkan alamat BACKEND/API yang dibuka oleh browser pengguna (tanpa garis miring
+# Tentukan environment: dari argumen, atau dari deploy.env yang sudah ada. Bila keduanya tidak ada, tanya.
+# Satu folder = satu environment: argumen yang bertentangan dengan deploy.env ditolak, supaya folder dev
+# tidak bisa tidak sengaja men-deploy production (dan sebaliknya).
+resolve_environment() {
+  local file_env="" ans tries=0
+  if [ -f "$DEPLOY_ENV" ]; then
+    file_env=$(env_get "$DEPLOY_ENV" ENVIRONMENT)
+    # deploy.env lama (dibuat sebelum ada pemisahan environment) = development.
+    file_env=${file_env:-dev}
+  fi
+  if [ -n "$CLI_ENV" ] && [ -n "$file_env" ] && [ "$CLI_ENV" != "$file_env" ]; then
+    die "Folder ini sudah dikonfigurasi untuk environment '$file_env', bukan '$CLI_ENV'. Satu folder = satu environment: clone repo ke folder lain untuk '$CLI_ENV'."
+  fi
+  ENVIRONMENT=${CLI_ENV:-$file_env}
+  if [ -z "$ENVIRONMENT" ]; then
+    [ -t 0 ] || die "Sebutkan environment: ./deploy.sh dev  atau  ./deploy.sh prod"
+    while [ -z "$ENVIRONMENT" ] && [ "$tries" -lt 3 ]; do
+      tries=$((tries + 1))
+      read -r -p "    Environment apa yang akan dideploy dari folder ini? [dev/prod]: " ans || ans=""
+      case "$ans" in
+        dev|development) ENVIRONMENT=dev ;;
+        prod|production) ENVIRONMENT=prod ;;
+        *) err "Ketik 'dev' atau 'prod'." ;;
+      esac
+    done
+    [ -n "$ENVIRONMENT" ] || die "Environment belum dipilih."
+  fi
+}
+
+run_wizard() {
+  step "Pengaturan awal $(env_label) (hanya sekali; disimpan di deploy.env)"
+  local ip default_root root bind backend_port frontend_port branch prefix ans
+  ip=$(primary_ip)
+
+  if [ "$ENVIRONMENT" = "prod" ]; then
+    default_root="https://pasti.kemenkeu.go.id"; bind="127.0.0.1"; branch="production_v3"; prefix="pasti-prod"
+    cat <<'EOF'
+    PRODUCTION: alamat harus https. Aplikasi dibuka lewat reverse proxy (Nginx/WAF) yang meneruskan
+    /api, /health, /sso/login, dan /sso/callback/login ke backend, dan sisanya ke frontend.
+    Contoh konfigurasi Nginx: deploy/nginx/pasti.kemenkeu.go.id.conf
+EOF
+  else
+    default_root="http://${ip}:8686"; bind="0.0.0.0"; branch="development"; prefix="pasti"
+    cat <<'EOF'
+    DEVELOPMENT: masukkan alamat BACKEND/API yang dibuka oleh browser pengguna (tanpa garis miring
     di akhir). Alamat ini ditanam ke bundle frontend saat build.
       - Tanpa Nginx, akses langsung ke port : http://<IP-VPS>:8686
-      - Dengan Nginx / domain              : https://pasti.kemenkeu.go.id
+      - Dengan Nginx / domain              : https://pasti-dev.contoh.go.id
 EOF
+  fi
+
   while :; do
-    read -r -p "    Alamat backend [$default_root]: " root || root=""
+    read -r -p "    Alamat backend/API [$default_root]: " root || root=""
     root=${root:-$default_root}
     root=${root%/}
-    if valid_url "$root"; then break; fi
-    err "Format tidak valid. Contoh: http://203.0.113.10:8686 atau https://pasti.kemenkeu.go.id"
+    if ! valid_url "$root"; then
+      err "Format tidak valid. Contoh: http://203.0.113.10:8686 atau https://pasti.kemenkeu.go.id"; continue
+    fi
+    if [ "$ENVIRONMENT" = "prod" ] && [[ $root != https://* ]]; then
+      err "Environment production wajib memakai https://"; continue
+    fi
+    break
   done
 
-  read -r -p "    Apakah aplikasi hanya diakses lewat Nginx di server ini (port dibuka hanya ke 127.0.0.1)? [y/N] " ans || ans=""
-  [[ "$ans" =~ ^[YyJj] ]] && bind="127.0.0.1"
+  while :; do
+    read -r -p "    Port backend di server [8686]: " backend_port || backend_port=""
+    backend_port=${backend_port:-8686}
+    valid_port "$backend_port" && break
+    err "Port tidak valid (1-65535)."
+  done
+  while :; do
+    read -r -p "    Port frontend di server [3000]: " frontend_port || frontend_port=""
+    frontend_port=${frontend_port:-3000}
+    valid_port "$frontend_port" && break
+    err "Port tidak valid (1-65535)."
+  done
+
+  if [ "$ENVIRONMENT" = "prod" ]; then
+    read -r -p "    Diakses lewat Nginx/reverse proxy di server ini (port hanya dibuka ke 127.0.0.1)? [Y/n] " ans || ans=""
+    [[ "$ans" =~ ^[Nn] ]] && bind="0.0.0.0"
+  else
+    read -r -p "    Apakah aplikasi hanya diakses lewat Nginx di server ini (port dibuka hanya ke 127.0.0.1)? [y/N] " ans || ans=""
+    [[ "$ans" =~ ^[YyJj] ]] && bind="127.0.0.1"
+  fi
 
   (
     umask 077   # hanya untuk berkas ini; jangan bocor ke langkah lain (mis. git checkout)
     cat > "$DEPLOY_ENV" <<EOF
 # Dibuat oleh deploy.sh pada $(date '+%F %T'). Aman diedit; jalankan ./deploy.sh lagi setelah mengubahnya.
+# Satu folder = satu environment. Jangan diubah setelah dipakai (untuk environment lain, pakai folder lain).
+ENVIRONMENT=$ENVIRONMENT
+# Branch yang di-deploy (bisa ditimpa sekali jalan dengan --branch).
+DEPLOY_BRANCH=$branch
+# Awalan nama container. Wajib berbeda bila dev dan prod berjalan di server yang sama.
+CONTAINER_PREFIX=$prefix
 # Alamat backend/API yang dibuka BROWSER pengguna. NEXT_PUBLIC_* ditanam ke bundle frontend saat build.
 NEXT_PUBLIC_API_ROOT_URL=$root
 NEXT_PUBLIC_API_URL=$root/api/v1
-# 0.0.0.0 = bisa diakses dari luar server; 127.0.0.1 = hanya lewat Nginx di server ini.
+# 0.0.0.0 = bisa diakses dari luar server; 127.0.0.1 = hanya lewat Nginx/reverse proxy di server ini.
 BIND_ADDRESS=$bind
-BACKEND_PORT=8686
-FRONTEND_PORT=3000
+BACKEND_PORT=$backend_port
+FRONTEND_PORT=$frontend_port
 EOF
   )
   own_file "$DEPLOY_ENV"
-  ok "deploy.env dibuat."
+  ok "deploy.env dibuat untuk environment $(env_label)."
 }
 
 load_deploy_config() {
-  step "Membaca konfigurasi deploy"
+  step "Membaca konfigurasi deploy ($(env_label))"
   if [ ! -f "$DEPLOY_ENV" ]; then
     [ -t 0 ] || die "deploy.env belum ada dan terminal tidak interaktif. Buat dulu manual (contoh isi: ./deploy.sh --help)."
     run_wizard
+  fi
+
+  # deploy.env lama (sebelum ada pemisahan environment): catat environment-nya sekarang.
+  if [ -z "$(env_get "$DEPLOY_ENV" ENVIRONMENT)" ]; then
+    env_set "$DEPLOY_ENV" ENVIRONMENT "$ENVIRONMENT"
+    own_file "$DEPLOY_ENV"
+    log "Environment '$ENVIRONMENT' dicatat di deploy.env."
   fi
 
   API_ROOT_URL=$(env_get "$DEPLOY_ENV" NEXT_PUBLIC_API_ROOT_URL)
@@ -366,15 +471,25 @@ load_deploy_config() {
   BIND_ADDRESS=$(env_get "$DEPLOY_ENV" BIND_ADDRESS); BIND_ADDRESS=${BIND_ADDRESS:-0.0.0.0}
   BACKEND_PORT=$(env_get "$DEPLOY_ENV" BACKEND_PORT); BACKEND_PORT=${BACKEND_PORT:-8686}
   FRONTEND_PORT=$(env_get "$DEPLOY_ENV" FRONTEND_PORT); FRONTEND_PORT=${FRONTEND_PORT:-3000}
+  DEPLOY_BRANCH=$(env_get "$DEPLOY_ENV" DEPLOY_BRANCH)   # kosong (deploy.env lama) = branch yang sedang aktif
+  CONTAINER_PREFIX=$(env_get "$DEPLOY_ENV" CONTAINER_PREFIX)
+  if [ -z "$CONTAINER_PREFIX" ]; then
+    if [ "$ENVIRONMENT" = "prod" ]; then CONTAINER_PREFIX="pasti-prod"; else CONTAINER_PREFIX="pasti"; fi
+  fi
 
   valid_url "$API_ROOT_URL" || die "NEXT_PUBLIC_API_ROOT_URL di deploy.env tidak valid: '$API_ROOT_URL'"
   valid_api_url "$API_URL"  || die "NEXT_PUBLIC_API_URL di deploy.env tidak valid: '$API_URL'"
   valid_port "$BACKEND_PORT"  || die "BACKEND_PORT di deploy.env tidak valid: '$BACKEND_PORT'"
   valid_port "$FRONTEND_PORT" || die "FRONTEND_PORT di deploy.env tidak valid: '$FRONTEND_PORT'"
+  [[ $CONTAINER_PREFIX =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "CONTAINER_PREFIX di deploy.env tidak valid: '$CONTAINER_PREFIX' (huruf kecil, angka, - dan _)"
   [ "$API_URL" = "$API_ROOT_URL/api/v1" ] || warn "NEXT_PUBLIC_API_URL ($API_URL) tidak sama dengan NEXT_PUBLIC_API_ROOT_URL + /api/v1."
+  if [ "$ENVIRONMENT" = "prod" ] && [[ $API_ROOT_URL != https://* ]]; then
+    die "Environment production wajib memakai https:// (NEXT_PUBLIC_API_ROOT_URL sekarang: $API_ROOT_URL)."
+  fi
 
+  ok "Environment: $(env_label)"
   ok "API publik: $API_URL"
-  ok "Port: backend $BACKEND_PORT, frontend $FRONTEND_PORT (bind $BIND_ADDRESS)"
+  ok "Port: backend $BACKEND_PORT, frontend $FRONTEND_PORT (bind $BIND_ADDRESS); container: ${CONTAINER_PREFIX}-backend / ${CONTAINER_PREFIX}-frontend"
 }
 
 create_backend_env() {
@@ -383,15 +498,20 @@ create_backend_env() {
 
   # Contoh FRONTEND_URL: bila alamat backend memakai port (akses langsung), frontend ada di host
   # yang sama dengan port frontend; bila tanpa port (domain/Nginx), alamatnya sama.
-  local scheme host_port host frontend_hint
+  local scheme host_port host frontend_hint app_env sso_env
   scheme=${API_ROOT_URL%%://*}
   host_port=${API_ROOT_URL#*://}
   host=${host_port%%:*}
   if [[ $host_port == *:* ]]; then frontend_hint="${scheme}://${host}:${FRONTEND_PORT}"; else frontend_hint="$API_ROOT_URL"; fi
+  if [ "$ENVIRONMENT" = "prod" ]; then app_env="production"; sso_env="production"; else app_env="development"; sso_env="development"; fi
   (
     umask 077
     cp "$BACKEND_ENV_EXAMPLE" "$BACKEND_ENV"
-    env_set "$BACKEND_ENV" APP_ENV production
+    env_set "$BACKEND_ENV" APP_ENV "$app_env"
+    env_set "$BACKEND_ENV" SSO_ENV "$sso_env"
+    # URL yang sudah diketahui dari deploy.env langsung diisi.
+    env_set "$BACKEND_ENV" FRONTEND_URL "$frontend_hint"
+    env_set "$BACKEND_ENV" SSO_REDIRECT_URI "$API_ROOT_URL/sso/callback/login"
     env_set "$BACKEND_ENV" JWT_SECRET "$(gen_hex 48)"
     env_set "$BACKEND_ENV" PASSWORD_PEPPER "$(gen_hex 48)"
     {
@@ -404,30 +524,44 @@ create_backend_env() {
     } >> "$BACKEND_ENV"
   )
   own_file "$BACKEND_ENV"
-  ok "backend/.env dibuat; JWT_SECRET, PASSWORD_PEPPER, dan TOKEN_ENCRYPTION_KEY sudah diisi acak."
+  ok "backend/.env dibuat untuk $(env_label); JWT_SECRET, PASSWORD_PEPPER, dan TOKEN_ENCRYPTION_KEY sudah diisi acak."
+  ok "Sudah terisi otomatis: APP_ENV=$app_env, SSO_ENV=$sso_env, FRONTEND_URL, SSO_REDIRECT_URI."
 
   cat <<EOF
 
-    backend/.env baru dibuat dan BELUM siap dipakai. Edit dulu nilai berikut, lalu jalankan ulang ./deploy.sh:
+    backend/.env baru dibuat dan BELUM siap dipakai. Isi dulu nilai berikut, lalu jalankan ulang ./deploy.sh:
 
       nano backend/.env
 
       DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME
-          Server SQL Server Anda. Jangan pakai 'localhost' (di dalam container itu artinya
-          container itu sendiri). Pakai IP server database, atau host.docker.internal
-          bila SQL Server berjalan di VPS yang sama.
-      FRONTEND_URL        alamat frontend yang dibuka pengguna, mis. ${frontend_hint}
-      SSO_ENV             production (SSO Kemenkeu asli) atau development (SSO demo)
+          Server SQL Server untuk environment ini (${ENVIRONMENT} sebaiknya memakai database sendiri).
+          Jangan pakai 'localhost' (di dalam container itu artinya container itu sendiri). Pakai IP
+          server database, atau host.docker.internal bila SQL Server berjalan di VPS yang sama.
       SSO_CLIENT_ID / SSO_CLIENT_SECRET
-      SSO_REDIRECT_URI    ${API_ROOT_URL}/sso/callback/login  (harus terdaftar di SSO Kemenkeu)
-      INAPROC_TOKEN       token API Inaproc (kosong = fitur Inaproc nonaktif)
-
+          Kredensial SSO yang sesuai SSO_ENV=${sso_env}. SSO_REDIRECT_URI (${API_ROOT_URL}/sso/callback/login)
+          harus terdaftar di SSO Kemenkeu untuk client tersebut.
+      SSO_SCOPE           bawaan 'openid profile'; tambahkan 'hris2 profil.hris' bila memakai fitur Cari Pegawai (HRIS2)
+      INAPROC_TOKEN       token API Inaproc (kosong = halaman Pengadaan/Tender membalas 503)
 EOF
+  if [ "$ENVIRONMENT" = "prod" ]; then
+    cat <<EOF
+
+      Production memeriksa lebih ketat: SSO_ENV dan APP_ENV harus 'production', FRONTEND_URL dan
+      SSO_REDIRECT_URI harus https://, INAPROC_TOKEN wajib, dan secret SSO tidak boleh sama dengan contoh.
+EOF
+  fi
+  echo
   exit 1
 }
 
+# Mencatat satu temuan: kesalahan di environment prod, peringatan di dev. Memakai variabel lokal
+# errors/warns milik pemanggil (validate_backend_env).
+flag_issue() {
+  if [ "$ENVIRONMENT" = "prod" ]; then errors+=("$1"); else warns+=("$1"); fi
+}
+
 validate_backend_env() {
-  step "Memeriksa backend/.env"
+  step "Memeriksa backend/.env ($(env_label))"
   local errors=() warns=() key val
   local required=(DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET PASSWORD_PEPPER
                   SSO_CLIENT_ID SSO_CLIENT_SECRET SSO_REDIRECT_URI FRONTEND_URL TOKEN_ENCRYPTION_KEY)
@@ -460,22 +594,30 @@ validate_backend_env() {
       errors+=("$key sama dengan contoh di .env.example")
     fi
   done
+  # Di bawah ini, pada environment PROD pelanggaran = kesalahan (deploy dihentikan); pada dev = peringatan.
   if [ -n "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" ] && \
      [ "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" = "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)" ]; then
-    warns+=("SSO_CLIENT_SECRET sama dengan nilai di .env.example (yang tersimpan di git). Pastikan itu memang secret produksi, atau minta penggantian.")
+    flag_issue "SSO_CLIENT_SECRET sama dengan nilai di .env.example (yang tersimpan di git): itu kredensial contoh/demo, bukan secret produksi."
   fi
 
-  [ "$(env_get "$BACKEND_ENV" APP_ENV)" = "production" ] || warns+=("APP_ENV bukan 'production' (Gin berjalan dalam mode debug).")
-  [ "$(env_get "$BACKEND_ENV" SSO_ENV)" = "production" ] || warns+=("SSO_ENV bukan 'production' (memakai SSO demo, bukan SSO Kemenkeu asli).")
-  [ -n "$(env_get "$BACKEND_ENV" INAPROC_TOKEN)" ] || warns+=("INAPROC_TOKEN kosong: fitur Inaproc akan membalas 503.")
+  [ "$(env_get "$BACKEND_ENV" APP_ENV)" = "production" ] || flag_issue "APP_ENV bukan 'production' (Gin berjalan dalam mode debug)."
+  [ "$(env_get "$BACKEND_ENV" SSO_ENV)" = "production" ] || flag_issue "SSO_ENV bukan 'production' (memakai SSO demo, bukan SSO Kemenkeu asli)."
+  [ -n "$(env_get "$BACKEND_ENV" INAPROC_TOKEN)" ] || flag_issue "INAPROC_TOKEN kosong: fitur Inaproc akan membalas 503."
 
   for key in FRONTEND_URL SSO_REDIRECT_URI; do
-    case "$(env_get "$BACKEND_ENV" "$key")" in
-      *localhost*|*127.0.0.1*) warns+=("$key masih menunjuk ke localhost; pengguna di luar server tidak bisa memakainya.") ;;
+    val=$(env_get "$BACKEND_ENV" "$key")
+    case "$val" in
+      *localhost*|*127.0.0.1*) flag_issue "$key masih menunjuk ke localhost; pengguna di luar server tidak bisa memakainya." ;;
     esac
+    if [ "$ENVIRONMENT" = "prod" ] && [ -n "$val" ] && [[ $val != https://* ]]; then
+      errors+=("$key harus diawali https:// pada environment prod (sekarang: $val)")
+    fi
   done
   [ "$(env_get "$BACKEND_ENV" SSO_REDIRECT_URI)" = "$API_ROOT_URL/sso/callback/login" ] \
-    || warns+=("SSO_REDIRECT_URI sebaiknya $API_ROOT_URL/sso/callback/login (sesuai alamat di deploy.env).")
+    || flag_issue "SSO_REDIRECT_URI sebaiknya $API_ROOT_URL/sso/callback/login (sesuai alamat di deploy.env)."
+
+  [ "$(env_get "$BACKEND_ENV" DB_USER)" != "sa" ] \
+    || warns+=("DB_USER=sa (administrator penuh SQL Server). Sebaiknya pakai login khusus aplikasi dengan hak seperlunya.")
 
   # Compose menginterpolasi tanda $ pada nilai env_file (kecuali diapit kutip tunggal);
   # kata sandi berisi $ bisa terpotong. Hanya nama key yang ditampilkan, bukan nilainya.
@@ -511,8 +653,9 @@ sync_code() {
   PREV_COMMIT=$(g rev-parse --short HEAD)
   local current target
   current=$(g rev-parse --abbrev-ref HEAD)
-  target=${TARGET_BRANCH:-$current}
-  [ "$target" != "HEAD" ] || die "Repo dalam keadaan detached HEAD. Beri nama branch: ./deploy.sh <branch>"
+  # Prioritas: --branch, lalu DEPLOY_BRANCH di deploy.env, lalu branch yang sedang aktif (deploy.env lama).
+  target=${CLI_BRANCH:-${DEPLOY_BRANCH:-$current}}
+  [ "$target" != "HEAD" ] || die "Repo dalam keadaan detached HEAD. Beri nama branch: ./deploy.sh <environment> --branch <nama>"
 
   if [ "$NO_PULL" -eq 1 ]; then
     ok "--no-pull: memakai kode di server apa adanya ($current @ $PREV_COMMIT)."
@@ -566,6 +709,27 @@ sync_code() {
 # ----------------------------------------------------------------------------
 # Tahap 4-6: build, migrasi, jalankan, cek kesehatan
 # ----------------------------------------------------------------------------
+# Production butuh persetujuan eksplisit sebelum apa pun dibangun/diubah. Ditanyakan SETELAH kode
+# ditarik dan .env divalidasi, supaya yang ditampilkan adalah persis apa yang akan dideploy.
+confirm_production() {
+  [ "$ENVIRONMENT" = "prod" ] || return 0
+  step "Konfirmasi deploy PRODUCTION"
+  log "Alamat    : $API_ROOT_URL"
+  log "Kode      : $(g rev-parse --abbrev-ref HEAD) @ $(g rev-parse --short HEAD)"
+  log "Database  : $(env_get "$BACKEND_ENV" DB_HOST) / $(env_get "$BACKEND_ENV" DB_NAME)"
+  if [ "$NO_MIGRATE" -eq 0 ]; then
+    warn "Migrasi database akan dijalankan di database production. Pastikan backup database sudah dibuat."
+  fi
+  if [ "$ASSUME_YES" -eq 1 ]; then
+    log "--yes: konfirmasi production dilewati."
+    return 0
+  fi
+  [ -t 0 ] || die "Deploy production membutuhkan konfirmasi interaktif (atau jalankan dengan --yes)."
+  local ans
+  read -r -p "    Ketik 'prod' untuk melanjutkan deploy PRODUCTION: " ans || ans=""
+  [ "$ans" = "prod" ] || die "Dibatalkan. Tidak ada yang diubah di server."
+}
+
 snapshot_images() {
   # Simpan salinan ":rollback" dari image yang sedang dipakai, untuk jaga-jaga.
   ROLLBACK_IMAGES=()
@@ -625,13 +789,32 @@ port_owner() {
   printf '%s' "${owner:-proses tidak dikenal}"
 }
 
+# Container dengan nama yang sama hanya boleh dimiliki folder ini. Bila dev dan prod berjalan di server
+# yang sama, keduanya harus memakai CONTAINER_PREFIX berbeda; tanpa pemeriksaan ini, compose gagal
+# dengan pesan "container name already in use" yang membingungkan.
+check_containers() {
+  local cname owner here
+  here=$(readlink -f "$APP_DIR" 2>/dev/null || echo "$APP_DIR")
+  for cname in "${CONTAINER_PREFIX}-backend" "${CONTAINER_PREFIX}-frontend"; do
+    docker inspect "$cname" >/dev/null 2>&1 || continue          # belum ada: aman
+    owner=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$cname" 2>/dev/null || true)
+    if [ -z "$owner" ]; then
+      die "Container '$cname' sudah ada tetapi bukan dibuat oleh Docker Compose. Hapus dulu (docker rm -f $cname) atau pakai CONTAINER_PREFIX lain di deploy.env. Belum ada yang diubah."
+    fi
+    if [ "$(readlink -f "$owner" 2>/dev/null || echo "$owner")" != "$here" ]; then
+      die "Container '$cname' dimiliki stack di folder lain ($owner), bukan folder ini ($APP_DIR). Bila dev dan prod berjalan di server yang sama, beri CONTAINER_PREFIX berbeda di deploy.env. Belum ada yang diubah."
+    fi
+  done
+}
+
 # Dijalankan SEBELUM mengubah apa pun. Mencegah dua kegagalan yang pernah terjadi di server:
 #  1) port di deploy.env dipakai proses lain -> container lama dihapus lalu yang baru gagal start;
 #  2) port di deploy.env berbeda dari port stack yang sedang berjalan -> pengguna kehilangan akses.
 check_ports() {
-  step "Memeriksa port"
+  step "Memeriksa container dan port"
+  check_containers
   local entry cname cport want label have
-  for entry in "pasti-backend:8686:${BACKEND_PORT}:Backend" "pasti-frontend:3000:${FRONTEND_PORT}:Frontend"; do
+  for entry in "${CONTAINER_PREFIX}-backend:8686:${BACKEND_PORT}:Backend" "${CONTAINER_PREFIX}-frontend:3000:${FRONTEND_PORT}:Frontend"; do
     IFS=: read -r cname cport want label <<<"$entry"
 
     # Port host yang SEKARANG dipakai container ini (kosong bila belum ada / tidak berjalan).
@@ -677,8 +860,8 @@ health_checks() {
   step "Cek kesehatan"
   local host="127.0.0.1"
   case "$BIND_ADDRESS" in 0.0.0.0|127.0.0.1) ;; *) host="$BIND_ADDRESS" ;; esac
-  wait_http "Backend"  pasti-backend  "http://${host}:${BACKEND_PORT}/health" || return 1
-  wait_http "Frontend" pasti-frontend "http://${host}:${FRONTEND_PORT}/login" || return 1
+  wait_http "Backend"  "${CONTAINER_PREFIX}-backend"  "http://${host}:${BACKEND_PORT}/health" || return 1
+  wait_http "Frontend" "${CONTAINER_PREFIX}-frontend" "http://${host}:${FRONTEND_PORT}/login" || return 1
 }
 
 start_stack() {
@@ -707,7 +890,7 @@ rollback() {
     warn "Kode di folder server tetap versi terbaru (yang bermasalah). Perbaiki dulu, push, lalu jalankan ./deploy.sh lagi."
   else
     err "ROLLBACK JUGA GAGAL: aplikasi mungkin TIDAK berjalan sekarang."
-    err "Periksa:  docker compose --env-file deploy.env ps    dan    docker logs pasti-frontend"
+    err "Periksa:  docker compose --env-file deploy.env ps    dan    docker logs ${CONTAINER_PREFIX}-frontend"
     err "Bila pesannya 'address already in use', ubah port di deploy.env lalu: docker compose --env-file deploy.env up -d"
   fi
   return 1
@@ -724,6 +907,7 @@ summary() {
   dc ps 2>/dev/null | sed 's/^/    /' || true
   cat <<EOF
 
+    Environment: $(env_label)
     Kode      : $(g rev-parse --abbrev-ref HEAD) @ $(g rev-parse --short HEAD)
     Aplikasi  : ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}
     API       : ${API_URL}
@@ -745,18 +929,21 @@ main() {
   OWNER_HOME=$(getent passwd "$REPO_OWNER" 2>/dev/null | cut -d: -f6 || true)
   OWNER_HOME=${OWNER_HOME:-$HOME}
 
+  resolve_environment  # dev atau prod: dari argumen atau deploy.env
   setup_logging
   acquire_lock
   trap 'err "Gagal tak terduga di baris $LINENO: $BASH_COMMAND"' ERR
+  step "Environment: $(env_label)"
 
   [ -d "$APP_DIR/.git" ] || die "$APP_DIR bukan repositori git."
   [ -f "$APP_DIR/docker-compose.yml" ] || die "docker-compose.yml tidak ditemukan di $APP_DIR."
 
   preflight_system
   load_deploy_config
-  check_ports          # sebelum mengubah apa pun di server
+  check_ports          # container & port, sebelum mengubah apa pun di server
   sync_code            # setelah ini kode di disk sudah terbaru
   prepare_backend_env  # membuat/validasi backend/.env (bisa berhenti dengan instruksi)
+  confirm_production   # hanya untuk prod
 
   snapshot_images
   build_images
