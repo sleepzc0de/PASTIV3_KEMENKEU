@@ -1,32 +1,24 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  DatabaseZap,
-  Users,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
+  LogOut,
   ShieldCheck,
+  User as UserIcon,
   X,
-  Users2
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
+import { NAV_ENTRIES } from "@/lib/navigation";
+import { ROLE_LABEL } from "@/lib/roles";
 
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ElementType;
-  roles?: string[]; // kalau undefined, terlihat semua role
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Data Aset (SLDK)", href: "/dashboard/assets", icon: DatabaseZap },
-  { label: "Cari Pegawai (HRIS2)", href: "/dashboard/pegawai", icon: Users2, roles: ["admin", "superadmin"] },
-  { label: "Manajemen Pengguna", href: "/dashboard/users", icon: Users, roles: ["admin", "superadmin"] },
-];
+// Sama dengan breakpoint `md` Tailwind: di bawah ini sidebar jadi drawer.
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -37,65 +29,214 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
+  const { logout } = useAuth();
   const { profile } = useDashboard();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const visibleItems = NAV_ITEMS.filter((item) => !item.roles || (profile && item.roles.includes(profile.role)));
+  // Grup yang berisi halaman aktif saat ini (kalau ada).
+  const activeGroupLabel = NAV_ENTRIES.find(
+    (e) => e.type === "group" && e.children.some((c) => pathname === c.href)
+  )?.label;
 
-  const sidebarContent = (
+  // Status buka/tutup disimpan per grup (kunci: label), supaya membuka
+  // "Pengadaan" tidak ikut membuka/menutup "Tender".
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
+    activeGroupLabel ? { [activeGroupLabel]: true } : {}
+  );
+
+  // Auto-expand grup yang berisi halaman aktif, supaya konteks navigasi
+  // tetap terlihat. Hanya membuka; grup lain tidak disentuh.
+  useEffect(() => {
+    if (activeGroupLabel) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroupLabel]: true }));
+    }
+  }, [activeGroupLabel]);
+
+  // Selama drawer mobile terbuka: kunci scroll halaman di belakangnya, tutup
+  // dengan Escape, dan tutup otomatis kalau layar dilebarkan ke ukuran desktop
+  // (kalau tidak, scroll halaman akan tetap terkunci di desktop).
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseMobile();
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    const mq = window.matchMedia(DESKTOP_QUERY);
+    const onBreakpointChange = (e: MediaQueryListEvent) => {
+      if (e.matches) onCloseMobile();
+    };
+    mq.addEventListener("change", onBreakpointChange);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      mq.removeEventListener("change", onBreakpointChange);
+    };
+  }, [mobileOpen, onCloseMobile]);
+
+  const canSee = (roles?: string[]) => !roles || (profile && roles.includes(profile.role));
+
+  const handleGroupClick = (label: string, isCollapsed: boolean) => {
+    // Kalau sidebar sedang diciutkan, buka dulu sidebar-nya supaya
+    // submenu bisa terlihat, baru buka grup yang diklik.
+    if (isCollapsed) {
+      onToggleCollapse();
+      setOpenGroups((prev) => ({ ...prev, [label]: true }));
+      return;
+    }
+    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  };
+
+  // Isi sidebar dipakai dua kali: sidebar tetap di desktop (boleh diciutkan)
+  // dan drawer di mobile (selalu penuh, status `collapsed` desktop diabaikan).
+  const renderSidebar = (isCollapsed: boolean, isMobile: boolean) => (
     <div className="flex h-full flex-col bg-slate-900 text-slate-200">
       {/* Header / Logo */}
-      <div className={`flex items-center gap-2.5 border-b border-slate-800 px-4 py-5 ${collapsed ? "justify-center" : ""}`}>
+      <div className={`flex items-center gap-2.5 border-b border-slate-800 px-4 py-5 ${isCollapsed ? "justify-center" : ""}`}>
         <ShieldCheck className="h-7 w-7 shrink-0 text-blue-400" />
-        {!collapsed && (
+        {!isCollapsed && (
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-white">PASTI V3</p>
             <p className="truncate text-[11px] text-slate-400">Pemantauan Aset Terintegrasi</p>
           </div>
         )}
-        <button
-          onClick={onCloseMobile}
-          className="ml-auto shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white md:hidden"
-        >
-          <X className="h-5 w-5" />
-        </button>
+        {isMobile && (
+          <button
+            ref={closeButtonRef}
+            onClick={onCloseMobile}
+            aria-label="Tutup menu"
+            className="-mr-1 ml-auto shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       {/* Nav Items */}
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
-        {visibleItems.map((item) => {
-          const isActive = pathname === item.href;
-          const Icon = item.icon;
+      <nav aria-label="Menu utama" className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
+        {NAV_ENTRIES.map((entry) => {
+          if (entry.type === "item") {
+            if (!canSee(entry.roles)) return null;
+            const isActive = pathname === entry.href;
+            const Icon = entry.icon;
+            return (
+              <Link
+                key={entry.href}
+                href={entry.href}
+                onClick={onCloseMobile}
+                title={isCollapsed ? entry.label : undefined}
+                aria-current={isActive ? "page" : undefined}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  isActive ? "bg-blue-600 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                } ${isCollapsed ? "justify-center" : ""}`}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && <span className="truncate">{entry.label}</span>}
+              </Link>
+            );
+          }
+
+          // entry.type === "group"
+          if (!canSee(entry.roles)) return null;
+          const GroupIcon = entry.icon;
+          const hasActiveChild = entry.children.some((c) => pathname === c.href);
+          const isOpen = Boolean(openGroups[entry.label]);
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onCloseMobile}
-              title={collapsed ? item.label : undefined}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
-              } ${collapsed ? "justify-center" : ""}`}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </Link>
+            <div key={entry.label}>
+              <button
+                onClick={() => handleGroupClick(entry.label, isCollapsed)}
+                title={isCollapsed ? entry.label : undefined}
+                aria-label={isCollapsed ? entry.label : undefined}
+                aria-expanded={isCollapsed ? undefined : isOpen}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  hasActiveChild && !isOpen
+                    ? "bg-blue-600/20 text-blue-300"
+                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                } ${isCollapsed ? "justify-center" : ""}`}
+              >
+                <GroupIcon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && (
+                  <>
+                    <span className="flex-1 truncate text-left">{entry.label}</span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    />
+                  </>
+                )}
+              </button>
+
+              {!isCollapsed && isOpen && (
+                <div className="mt-1 space-y-0.5 border-l border-slate-800 pl-3.5 ml-3.5">
+                  {entry.children.map((child) => {
+                    const isActive = pathname === child.href;
+                    const ChildIcon = child.icon;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={onCloseMobile}
+                        aria-current={isActive ? "page" : undefined}
+                        className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors md:py-2 ${
+                          isActive ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                        }`}
+                      >
+                        <ChildIcon className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>
 
-      {/* Collapse Toggle (desktop only) */}
-      <div className="hidden border-t border-slate-800 p-2.5 md:block">
-        <button
-          onClick={onToggleCollapse}
-          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white ${
-            collapsed ? "justify-center" : ""
-          }`}
-        >
-          {collapsed ? <ChevronsRight className="h-5 w-5 shrink-0" /> : <ChevronsLeft className="h-5 w-5 shrink-0" />}
-          {!collapsed && <span>Ciutkan Menu</span>}
-        </button>
-      </div>
+      {isMobile ? (
+        /* Akun + Keluar (mobile): di layar kecil Navbar hanya memuat ikon. */
+        <div className="border-t border-slate-800 p-2.5">
+          {profile && (
+            <div className="mb-1 flex items-center gap-3 px-3 py-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600/20 text-blue-300">
+                <UserIcon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{profile.full_name}</p>
+                <p className="truncate text-xs text-slate-400">{ROLE_LABEL[profile.role] || profile.role}</p>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => logout("manual")}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-red-500/10 hover:text-red-300"
+          >
+            <LogOut className="h-5 w-5 shrink-0" />
+            Keluar
+          </button>
+        </div>
+      ) : (
+        /* Collapse Toggle (desktop only) */
+        <div className="border-t border-slate-800 p-2.5">
+          <button
+            onClick={onToggleCollapse}
+            title={isCollapsed ? "Perluas menu" : undefined}
+            aria-label={isCollapsed ? "Perluas menu" : undefined}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white ${
+              isCollapsed ? "justify-center" : ""
+            }`}
+          >
+            {isCollapsed ? <ChevronsRight className="h-5 w-5 shrink-0" /> : <ChevronsLeft className="h-5 w-5 shrink-0" />}
+            {!isCollapsed && <span>Ciutkan Menu</span>}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -107,14 +248,25 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
           collapsed ? "w-[72px]" : "w-64"
         }`}
       >
-        {sidebarContent}
+        {renderSidebar(collapsed, false)}
       </aside>
 
-      {/* Mobile Sidebar (overlay) */}
+      {/* Mobile Sidebar (drawer) */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={onCloseMobile} />
-          <aside className="absolute inset-y-0 left-0 w-64">{sidebarContent}</aside>
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 animate-fade-in bg-black/50 motion-reduce:animate-none"
+            onClick={onCloseMobile}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu navigasi"
+            className="absolute inset-y-0 left-0 w-72 max-w-[85vw] animate-drawer-in shadow-xl motion-reduce:animate-none"
+          >
+            {renderSidebar(false, true)}
+          </aside>
         </div>
       )}
     </>

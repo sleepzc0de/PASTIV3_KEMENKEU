@@ -32,7 +32,7 @@ function LoginErrorBanner() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-dvh">
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br from-blue-700 via-blue-800 to-slate-900 p-12 text-white lg:flex">
         <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-white/5" />
         <div className="absolute -bottom-32 -left-10 h-80 w-80 rounded-full bg-white/5" />
@@ -57,9 +57,14 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="flex w-full flex-col items-center justify-center bg-slate-50 px-6 py-12 lg:w-1/2">
+      <div className="flex w-full flex-col items-center justify-center bg-slate-50 px-6 py-8 sm:py-12 lg:w-1/2">
         <div className="w-full max-w-sm">
           <div className="mb-8 text-center lg:text-left">
+            {/* Panel branding di kiri tersembunyi di bawah lg, jadi tampilkan identitas di sini. */}
+            <div className="mb-6 flex items-center justify-center gap-2 text-lg font-bold text-blue-700 lg:hidden">
+              <ShieldCheck className="h-7 w-7" />
+              PASTI V3
+            </div>
             <h2 className="text-2xl font-bold text-slate-900">Selamat Datang Kembali</h2>
             <p className="mt-1.5 text-sm text-slate-500">
               Masuk ke akun Anda untuk melanjutkan ke dashboard

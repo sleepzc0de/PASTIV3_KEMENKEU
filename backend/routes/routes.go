@@ -44,6 +44,63 @@ func SetupRoutes(r *gin.Engine) {
 			hris2.GET("/pegawai/search", handlers.SearchPegawai)
 			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
 		}
+
+		inaproc := api.Group("/inaproc", middleware.AuthRequired())
+		{
+			inaproc.GET("/rup/history-kaji-ulang", handlers.GetHistoryKajiUlang)
+			inaproc.GET("/rup/history-kaji-ulang/local", handlers.ListLocalKajiUlang)
+			inaproc.POST("/rup/history-kaji-ulang/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncHistoryKajiUlang)
+
+			inaproc.GET("/rup/paket-anggaran-penyedia", handlers.GetPaketAnggaranPenyedia)
+			inaproc.GET("/rup/paket-anggaran-penyedia/local", handlers.ListLocalPaketAnggaran)
+			inaproc.POST("/rup/paket-anggaran-penyedia/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketAnggaranPenyedia)
+
+			inaproc.GET("/rup/paket-penyedia", handlers.GetPaketPenyedia)
+			inaproc.GET("/rup/paket-penyedia/local", handlers.ListLocalPaketPenyedia)
+			inaproc.POST("/rup/paket-penyedia/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketPenyedia)
+
+			inaproc.GET("/rup/paket-swakelola", handlers.GetPaketSwakelola)
+			inaproc.GET("/rup/paket-swakelola/local", handlers.ListLocalPaketSwakelola)
+			inaproc.POST("/rup/paket-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketSwakelola)
+
+			inaproc.GET("/rup/program-master", handlers.GetProgramMaster)
+			inaproc.GET("/rup/program-master/local", handlers.ListLocalProgramMaster)
+			inaproc.POST("/rup/program-master/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncProgramMaster)
+
+			inaproc.GET("/rup/paket-swakelola-terumumkan", handlers.GetPaketSwakelolaTerumumkan)
+			inaproc.GET("/rup/paket-swakelola-terumumkan/local", handlers.ListLocalPaketSwakelolaTerumumkan)
+			inaproc.POST("/rup/paket-swakelola-terumumkan/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketSwakelolaTerumumkan)
+
+			inaproc.GET("/rup/paket-penyedia-terumumkan", handlers.GetPaketPenyediaTerumumkan)
+			inaproc.GET("/rup/paket-penyedia-terumumkan/local", handlers.ListLocalPaketPenyediaTerumumkan)
+			inaproc.POST("/rup/paket-penyedia-terumumkan/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketPenyediaTerumumkan)
+
+			inaproc.GET("/rup/paket-anggaran-swakelola", handlers.GetPaketAnggaranSwakelola)
+			inaproc.GET("/rup/paket-anggaran-swakelola/local", handlers.ListLocalPaketAnggaranSwakelola)
+			inaproc.POST("/rup/paket-anggaran-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPaketAnggaranSwakelola)
+
+			inaproc.GET("/tender/jadwal-tahapan-non-tender", handlers.GetJadwalTahapanNonTender)
+			inaproc.GET("/tender/jadwal-tahapan-non-tender/local", handlers.ListLocalJadwalTahapanNonTender)
+			inaproc.POST("/tender/jadwal-tahapan-non-tender/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncJadwalTahapanNonTender)
+
+			inaproc.GET("/tender/jadwal-tahapan-tender", handlers.GetJadwalTahapanTender)
+			inaproc.GET("/tender/jadwal-tahapan-tender/local", handlers.ListLocalJadwalTahapanTender)
+			inaproc.POST("/tender/jadwal-tahapan-tender/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncJadwalTahapanTender)
+
+			inaproc.GET("/tender/non-tender-ekontrak", handlers.GetNonTenderEkontrak)
+			inaproc.GET("/tender/non-tender-ekontrak/local", handlers.ListLocalNonTenderEkontrak)
+			inaproc.POST("/tender/non-tender-ekontrak/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderEkontrak)
+
+			inaproc.GET("/tender/non-tender-ekontrak-kontrak", handlers.GetNonTenderEkontrakKontrak)
+			inaproc.GET("/tender/non-tender-ekontrak-kontrak/local", handlers.ListLocalNonTenderEkontrakKontrak)
+			inaproc.POST("/tender/non-tender-ekontrak-kontrak/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderEkontrakKontrak)
+
+			inaproc.GET("/tender/non-tender-pengumuman", handlers.GetNonTenderPengumuman)
+			inaproc.GET("/tender/non-tender-pengumuman/local", handlers.ListLocalNonTenderPengumuman)
+			inaproc.POST("/tender/non-tender-pengumuman/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderPengumuman)
+
+			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
+		}
 	}
 
 	r.GET("/health", func(c *gin.Context) {

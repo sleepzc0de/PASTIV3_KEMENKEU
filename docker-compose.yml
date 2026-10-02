@@ -2,11 +2,13 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: pasti-backend
+    # Awalan nama container diatur di deploy.env (CONTAINER_PREFIX). Default tetap "pasti"; dev dan prod
+    # di server yang sama wajib berbeda (mis. pasti dan pasti-prod).
+    container_name: ${CONTAINER_PREFIX:-pasti}-backend
     env_file:
       - ./backend/.env
     ports:
-      - "8686:8686"
+      - "${BIND_ADDRESS:-0.0.0.0}:${BACKEND_PORT:-8686}:8686"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -17,11 +19,13 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8686/api/v1
-        NEXT_PUBLIC_API_ROOT_URL: http://localhost:8686
-    container_name: pasti-frontend
+        # Ditanam ke bundle frontend saat build. Di server, isi lewat deploy.env
+        # (alamat backend yang dibuka browser pengguna); default untuk pengembangan lokal.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8686/api/v1}
+        NEXT_PUBLIC_API_ROOT_URL: ${NEXT_PUBLIC_API_ROOT_URL:-http://localhost:8686}
+    container_name: ${CONTAINER_PREFIX:-pasti}-frontend
     ports:
-      - "3000:3000"
+      - "${BIND_ADDRESS:-0.0.0.0}:${FRONTEND_PORT:-3000}:3000"
     networks:
       - pasti-network
     restart: unless-stopped

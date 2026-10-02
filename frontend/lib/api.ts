@@ -196,3 +196,750 @@ export async function updateUser(userId: string, payload: UpdateUserPayload) {
   const res = await api.put(`/users/${userId}`, payload);
   return res.data;
 }
+
+// ============ Inaproc Integration (RUP - History Kaji Ulang) ============
+
+export interface KajiUlangItem {
+  datamart_id: string;
+  tahun_anggaran: string;
+  kd_klpd: string;
+  nama_klpd: string;
+  jenis_klpd: string;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_satker: string;
+  kd_rup_lama: string;
+  kd_rup_baru: string;
+  jenis_paket: string;
+  jenis_revisi: string;
+  alasan_kajiulang: string;
+  tgl_kaji_ulang: string;
+  _event_date: string;
+  _inserted_date: string;
+}
+
+export interface InaprocMeta {
+  limit: number;
+  has_more: boolean;
+  cursor: string | null;
+}
+
+export interface HistoryKajiUlangResponse {
+  success: boolean;
+  data: KajiUlangItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface HistoryKajiUlangParams {
+  kode_klpd?: string;
+  tahun: number;
+  jenis_paket?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getHistoryKajiUlang(params: HistoryKajiUlangParams) {
+  const res = await api.get<HistoryKajiUlangResponse>("/inaproc/rup/history-kaji-ulang", {
+    params,
+  });
+  return res.data;
+}
+
+// ============ Inaproc Sync ============
+
+export interface SyncKajiUlangPayload {
+  kode_klpd: string;
+  tahun: string;
+  jenis_paket?: string;
+}
+
+export async function syncHistoryKajiUlang(payload: SyncKajiUlangPayload) {
+  const res = await api.post("/inaproc/rup/history-kaji-ulang/sync", payload);
+  return res.data;
+}
+
+export async function listLocalKajiUlang(params: HistoryKajiUlangParams) {
+  const res = await api.get<{ success: boolean; data: { results: Record<string, unknown>[]; count: number } }>(
+    "/inaproc/rup/history-kaji-ulang/local",
+    { params }
+  );
+  return res.data;
+}
+
+export async function getInaprocSyncLog() {
+  const res = await api.get<{ success: boolean; data: Record<string, unknown>[] }>("/inaproc/sync-log");
+  return res.data;
+}
+
+// ============ Inaproc - Paket Anggaran Penyedia ============
+
+export interface PaketAnggaranItem {
+  asal_dana: string;
+  asal_dana_klpd: string;
+  asal_dana_satker: string;
+  jenis_klpd: string;
+  kd_kegiatan: number;
+  kd_klpd: string;
+  kd_komponen: number;
+  kd_rup: number;
+  kd_rup_lokal: number;
+  kd_satker: number;
+  kd_satker_str: string;
+  kd_subkegiatan: number;
+  mak: string;
+  nama_klpd: string;
+  nama_satker: string;
+  pagu: number;
+  status_aktif_rup: boolean;
+  status_delete_rup: boolean;
+  status_umumkan_rup: string;
+  sumber_dana: string;
+  tahun_anggaran: number;
+  tahun_anggaran_dana: number;
+}
+
+export interface PaketAnggaranResponse {
+  success: boolean;
+  data: PaketAnggaranItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketAnggaranParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketAnggaranPenyedia(params: PaketAnggaranParams) {
+  const res = await api.get<PaketAnggaranResponse>("/inaproc/rup/paket-anggaran-penyedia", { params });
+  return res.data;
+}
+
+export interface SyncPaketAnggaranPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketAnggaranPenyedia(payload: SyncPaketAnggaranPayload) {
+  const res = await api.post("/inaproc/rup/paket-anggaran-penyedia/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Paket Penyedia ============
+
+export interface PaketPenyediaItem {
+  datamart_id?: string;
+  tahun_anggaran: string;
+  kd_klpd: string;
+  nama_klpd: string;
+  kd_satker: string;
+  nama_satker: string;
+  kd_rup: string;
+  nama_paket: string;
+  pagu: string;
+  metode_pengadaan: string;
+  jenis_pengadaan: string;
+  status_umumkan_rup: string;
+  nama_ppk: string;
+  tgl_awal_pemilihan: string;
+  tgl_akhir_pemilihan: string;
+}
+
+export interface PaketPenyediaResponse {
+  success: boolean;
+  data: PaketPenyediaItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketPenyediaParams {
+  kode_klpd?: string;
+  tahun: number;
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketPenyedia(params: PaketPenyediaParams) {
+  const res = await api.get<PaketPenyediaResponse>("/inaproc/rup/paket-penyedia", { params });
+  return res.data;
+}
+
+export interface SyncPaketPenyediaPayload {
+  kode_klpd: string;
+  tahun: string;
+  status?: string;
+}
+
+export async function syncPaketPenyedia(payload: SyncPaketPenyediaPayload) {
+  const res = await api.post("/inaproc/rup/paket-penyedia/sync", payload);
+  return res.data;
+}
+// ============ Inaproc - Paket Swakelola ============
+
+export interface PaketSwakelolaItem {
+  kd_klpd: string;
+  kd_satker: number;
+  kd_rup: number;
+  nama_klpd: string;
+  nama_satker: string;
+  nama_paket: string;
+  tahun_anggaran: number;
+  status: string;
+}
+
+export interface PaketSwakelolaResponse {
+  success: boolean;
+  data: PaketSwakelolaItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketSwakelolaParams {
+  kode_klpd?: string;
+  tahun: number;
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketSwakelola(params: PaketSwakelolaParams) {
+  const res = await api.get<PaketSwakelolaResponse>("/inaproc/rup/paket-swakelola", { params });
+  return res.data;
+}
+
+export interface SyncPaketSwakelolaPayload {
+  kode_klpd: string;
+  tahun: string;
+  status?: string;
+}
+
+export async function syncPaketSwakelola(payload: SyncPaketSwakelolaPayload) {
+  const res = await api.post("/inaproc/rup/paket-swakelola/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Program Master ============
+
+export interface ProgramMasterItem {
+  is_deleted: boolean;
+  jenis_klpd: string;
+  kd_klpd: string;
+  kd_program: number;
+  kd_program_lokal: number;
+  kd_program_str: string;
+  kd_satker: number;
+  nama_klpd: string;
+  nama_program: string;
+  pagu_program: number;
+  tahun_anggaran: number;
+}
+
+export interface ProgramMasterResponse {
+  success: boolean;
+  data: ProgramMasterItem[] | null;
+  meta?: InaprocMeta;
+}
+
+export interface ProgramMasterParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getProgramMaster(params: ProgramMasterParams) {
+  const res = await api.get<ProgramMasterResponse>("/inaproc/rup/program-master", { params });
+  return res.data;
+}
+
+export interface SyncProgramMasterPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncProgramMaster(payload: SyncProgramMasterPayload) {
+  const res = await api.post("/inaproc/rup/program-master/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Paket Swakelola Terumumkan ============
+
+export interface PaketSwakelolaTerumumkanItem {
+  jenis_klpd: string;
+  kd_klpd: string;
+  kd_rup: number;
+  kd_satker: number;
+  nama_klpd: string;
+  nama_paket: string;
+  nama_ppk: string;
+  nama_satker: string;
+  nip_ppk: string;
+  pagu: number;
+  status_aktif_rup: boolean;
+  status_umumkan_rup: string;
+  tahun_anggaran: number;
+  tgl_awal_pelaksanaan_kontrak: string;
+  tgl_akhir_pelaksanaan_kontrak: string;
+  volume_pekerjaan: string;
+}
+
+export interface PaketSwakelolaTerumumkanResponse {
+  success: boolean;
+  data: PaketSwakelolaTerumumkanItem[] | null;
+  meta?: InaprocMeta;
+}
+
+export interface PaketSwakelolaTerumumkanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketSwakelolaTerumumkan(params: PaketSwakelolaTerumumkanParams) {
+  const res = await api.get<PaketSwakelolaTerumumkanResponse>("/inaproc/rup/paket-swakelola-terumumkan", { params });
+  return res.data;
+}
+
+export interface SyncPaketSwakelolaTerumumkanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketSwakelolaTerumumkan(payload: SyncPaketSwakelolaTerumumkanPayload) {
+  const res = await api.post("/inaproc/rup/paket-swakelola-terumumkan/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Paket Penyedia Terumumkan ============
+
+export interface PaketPenyediaTerumumkanItem {
+  kd_klpd: string;
+  nama_klpd: string;
+  kd_satker: number;
+  nama_satker: string;
+  kd_rup: number;
+  nama_paket: string;
+  pagu: number;
+  metode_pengadaan: string;
+  jenis_pengadaan: string;
+  status_umumkan_rup: string;
+  nama_ppk: string;
+  tahun_anggaran: number;
+  tgl_awal_pemilihan: string;
+  tgl_akhir_pemilihan: string;
+}
+
+export interface PaketPenyediaTerumumkanResponse {
+  success: boolean;
+  data: PaketPenyediaTerumumkanItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketPenyediaTerumumkanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketPenyediaTerumumkan(params: PaketPenyediaTerumumkanParams) {
+  const res = await api.get<PaketPenyediaTerumumkanResponse>("/inaproc/rup/paket-penyedia-terumumkan", { params });
+  return res.data;
+}
+
+export interface SyncPaketPenyediaTerumumkanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketPenyediaTerumumkan(payload: SyncPaketPenyediaTerumumkanPayload) {
+  const res = await api.post("/inaproc/rup/paket-penyedia-terumumkan/sync", payload);
+  return res.data;
+}
+
+
+// ============ Inaproc - Paket Anggaran Swakelola ============
+
+export interface PaketAnggaranSwakelolaItem {
+  asal_dana: string;
+  asal_dana_klpd: string;
+  asal_dana_satker: string;
+  jenis_klpd: string;
+  kd_kegiatan: number;
+  kd_klpd: string;
+  kd_komponen: number;
+  kd_rup: number;
+  kd_rup_lokal: number;
+  kd_satker: number;
+  kd_satker_str: string;
+  kd_subkegiatan: number;
+  mak: string;
+  nama_klpd: string;
+  nama_satker: string;
+  pagu: number;
+  status_aktif_rup: boolean;
+  status_delete_rup: boolean;
+  status_umumkan_rup: string;
+  sumber_dana: string;
+  tahun_anggaran: number;
+  tahun_anggaran_dana: number;
+}
+
+export interface PaketAnggaranSwakelolaResponse {
+  success: boolean;
+  data: PaketAnggaranSwakelolaItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface PaketAnggaranSwakelolaParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getPaketAnggaranSwakelola(params: PaketAnggaranSwakelolaParams) {
+  const res = await api.get<PaketAnggaranSwakelolaResponse>("/inaproc/rup/paket-anggaran-swakelola", { params });
+  return res.data;
+}
+
+export interface SyncPaketAnggaranSwakelolaPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncPaketAnggaranSwakelola(payload: SyncPaketAnggaranSwakelolaPayload) {
+  const res = await api.post("/inaproc/rup/paket-anggaran-swakelola/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Tender: Jadwal Tahapan Non Tender ============
+
+export interface JadwalTahapanNonTenderItem {
+  kd_akt: number;
+  kd_klpd: string;
+  kd_nontender: number;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_akt: string;
+  nama_tahapan: string;
+  tahun_anggaran: number;
+  tgl_akhir: string;
+  tgl_awal: string;
+}
+
+export interface JadwalTahapanNonTenderResponse {
+  success: boolean;
+  data: JadwalTahapanNonTenderItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface JadwalTahapanNonTenderParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getJadwalTahapanNonTender(params: JadwalTahapanNonTenderParams) {
+  const res = await api.get<JadwalTahapanNonTenderResponse>("/inaproc/tender/jadwal-tahapan-non-tender", { params });
+  return res.data;
+}
+
+export interface SyncJadwalTahapanNonTenderPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncJadwalTahapanNonTender(payload: SyncJadwalTahapanNonTenderPayload) {
+  const res = await api.post("/inaproc/tender/jadwal-tahapan-non-tender/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Tender: Jadwal Tahapan Tender ============
+
+export interface JadwalTahapanTenderItem {
+  kd_akt: number;
+  kd_klpd: string;
+  kd_tender: number;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_akt: string;
+  nama_tahapan: string;
+  tahun_anggaran: number;
+  tgl_akhir: string;
+  tgl_awal: string;
+}
+
+export interface JadwalTahapanTenderResponse {
+  success: boolean;
+  data: JadwalTahapanTenderItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface JadwalTahapanTenderParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getJadwalTahapanTender(params: JadwalTahapanTenderParams) {
+  const res = await api.get<JadwalTahapanTenderResponse>("/inaproc/tender/jadwal-tahapan-tender", { params });
+  return res.data;
+}
+
+export interface SyncJadwalTahapanTenderPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncJadwalTahapanTender(payload: SyncJadwalTahapanTenderPayload) {
+  const res = await api.post("/inaproc/tender/jadwal-tahapan-tender/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Tender: Non Tender E-Kontrak ============
+
+// Riwayat BAP/BAST (Berita Acara Pembayaran / Serah Terima).
+export interface BapBastHistoryItem {
+  besar_pembayaran: number | null;
+  jabatan_penandatangan_sk: string | null;
+  jabatan_wakil_penyedia: string | null;
+  no_bap: string | null;
+  no_bast: string | null;
+  progres_pekerjaan: number | null;
+  tgl_bap: string | null;
+  tgl_bast: string | null;
+  wakil_sah_penyedia: string | null;
+}
+
+// Riwayat SPMK/SPP (Surat Perintah Mulai Kerja / Surat Perintah Pelaksanaan).
+export interface SpmkSppHistoryItem {
+  alamat_pengiriman: string | null;
+  jabatan_wakil_penyedia: string | null;
+  kota_spmk_spp: string | null;
+  no_spmk_spp: string | null;
+  tgl_mulai_pekerjaan: string | null;
+  tgl_selesai_pekerjaan: string | null;
+  tgl_spmk_spp: string | null;
+  wakil_sah_penyedia: string | null;
+  waktu_penyelesaian: string | null;
+}
+
+export interface PenilaianKinerjaPenyediaItem {
+  indikator_penilaian: string;
+  nilai_indikator: number | null;
+}
+
+export interface NonTenderEkontrakItem {
+  alamat_satker: string;
+  kd_klpd: string;
+  kd_tender: number;
+  tahun_anggaran: number;
+  nama_paket: string;
+  // Ketiga field di bawah selalu array dari API ([] kalau kosong).
+  bapbast_history_json: BapBastHistoryItem[];
+  spmkspp_history_json: SpmkSppHistoryItem[];
+  penilaian_kinerja_penyedia: PenilaianKinerjaPenyediaItem[];
+}
+
+export interface NonTenderEkontrakResponse {
+  success: boolean;
+  data: NonTenderEkontrakItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderEkontrakParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderEkontrak(params: NonTenderEkontrakParams) {
+  const res = await api.get<NonTenderEkontrakResponse>("/inaproc/tender/non-tender-ekontrak", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderEkontrakPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderEkontrak(payload: SyncNonTenderEkontrakPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-ekontrak/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Tender: Non Tender E-Kontrak Kontrak ============
+
+export interface NonTenderEkontrakKontrakItem {
+  // Satker & KLPD
+  kd_klpd: string;
+  jenis_klpd: string | null;
+  nama_klpd: string | null;
+  kd_lpse: number | null;
+  kd_satker: string | null;
+  kd_satker_str: string | null;
+  nama_satker: string | null;
+  alamat_satker: string | null;
+
+  // Paket
+  kd_nontender: number;
+  tahun_anggaran: number;
+  nama_paket: string | null;
+  mtd_pengadaan: string | null;
+  lingkup_pekerjaan: string | null;
+  informasi_lainnya: string | null;
+
+  // Kontrak
+  no_kontrak: string | null;
+  no_sppbj: string | null;
+  jenis_kontrak: string | null;
+  status_kontrak: string | null;
+  kota_kontrak: string | null;
+  tgl_kontrak: string | null;
+  tgl_kontrak_awal: string | null;
+  tgl_kontrak_akhir: string | null;
+  tgl_penetapan_status_kontrak: string | null;
+  alasan_penetapan_status_kontrak: string | null;
+  apakah_addendum: string | null;
+  versi_addendum: number | null;
+  alasan_addendum: string | null;
+
+  // Nilai
+  nilai_kontrak: number | null;
+  nilai_pdn_kontrak: number | null;
+  nilai_umk_kontrak: number | null;
+  alasan_ubah_nilai_kontrak: string | null;
+  alasan_nilai_kontrak_10_persen: string | null;
+
+  // PPK
+  nama_ppk: string | null;
+  nip_ppk: string | null;
+  jabatan_ppk: string | null;
+  no_sk_ppk: string | null;
+
+  // Penyedia
+  nama_penyedia: string | null;
+  bentuk_usaha_penyedia: string | null;
+  tipe_penyedia: string | null;
+  npwp_penyedia: string | null;
+  npwp16_penyedia: string | null;
+  wakil_sah_penyedia: string | null;
+  jabatan_wakil_penyedia: string | null;
+  anggota_kso: string | null;
+  nama_rek_bank: string | null;
+  no_rek_bank: string | null;
+  nama_pemilik_rek_bank: string | null;
+}
+
+export interface NonTenderEkontrakKontrakResponse {
+  success: boolean;
+  data: NonTenderEkontrakKontrakItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderEkontrakKontrakParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderEkontrakKontrak(params: NonTenderEkontrakKontrakParams) {
+  const res = await api.get<NonTenderEkontrakKontrakResponse>("/inaproc/tender/non-tender-ekontrak-kontrak", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderEkontrakKontrakPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderEkontrakKontrak(payload: SyncNonTenderEkontrakKontrakPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-ekontrak-kontrak/sync", payload);
+  return res.data;
+}
+
+// ============ Inaproc - Tender: Non Tender Pengumuman ============
+
+export interface NonTenderPengumumanItem {
+  // Satker & KLPD
+  kd_klpd: string;
+  jenis_klpd: string | null;
+  nama_klpd: string | null;
+  kd_satker: string | null;
+  kd_satker_str: string | null;
+  nama_satker: string | null;
+
+  // LPSE
+  kd_lpse: number | null;
+  nama_lpse: string | null;
+  url_lpse: string | null;
+
+  // Paket
+  kd_nontender: number;
+  kd_pkt_dce: number | null;
+  lls_id: number | null;
+  kd_rup: string | null;
+  tahun_anggaran: number;
+  nama_paket: string | null;
+  jenis_pengadaan: string | null;
+  kualifikasi_paket: string | null;
+  kontrak_pembayaran: string | null;
+  mtd_pemilihan: string | null;
+  sumber_dana: string | null;
+  mak: string | null;
+  repeat_order: string | null;
+  versi_nontender: number | null;
+
+  // Nilai
+  pagu: number | null;
+  hps: number | null;
+
+  // Status
+  status_nontender: string | null;
+  ket_ditutup: string | null;
+  ket_diulang: string | null;
+
+  // Pelaksana
+  nip_nama_ppk: string | null;
+  nip_nama_pp: string | null;
+  nip_nama_pokja: string | null;
+
+  // Tanggal
+  tgl_buat_paket: string | null;
+  tgl_kolektif_kolegial: string | null;
+  tgl_pengumuman_nontender: string | null;
+}
+
+export interface NonTenderPengumumanResponse {
+  success: boolean;
+  data: NonTenderPengumumanItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderPengumumanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderPengumuman(params: NonTenderPengumumanParams) {
+  const res = await api.get<NonTenderPengumumanResponse>("/inaproc/tender/non-tender-pengumuman", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderPengumumanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderPengumuman(payload: SyncNonTenderPengumumanPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-pengumuman/sync", payload);
+  return res.data;
+}

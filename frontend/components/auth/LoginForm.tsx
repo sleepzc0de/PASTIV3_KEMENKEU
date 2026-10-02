@@ -114,7 +114,7 @@ export function LoginForm() {
       </form>
 
       {showForgotPasswordInfo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">

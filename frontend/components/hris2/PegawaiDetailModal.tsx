@@ -68,7 +68,7 @@ export function PegawaiDetailModal({ nip, onClose }: PegawaiDetailModalProps) {
   const gravatar = profile?.gravatar as string | undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-base font-semibold text-slate-900">Detail Profil Pegawai</h2>

@@ -1,0 +1,3 @@
+# Skrip shell harus selalu berakhiran baris LF, termasuk saat di-checkout di Windows;
+# CRLF membuat bash di server gagal membaca skrip ("bad interpreter" / "\r: command not found").
+*.sh text eol=lf
