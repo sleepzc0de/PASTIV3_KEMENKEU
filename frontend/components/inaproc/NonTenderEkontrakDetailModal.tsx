@@ -45,8 +45,11 @@ export function NonTenderEkontrakDetailModal({ item, onClose }: NonTenderEkontra
   const spmkSpp = item.spmkspp_history_json ?? [];
   const penilaian = item.penilaian_kinerja_penyedia ?? [];
 
+  // `!mt-0`: modal dirender di dalam wadah `space-y-*`, yang memberi margin-top pada
+  // setiap anaknya. Untuk elemen `fixed inset-0`, margin itu menggeser overlay ke bawah
+  // sehingga bagian paling atas layar tidak tertutup (muncul "celah").
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
       <div
         role="dialog"
         aria-modal="true"
