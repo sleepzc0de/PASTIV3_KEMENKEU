@@ -11,12 +11,13 @@ import (
 	"pasti-v3-backend/config"
 )
 
-// allowedOrigins: daftar bawaan ditambah FRONTEND_URL dari .env, supaya frontend di
-// server (IP atau domain berapa pun) bisa memanggil API tanpa mengubah kode.
+// allowedOrigins: FRONTEND_URL dari .env, supaya frontend di server (IP atau domain berapa pun)
+// bisa memanggil API tanpa mengubah kode. Origin pengembangan (localhost dan server dev) hanya
+// diizinkan di luar production, karena CORS di sini memakai AllowCredentials.
 func allowedOrigins() []string {
-	origins := []string{
-		"http://localhost:3000",
-		"http://10.216.78.48:3001",
+	var origins []string
+	if config.Cfg.AppEnv != "production" {
+		origins = append(origins, "http://localhost:3000", "http://10.216.78.48:3001")
 	}
 	if u := strings.TrimRight(strings.TrimSpace(config.Cfg.FrontendURL), "/"); u != "" && !slices.Contains(origins, u) {
 		origins = append(origins, u)
