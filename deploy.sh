@@ -608,15 +608,63 @@ run_migrations() {
 
 container_state() { docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo "tidak-ada"; }
 
-wait_http() {  # wait_http NAMA CONTAINER URL
-  local name=$1 container=$2 url=$3 elapsed=0
-  while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
-    if curl -fsS -m 5 -o /dev/null "$url" 2>/dev/null; then
-      ok "$name sehat ($url)"
-      return 0
+# Port host yang sedang didengarkan proses apa pun (ss bila ada, selain itu uji koneksi).
+port_in_use() {
+  if command -v ss >/dev/null 2>&1; then
+    [ -n "$(ss -H -ltn "sport = :$1" 2>/dev/null)" ]
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  fi
+}
+
+port_owner() {
+  local owner=""
+  if command -v ss >/dev/null 2>&1; then
+    owner=$(ss -H -ltnp "sport = :$1" 2>/dev/null | awk '{print $NF}' | head -1)
+  fi
+  printf '%s' "${owner:-proses tidak dikenal}"
+}
+
+# Dijalankan SEBELUM mengubah apa pun. Mencegah dua kegagalan yang pernah terjadi di server:
+#  1) port di deploy.env dipakai proses lain -> container lama dihapus lalu yang baru gagal start;
+#  2) port di deploy.env berbeda dari port stack yang sedang berjalan -> pengguna kehilangan akses.
+check_ports() {
+  step "Memeriksa port"
+  local entry cname cport want label have
+  for entry in "pasti-backend:8686:${BACKEND_PORT}:Backend" "pasti-frontend:3000:${FRONTEND_PORT}:Frontend"; do
+    IFS=: read -r cname cport want label <<<"$entry"
+
+    # Port host yang SEKARANG dipakai container ini (kosong bila belum ada / tidak berjalan).
+    have=$(docker port "$cname" "$cport/tcp" 2>/dev/null | head -1 | sed 's/.*://' || true)
+
+    if [ -n "$have" ] && [ "$have" != "$want" ]; then
+      warn "$label sekarang berjalan di port $have, tetapi deploy.env mengatur port $want. Pengguna yang memakai port $have akan kehilangan akses."
+      confirm "Tetap pindah ke port $want?" n \
+        || die "Dibatalkan. Samakan port di deploy.env dengan yang sedang dipakai ($have), lalu jalankan ulang."
     fi
-    case "$(container_state "$container")" in
-      restarting|exited|dead) err "$name berhenti/crash-loop (status: $(container_state "$container"))."; return 1 ;;
+
+    if [ "$have" != "$want" ] && port_in_use "$want"; then
+      die "Port $want ($label) sudah dipakai $(port_owner "$want"). Ubah port di deploy.env, atau hentikan proses itu. Belum ada yang diubah di server."
+    fi
+    ok "$label: port $want siap"
+  done
+}
+
+wait_http() {  # wait_http NAMA CONTAINER URL
+  local name=$1 container=$2 url=$3 elapsed=0 state
+  while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
+    state=$(container_state "$container")
+    case "$state" in
+      running)
+        # Hanya sehat bila container KITA berjalan: kalau tidak, proses lain yang kebetulan
+        # memakai port yang sama bisa membuat cek ini lolos secara keliru.
+        if curl -fsS -m 5 -o /dev/null "$url" 2>/dev/null; then
+          ok "$name sehat ($url)"
+          return 0
+        fi
+        ;;
+      restarting) err "$name restart berulang (crash-loop)."; return 1 ;;
+      exited|dead|created|tidak-ada) err "$name tidak berjalan (status container $container: $state)."; return 1 ;;
     esac
     sleep 3
     elapsed=$((elapsed + 3))
@@ -652,13 +700,15 @@ rollback() {
     repo=${img%%:*}
     docker tag "$repo:rollback" "$img"
   done
-  dc up -d --no-build --force-recreate
-  if health_checks; then
+  # Dinyatakan berhasil hanya bila container naik DAN cek kesehatan lolos.
+  if dc up -d --no-build --force-recreate && health_checks; then
     warn "Aplikasi dipulihkan ke versi sebelumnya (kode: $PREV_COMMIT)."
     warn "Catatan: migrasi database yang sudah diterapkan TIDAK ikut dibatalkan (hanya menambah tabel/kolom, aman untuk versi lama)."
     warn "Kode di folder server tetap versi terbaru (yang bermasalah). Perbaiki dulu, push, lalu jalankan ./deploy.sh lagi."
   else
-    err "Rollback pun gagal. Periksa: docker compose logs"
+    err "ROLLBACK JUGA GAGAL: aplikasi mungkin TIDAK berjalan sekarang."
+    err "Periksa:  docker compose --env-file deploy.env ps    dan    docker logs pasti-frontend"
+    err "Bila pesannya 'address already in use', ubah port di deploy.env lalu: docker compose --env-file deploy.env up -d"
   fi
   return 1
 }
@@ -704,6 +754,7 @@ main() {
 
   preflight_system
   load_deploy_config
+  check_ports          # sebelum mengubah apa pun di server
   sync_code            # setelah ini kode di disk sudah terbaru
   prepare_backend_env  # membuat/validasi backend/.env (bisa berhenti dengan instruksi)
 
