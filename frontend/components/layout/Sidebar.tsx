@@ -24,6 +24,7 @@ import {
   X,
   Gavel,
   CalendarClock,
+  CalendarRange,
 } from "lucide-react";
 import { useDashboard } from "@/lib/dashboard-context";
 
@@ -69,6 +70,7 @@ const NAV_ENTRIES: NavEntry[] = [
     icon: Gavel,
     children: [
       { label: "Jadwal Non Tender", href: "/dashboard/tender/jadwal-non-tender", icon: CalendarClock },
+      { label: "Jadwal Tender", href: "/dashboard/tender/jadwal-tender", icon: CalendarRange },
     ],
   },
   { type: "item", label: "Cari Pegawai (HRIS2)", href: "/dashboard/pegawai", icon: Users2, roles: ["admin", "superadmin"] },

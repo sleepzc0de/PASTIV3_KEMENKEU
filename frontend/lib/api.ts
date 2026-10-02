@@ -656,3 +656,46 @@ export async function syncJadwalTahapanNonTender(payload: SyncJadwalTahapanNonTe
   const res = await api.post("/inaproc/tender/jadwal-tahapan-non-tender/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Tender: Jadwal Tahapan Tender ============
+
+export interface JadwalTahapanTenderItem {
+  kd_akt: number;
+  kd_klpd: string;
+  kd_tender: number;
+  kd_satker: string;
+  kd_satker_str: string;
+  nama_akt: string;
+  nama_tahapan: string;
+  tahun_anggaran: number;
+  tgl_akhir: string;
+  tgl_awal: string;
+}
+
+export interface JadwalTahapanTenderResponse {
+  success: boolean;
+  data: JadwalTahapanTenderItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface JadwalTahapanTenderParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getJadwalTahapanTender(params: JadwalTahapanTenderParams) {
+  const res = await api.get<JadwalTahapanTenderResponse>("/inaproc/tender/jadwal-tahapan-tender", { params });
+  return res.data;
+}
+
+export interface SyncJadwalTahapanTenderPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncJadwalTahapanTender(payload: SyncJadwalTahapanTenderPayload) {
+  const res = await api.post("/inaproc/tender/jadwal-tahapan-tender/sync", payload);
+  return res.data;
+}
