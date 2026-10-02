@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { X, MapPin, FileText, Banknote, Building2, UserRound, Info } from "lucide-react";
 import { NonTenderEkontrakKontrakItem } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/format";
-import { DetailEntry, DetailField } from "@/components/inaproc/DetailEntry";
+import { DetailGroup, DetailField } from "@/components/inaproc/DetailEntry";
 
 interface NonTenderEkontrakKontrakDetailModalProps {
   item: NonTenderEkontrakKontrakItem;
@@ -119,27 +119,13 @@ export function NonTenderEkontrakKontrakDetailModal({ item, onClose }: NonTender
             )}
           </div>
 
-          <Group icon={FileText} title="Kontrak" fields={kontrak} />
-          <Group icon={Banknote} title="Nilai Kontrak" fields={nilai} />
-          <Group icon={Building2} title="Penyedia" fields={penyedia} />
-          <Group icon={UserRound} title="Pejabat Pembuat Komitmen (PPK)" fields={ppk} />
-          <Group icon={Info} title="Informasi Lainnya" fields={lainnya} />
+          <DetailGroup icon={FileText} title="Kontrak" fields={kontrak} />
+          <DetailGroup icon={Banknote} title="Nilai Kontrak" fields={nilai} />
+          <DetailGroup icon={Building2} title="Penyedia" fields={penyedia} />
+          <DetailGroup icon={UserRound} title="Pejabat Pembuat Komitmen (PPK)" fields={ppk} />
+          <DetailGroup icon={Info} title="Informasi Lainnya" fields={lainnya} />
         </div>
       </div>
     </div>
-  );
-}
-
-// Satu kelompok field; seluruh kelompok disembunyikan kalau semua nilainya kosong.
-function Group({ icon: Icon, title, fields }: { icon: React.ElementType; title: string; fields: DetailField[] }) {
-  if (!fields.some(([, value]) => value)) return null;
-  return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-        <Icon className="h-4 w-4" />
-        {title}
-      </h3>
-      <DetailEntry fields={fields} />
-    </section>
   );
 }

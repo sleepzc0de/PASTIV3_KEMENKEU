@@ -863,3 +863,83 @@ export async function syncNonTenderEkontrakKontrak(payload: SyncNonTenderEkontra
   const res = await api.post("/inaproc/tender/non-tender-ekontrak-kontrak/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - Tender: Non Tender Pengumuman ============
+
+export interface NonTenderPengumumanItem {
+  // Satker & KLPD
+  kd_klpd: string;
+  jenis_klpd: string | null;
+  nama_klpd: string | null;
+  kd_satker: string | null;
+  kd_satker_str: string | null;
+  nama_satker: string | null;
+
+  // LPSE
+  kd_lpse: number | null;
+  nama_lpse: string | null;
+  url_lpse: string | null;
+
+  // Paket
+  kd_nontender: number;
+  kd_pkt_dce: number | null;
+  lls_id: number | null;
+  kd_rup: string | null;
+  tahun_anggaran: number;
+  nama_paket: string | null;
+  jenis_pengadaan: string | null;
+  kualifikasi_paket: string | null;
+  kontrak_pembayaran: string | null;
+  mtd_pemilihan: string | null;
+  sumber_dana: string | null;
+  mak: string | null;
+  repeat_order: string | null;
+  versi_nontender: number | null;
+
+  // Nilai
+  pagu: number | null;
+  hps: number | null;
+
+  // Status
+  status_nontender: string | null;
+  ket_ditutup: string | null;
+  ket_diulang: string | null;
+
+  // Pelaksana
+  nip_nama_ppk: string | null;
+  nip_nama_pp: string | null;
+  nip_nama_pokja: string | null;
+
+  // Tanggal
+  tgl_buat_paket: string | null;
+  tgl_kolektif_kolegial: string | null;
+  tgl_pengumuman_nontender: string | null;
+}
+
+export interface NonTenderPengumumanResponse {
+  success: boolean;
+  data: NonTenderPengumumanItem[] | null;
+  meta: InaprocMeta;
+}
+
+export interface NonTenderPengumumanParams {
+  kode_klpd?: string;
+  tahun: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getNonTenderPengumuman(params: NonTenderPengumumanParams) {
+  const res = await api.get<NonTenderPengumumanResponse>("/inaproc/tender/non-tender-pengumuman", { params });
+  return res.data;
+}
+
+export interface SyncNonTenderPengumumanPayload {
+  kode_klpd: string;
+  tahun: string;
+}
+
+export async function syncNonTenderPengumuman(payload: SyncNonTenderPengumumanPayload) {
+  const res = await api.post("/inaproc/tender/non-tender-pengumuman/sync", payload);
+  return res.data;
+}

@@ -17,6 +17,7 @@ import {
   CalendarRange,
   FileSignature,
   ScrollText,
+  Megaphone,
 } from "lucide-react";
 
 export interface NavItem {
@@ -132,6 +133,12 @@ export const NAV_ENTRIES: NavEntry[] = [
         href: "/dashboard/tender/non-tender-ekontrak-kontrak",
         icon: ScrollText,
         description: "Data kontrak, nilai, penyedia, dan PPK",
+      },
+      {
+        label: "Pengumuman Non Tender",
+        href: "/dashboard/tender/non-tender-pengumuman",
+        icon: Megaphone,
+        description: "Pengumuman paket non tender: pagu, HPS, metode, dan status",
       },
     ],
   },

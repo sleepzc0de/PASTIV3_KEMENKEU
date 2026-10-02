@@ -1,23 +1,23 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, Loader2, ScrollText, ChevronRight, RefreshCcw, CheckCircle2 } from "lucide-react";
+import { Search, Loader2, Megaphone, ChevronRight, RefreshCcw, CheckCircle2 } from "lucide-react";
 import axios from "axios";
-import { getNonTenderEkontrakKontrak, syncNonTenderEkontrakKontrak, NonTenderEkontrakKontrakItem } from "@/lib/api";
+import { getNonTenderPengumuman, syncNonTenderPengumuman, NonTenderPengumumanItem } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
 import { formatDate, formatCurrency } from "@/lib/format";
-import { NonTenderEkontrakKontrakDetailModal } from "@/components/inaproc/NonTenderEkontrakKontrakDetailModal";
+import { NonTenderPengumumanDetailModal } from "@/components/inaproc/NonTenderPengumumanDetailModal";
 import { StatusBadge } from "@/components/inaproc/StatusBadge";
 
 const KODE_KLPD_KEMENKEU = "K10";
 
-export function NonTenderEkontrakKontrakTable() {
+export function NonTenderPengumumanTable() {
   const { profile } = useDashboard();
   const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
 
   const [tahun, setTahun] = useState(new Date().getFullYear().toString());
 
-  const [rows, setRows] = useState<NonTenderEkontrakKontrakItem[]>([]);
+  const [rows, setRows] = useState<NonTenderPengumumanItem[]>([]);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
 
@@ -30,7 +30,7 @@ export function NonTenderEkontrakKontrakTable() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  const [selected, setSelected] = useState<NonTenderEkontrakKontrakItem | null>(null);
+  const [selected, setSelected] = useState<NonTenderPengumumanItem | null>(null);
 
   const runSearch = useCallback(
     async (useCursor?: string) => {
@@ -47,7 +47,7 @@ export function NonTenderEkontrakKontrakTable() {
       setError(null);
 
       try {
-        const res = await getNonTenderEkontrakKontrak({
+        const res = await getNonTenderPengumuman({
           kode_klpd: KODE_KLPD_KEMENKEU,
           tahun: parseInt(tahun, 10),
           limit: 50,
@@ -84,7 +84,7 @@ export function NonTenderEkontrakKontrakTable() {
     setSyncError(null);
     setSyncMessage(null);
     try {
-      const res = await syncNonTenderEkontrakKontrak({ kode_klpd: KODE_KLPD_KEMENKEU, tahun });
+      const res = await syncNonTenderPengumuman({ kode_klpd: KODE_KLPD_KEMENKEU, tahun });
       setSyncMessage(`Berhasil menyinkronkan ${res.data.total_synced} baris data ke database.`);
     } catch (err) {
       if (axios.isAxiosError(err) && err.response) {
@@ -100,7 +100,7 @@ export function NonTenderEkontrakKontrakTable() {
   return (
     <div className="w-full space-y-4">
       <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
-        <ScrollText className="h-4 w-4 shrink-0" />
+        <Megaphone className="h-4 w-4 shrink-0" />
         <span>
           Menampilkan data untuk <span className="font-semibold">Kementerian Keuangan (Kode KLPD: {KODE_KLPD_KEMENKEU})</span>
         </span>
@@ -157,8 +157,8 @@ export function NonTenderEkontrakKontrakTable() {
 
       {!hasSearched && !error && (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 py-16 text-center text-slate-400">
-          <ScrollText className="h-8 w-8" />
-          <p className="px-4 text-sm">Isi Tahun untuk melihat data kontrak non tender Kementerian Keuangan</p>
+          <Megaphone className="h-8 w-8" />
+          <p className="px-4 text-sm">Isi Tahun untuk melihat pengumuman non tender Kementerian Keuangan</p>
         </div>
       )}
 
@@ -175,39 +175,39 @@ export function NonTenderEkontrakKontrakTable() {
               <thead className="bg-slate-50">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Kode Non Tender</th>
-                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">No. Kontrak</th>
                   <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Nama Paket</th>
-                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Penyedia</th>
-                  <th className="whitespace-nowrap px-4 py-2.5 text-right font-semibold text-slate-600">Nilai Kontrak</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Satker</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Metode</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-right font-semibold text-slate-600">Pagu</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-right font-semibold text-slate-600">HPS</th>
                   <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Status</th>
-                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Tgl. Kontrak</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-left font-semibold text-slate-600">Tgl. Pengumuman</th>
                   <th className="whitespace-nowrap px-4 py-2.5 text-right font-semibold text-slate-600">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((row, idx) => (
                   <tr
-                    key={`${row.kd_nontender}-${row.no_kontrak}-${idx}`}
+                    key={`${row.kd_nontender}-${idx}`}
                     onClick={() => setSelected(row)}
                     className="cursor-pointer hover:bg-slate-50"
                   >
                     <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-600">{row.kd_nontender || "-"}</td>
-                    <td className="max-w-[180px] truncate px-4 py-2.5 text-slate-600" title={row.no_kontrak ?? undefined}>
-                      {row.no_kontrak || "-"}
-                    </td>
                     <td className="max-w-[280px] truncate px-4 py-2.5 font-medium text-slate-800" title={row.nama_paket ?? undefined}>
                       {row.nama_paket || "-"}
                     </td>
-                    <td className="max-w-[220px] truncate px-4 py-2.5 text-slate-600" title={row.nama_penyedia ?? undefined}>
-                      {row.nama_penyedia || "-"}
+                    <td className="max-w-[200px] truncate px-4 py-2.5 text-slate-600" title={row.nama_satker ?? undefined}>
+                      {row.nama_satker || "-"}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-right font-medium text-slate-800">
-                      {formatCurrency(row.nilai_kontrak)}
-                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{row.mtd_pemilihan || "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800">{formatCurrency(row.pagu)}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-800">{formatCurrency(row.hps)}</td>
                     <td className="px-4 py-2.5">
-                      <StatusBadge status={row.status_kontrak} />
+                      <StatusBadge status={row.status_nontender} />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-500">{formatDate(row.tgl_kontrak)}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-500">
+                      {formatDate(row.tgl_pengumuman_nontender)}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-right">
                       <button
                         onClick={(e) => {
@@ -241,7 +241,7 @@ export function NonTenderEkontrakKontrakTable() {
         </>
       )}
 
-      {selected && <NonTenderEkontrakKontrakDetailModal item={selected} onClose={() => setSelected(null)} />}
+      {selected && <NonTenderPengumumanDetailModal item={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }

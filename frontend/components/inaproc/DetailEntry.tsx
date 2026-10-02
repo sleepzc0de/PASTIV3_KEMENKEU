@@ -1,3 +1,5 @@
+import type { ElementType } from "react";
+
 export type DetailField = [label: string, value: string | false | null | undefined];
 
 // Menampilkan pasangan label/nilai; pasangan yang nilainya kosong dilewati
@@ -18,5 +20,19 @@ export function DetailEntry({ fields, bordered = true }: { fields: DetailField[]
         </div>
       ))}
     </dl>
+  );
+}
+
+// Satu kelompok field dengan judul; seluruh kelompok disembunyikan kalau semua nilainya kosong.
+export function DetailGroup({ icon: Icon, title, fields }: { icon: ElementType; title: string; fields: DetailField[] }) {
+  if (!fields.some(([, value]) => value)) return null;
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+        <Icon className="h-4 w-4" />
+        {title}
+      </h3>
+      <DetailEntry fields={fields} />
+    </section>
   );
 }

@@ -934,3 +934,247 @@ func ListLocalNonTenderEkontrakKontrak(c *gin.Context) {
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
 }
+
+// ============================================================
+// TENDER Endpoint 5: Non Tender Pengumuman
+// ============================================================
+//
+// Sama seperti endpoint 4: respons datar, nama kolom di tabel
+// inaproc_non_tender_pengumuman sama persis dengan nama field API, dan INSERT
+// dibangun dari daftar nama di bawah. Daftar ini HARUS sinkron dengan migrasi 018.
+var (
+	// Disimpan sebagai NVARCHAR; nilai kosong/null disimpan sebagai NULL.
+	nonTenderPengumumanTextFields = []string{
+		"kd_klpd", "jenis_klpd", "nama_klpd", "kd_satker", "kd_satker_str", "nama_satker",
+		"kd_lpse", "nama_lpse", "url_lpse",
+		"kd_nontender", "kd_pkt_dce", "lls_id", "kd_rup", "tahun_anggaran", "nama_paket",
+		"jenis_pengadaan", "kualifikasi_paket", "kontrak_pembayaran", "mtd_pemilihan",
+		"sumber_dana", "mak", "repeat_order",
+		"status_nontender", "ket_ditutup", "ket_diulang",
+		"nip_nama_ppk", "nip_nama_pp", "nip_nama_pokja",
+	}
+	// DECIMAL(24,2): nilai rupiah bisa berpecahan, jadi tidak dipotong ke BIGINT.
+	nonTenderPengumumanDecimalFields = []string{"pagu", "hps"}
+	nonTenderPengumumanIntFields     = []string{"versi_nontender"}
+	nonTenderPengumumanDateFields    = []string{"tgl_buat_paket", "tgl_kolektif_kolegial", "tgl_pengumuman_nontender"}
+)
+
+// Semua field yang sudah punya kolom sendiri; sisanya masuk ke extra_json.
+func nonTenderPengumumanKnownFields() []string {
+	var all []string
+	all = append(all, nonTenderPengumumanTextFields...)
+	all = append(all, nonTenderPengumumanDecimalFields...)
+	all = append(all, nonTenderPengumumanIntFields...)
+	all = append(all, nonTenderPengumumanDateFields...)
+	return all
+}
+
+// Urutan kolom di sini harus sama dengan urutan argumen di
+// nonTenderPengumumanArgs. Nama kolom berasal dari konstanta di atas, bukan
+// dari input pengguna.
+var nonTenderPengumumanInsertSQL = buildNonTenderPengumumanInsertSQL()
+
+func buildNonTenderPengumumanInsertSQL() string {
+	cols := []string{"row_key"}
+	cols = append(cols, nonTenderPengumumanKnownFields()...)
+	cols = append(cols, "extra_json")
+
+	placeholders := make([]string, len(cols))
+	for i := range cols {
+		placeholders[i] = "@p" + strconv.Itoa(i+1)
+	}
+	return "INSERT INTO inaproc_non_tender_pengumuman (" + strings.Join(cols, ", ") +
+		") VALUES (" + strings.Join(placeholders, ", ") + ")"
+}
+
+func GetNonTenderPengumuman(c *gin.Context) {
+	cfg := config.Cfg
+	if cfg.InaprocToken == "" {
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
+		return
+	}
+
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
+	tahun := c.Query("tahun")
+	limitStr := c.DefaultQuery("limit", "50")
+	cursor := c.Query("cursor")
+
+	if tahun == "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
+		return
+	}
+
+	limit := clampLimit(limitStr)
+
+	params := url.Values{}
+	params.Set("kode_klpd", kodeKLPD)
+	params.Set("tahun", tahun)
+	params.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		params.Set("cursor", cursor)
+	}
+
+	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-pengumuman", params)
+	if err != nil {
+		log.Println("[INAPROC ERROR] gagal request non-tender-pengumuman:", err)
+		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
+		return
+	}
+	forwardInaprocResponse(c, body, statusCode)
+}
+
+type syncNonTenderPengumumanRequest struct {
+	KodeKLPD string `json:"kode_klpd"`
+	Tahun    string `json:"tahun" binding:"required"`
+}
+
+func SyncNonTenderPengumuman(c *gin.Context) {
+	var req syncNonTenderPengumumanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "tahun wajib diisi")
+		return
+	}
+	if req.KodeKLPD == "" {
+		req.KodeKLPD = kemenkeuKLPDCodeTender
+	}
+
+	adminUserID := c.GetString("user_id")
+	startedAt := time.Now()
+
+	if _, err := database.DB.Exec(
+		`DELETE FROM inaproc_non_tender_pengumuman WHERE kd_klpd = @p1 AND tahun_anggaran = @p2`,
+		req.KodeKLPD, req.Tahun,
+	); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama non-tender-pengumuman:", err)
+	}
+
+	totalSynced := 0
+	cursor := ""
+	pageCount := 0
+	const maxPages = 200
+
+	for {
+		pageCount++
+		if pageCount > maxPages {
+			logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
+			return
+		}
+
+		params := url.Values{}
+		params.Set("kode_klpd", req.KodeKLPD)
+		params.Set("tahun", req.Tahun)
+		params.Set("limit", "1000")
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-pengumuman", params)
+		if err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal request non-tender-pengumuman:", err)
+			logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
+			return
+		}
+
+		if statusCode != http.StatusOK {
+			errMsg := extractInaprocErrorMessage(body, statusCode)
+			logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, errMsg, adminUserID, startedAt)
+			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
+			return
+		}
+
+		var envelope struct {
+			Data []map[string]interface{} `json:"data"`
+			Meta struct {
+				HasMore bool   `json:"has_more"`
+				Cursor  string `json:"cursor"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			log.Println("[INAPROC SYNC ERROR] gagal parse non-tender-pengumuman:", err, "| body:", string(body))
+			logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
+			return
+		}
+
+		if pageCount == 1 && len(envelope.Data) > 0 {
+			log.Printf("[INAPROC SYNC DEBUG] Contoh baris non-tender-pengumuman: %+v", envelope.Data[0])
+		}
+
+		for _, row := range envelope.Data {
+			if err := insertNonTenderPengumuman(row); err != nil {
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris non-tender-pengumuman:", err)
+				continue
+			}
+			totalSynced++
+		}
+
+		if !envelope.Meta.HasMore || envelope.Meta.Cursor == "" {
+			break
+		}
+		cursor = envelope.Meta.Cursor
+	}
+
+	logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+}
+
+// Urutan argumen harus sama dengan urutan kolom di nonTenderPengumumanInsertSQL.
+func nonTenderPengumumanArgs(row map[string]interface{}) []interface{} {
+	args := []interface{}{generateInaprocRowHash(row)}
+	for _, f := range nonTenderPengumumanTextFields {
+		args = append(args, nullIfEmpty(getStr(row, f)))
+	}
+	for _, f := range nonTenderPengumumanDecimalFields {
+		args = append(args, getDecimalString(row, f))
+	}
+	for _, f := range nonTenderPengumumanIntFields {
+		args = append(args, getInt64FromAny(row, f))
+	}
+	for _, f := range nonTenderPengumumanDateFields {
+		args = append(args, parseInaprocTime(getStr(row, f)))
+	}
+	args = append(args, extraFieldsColumn(row, nonTenderPengumumanKnownFields()))
+	return args
+}
+
+func insertNonTenderPengumuman(row map[string]interface{}) error {
+	_, err := database.DB.Exec(nonTenderPengumumanInsertSQL, nonTenderPengumumanArgs(row)...)
+	return err
+}
+
+func ListLocalNonTenderPengumuman(c *gin.Context) {
+	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
+	tahun := c.Query("tahun")
+	limit := clampLimit(c.DefaultQuery("limit", "50"))
+
+	query := `SELECT row_key, kd_klpd, kd_nontender, tahun_anggaran, kd_rup, nama_paket, nama_satker,
+		mtd_pemilihan, pagu, hps, status_nontender, tgl_pengumuman_nontender, synced_at
+		FROM inaproc_non_tender_pengumuman WHERE kd_klpd = @p1`
+	args := []interface{}{kodeKLPD}
+
+	if tahun != "" {
+		query += " AND tahun_anggaran = @p2"
+		args = append(args, tahun)
+	}
+
+	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
+		return
+	}
+	defer rows.Close()
+
+	results, err := rowsToMaps(rows)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
+		return
+	}
+	if results == nil {
+		results = []map[string]interface{}{}
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
+}

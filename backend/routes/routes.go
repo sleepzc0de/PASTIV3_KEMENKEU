@@ -95,6 +95,10 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/tender/non-tender-ekontrak-kontrak/local", handlers.ListLocalNonTenderEkontrakKontrak)
 			inaproc.POST("/tender/non-tender-ekontrak-kontrak/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderEkontrakKontrak)
 
+			inaproc.GET("/tender/non-tender-pengumuman", handlers.GetNonTenderPengumuman)
+			inaproc.GET("/tender/non-tender-pengumuman/local", handlers.ListLocalNonTenderPengumuman)
+			inaproc.POST("/tender/non-tender-pengumuman/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderPengumuman)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

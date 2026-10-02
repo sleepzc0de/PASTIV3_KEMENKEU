@@ -80,12 +80,13 @@ func mapKeys(m map[string]interface{}) []string {
 
 // parseInaprocTime mencoba beberapa format tanggal karena API Inaproc tidak
 // konsisten — sebagian field full RFC3339 (2025-08-01T00:00:00Z), sebagian
-// lain hanya date-only (2025-08-01) tanpa jam.
+// lain hanya date-only (2025-08-01) tanpa jam, dan sebagian memakai spasi
+// sebagai pemisah tanggal-jam (2024-01-10 13:30:00.000000Z).
 func parseInaprocTime(s string) interface{} {
 	if s == "" {
 		return nil
 	}
-	formats := []string{time.RFC3339, "2006-01-02"}
+	formats := []string{time.RFC3339, "2006-01-02 15:04:05Z07:00", "2006-01-02"}
 	for _, f := range formats {
 		if t, err := time.Parse(f, s); err == nil {
 			return t
