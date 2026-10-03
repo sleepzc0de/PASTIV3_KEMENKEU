@@ -16,3 +16,20 @@ func ErrorResponse(c *gin.Context, code int, message string) {
 		"message": message,
 	})
 }
+
+// Kode galat yang bisa dibaca mesin (field "code" pada respons galat).
+const (
+	// CodeSSOSessionExpired: 401 yang berasal dari sesi SSO Kemenkeu (token SSO habis atau ditolak),
+	// bukan dari sesi PASTI. Frontend memakainya untuk menjelaskan alasan pengguna diarahkan ke login.
+	CodeSSOSessionExpired = "sso_session_expired"
+)
+
+// ErrorResponseWithCode seperti ErrorResponse, ditambah "code" supaya frontend bisa membedakan
+// jenis galat tanpa mencocokkan teks pesan.
+func ErrorResponseWithCode(c *gin.Context, status int, message, code string) {
+	c.JSON(status, gin.H{
+		"success": false,
+		"message": message,
+		"code":    code,
+	})
+}
