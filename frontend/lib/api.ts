@@ -88,26 +88,79 @@ export async function loginUser(
 
 // ============ SLDK Integration ============
 
-export interface SLDKColumn {
-  name: string;
-  data_type: string;
-  is_searchable: boolean;
+export interface SLDKRefItem {
+  kode: string;
+  nama: string;
 }
 
-export interface SLDKSearchResponse {
-  success: boolean;
-  message: string;
-  data: {
-    columns: SLDKColumn[];
-    results: Record<string, unknown>[];
-    count: number;
-  };
+export interface SLDKReferences {
+  jenis_bmn: SLDKRefItem[];
+  kondisi: SLDKRefItem[];
+  status_penggunaan: SLDKRefItem[];
+  status_hukum: SLDKRefItem[];
 }
 
-export async function searchSLDKAssets(query: string, limit = 50) {
-  const res = await api.get<SLDKSearchResponse>("/sldk/assets/search", {
-    params: { q: query, limit },
+export async function getSLDKReferences() {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKReferences }>("/sldk/referensi");
+  return res.data;
+}
+
+export interface SLDKSatker {
+  id: number;
+  kode: string;
+  nama: string;
+}
+
+export async function searchSLDKSatker(q: string) {
+  const res = await api.get<{ success: boolean; message: string; data: { items: SLDKSatker[] } }>("/sldk/satker", {
+    params: { q },
   });
+  return res.data;
+}
+
+export interface SLDKAssetSearchParams {
+  q?: string;
+  by?: "id" | "teks"; // id = kode persis (cepat), teks = mengandung kata (lambat)
+  id_satker?: number;
+  kd_jns_bmn?: string;
+  kd_kondisi?: string;
+  kd_status?: string;
+  tahun?: string;
+  limit?: number;
+}
+
+export interface SLDKAssetSearchData {
+  results: Record<string, unknown>[];
+  count: number;
+  limit: number;
+  satker: Record<string, { id: number; kode: string; nama: string }>;
+  elapsed_ms: number;
+}
+
+// Server membatasi pencarian 25 detik; timeout klien sedikit di atasnya supaya pesan dari server sempat tiba.
+export async function searchSLDKAssets(params: SLDKAssetSearchParams) {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKAssetSearchData }>("/sldk/assets/search", {
+    params,
+    timeout: 40000,
+  });
+  return res.data;
+}
+
+export interface SLDKDetailSection {
+  rows: Record<string, unknown>[];
+  error?: string;
+}
+
+export interface SLDKAssetDetailData {
+  id_aset: number;
+  sections: Record<string, SLDKDetailSection>;
+}
+
+export async function getSLDKAssetDetail(idAset: number) {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKAssetDetailData }>(
+    `/sldk/assets/${idAset}/detail`,
+    { timeout: 40000 }
+  );
   return res.data;
 }
 
