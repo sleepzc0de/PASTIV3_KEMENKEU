@@ -1,23 +1,37 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { UserPlus, Loader2, ShieldCheck, Trash2, Ban, Pencil } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { UserPlus, Loader2, ShieldCheck, Trash2, Ban, Pencil, Search, SearchX, X } from "lucide-react";
+import axios from "axios";
 import { listUsers, UserListItem, deactivateUser, deleteUser } from "@/lib/api";
+import { useDashboard } from "@/lib/dashboard-context";
 import { CreateUserModal } from "@/components/users/CreateUserModal";
 import { EditUserModal } from "@/components/users/EditUserModal";
+import { matchesUser, parseTerms } from "@/components/users/userSearch";
+
+// Pesan dari backend (mis. "tidak dapat menonaktifkan akun Anda sendiri") lebih berguna daripada pesan umum.
+function errorMessage(err: unknown, fallback: string): string {
+  return axios.isAxiosError(err) && err.response?.data?.message ? err.response.data.message : fallback;
+}
 
 export default function UsersPage() {
+  const { profile } = useDashboard();
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await listUsers();
-      setUsers(res.data);
+      setUsers(res.data ?? []);
+    } catch (err) {
+      setLoadError(errorMessage(err, "Gagal memuat daftar pengguna"));
     } finally {
       setIsLoading(false);
     }
@@ -27,13 +41,25 @@ export default function UsersPage() {
     fetchUsers();
   }, [fetchUsers]);
 
-  const handleDeactivate = async (id: string) => {
+  const terms = useMemo(() => parseTerms(query), [query]);
+  const filtered = useMemo(() => users.filter((u) => matchesUser(u, terms)), [users, terms]);
+
+  const isOwnAccount = (u: UserListItem) => Boolean(profile?.id) && profile?.id.toLowerCase() === u.id.toLowerCase();
+
+  const handleDeactivate = async (u: UserListItem) => {
+    // Penonaktifan langsung berlaku: pengguna tidak bisa login dan sesi yang sedang berjalan ikut berakhir.
+    if (
+      !confirm(
+        `Nonaktifkan ${u.full_name}?\n\nPengguna ini langsung tidak bisa login, dan sesi yang sedang berjalan ikut berakhir.`
+      )
+    )
+      return;
     setActionError(null);
     try {
-      await deactivateUser(id);
+      await deactivateUser(u.id);
       fetchUsers();
-    } catch {
-      setActionError("Gagal menonaktifkan user");
+    } catch (err) {
+      setActionError(errorMessage(err, "Gagal menonaktifkan user"));
     }
   };
 
@@ -68,11 +94,45 @@ export default function UsersPage() {
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{actionError}</div>
       )}
 
+      <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            inputMode="search"
+            autoComplete="off"
+            aria-label="Cari pengguna"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+            placeholder="Cari nama, username, email, NIP, atau satker..."
+            className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-9 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Hapus pencarian"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {!isLoading && users.length > 0 && (
+          <p aria-live="polite" className="mt-2 text-xs text-slate-400">
+            {terms.length > 0 ? `Menampilkan ${filtered.length} dari ${users.length} pengguna` : `${users.length} pengguna`}
+          </p>
+        )}
+      </div>
+
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
         {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
           </div>
+        ) : loadError ? (
+          <p className="px-4 py-12 text-center text-sm text-red-600">{loadError}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50">
@@ -86,15 +146,42 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {users.map((u) => (
+              {users.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
+                    Belum ada pengguna
+                  </td>
+                </tr>
+              )}
+              {users.length > 0 && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center">
+                    <SearchX className="mx-auto h-8 w-8 text-slate-400" />
+                    <p className="mt-2 break-words text-sm font-medium text-slate-700">
+                      Tidak ada pengguna yang cocok dengan &ldquo;{query.trim()}&rdquo;
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setQuery("")}
+                      className="mt-2 text-sm font-medium text-blue-600 hover:underline"
+                    >
+                      Hapus pencarian
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {filtered.map((u) => (
                 <tr key={u.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="font-medium text-slate-900">{u.full_name}</span>
                       {u.is_protected && (
                         <span title="Superadmin permanen">
                           <ShieldCheck className="h-4 w-4 text-amber-500" />
                         </span>
+                      )}
+                      {isOwnAccount(u) && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Anda</span>
                       )}
                     </div>
                     <p className="break-all text-xs text-slate-400">{u.email}</p>
@@ -138,23 +225,24 @@ export default function UsersPage() {
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
+                      {/* Pengguna yang sudah nonaktif diaktifkan lagi lewat Edit; akun sendiri tidak boleh dinonaktifkan. */}
+                      {!u.is_protected && u.is_active && !isOwnAccount(u) && (
+                        <button
+                          onClick={() => handleDeactivate(u)}
+                          title="Nonaktifkan"
+                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-600 md:p-1.5"
+                        >
+                          <Ban className="h-4 w-4" />
+                        </button>
+                      )}
                       {!u.is_protected && (
-                        <>
-                          <button
-                            onClick={() => handleDeactivate(u.id)}
-                            title="Nonaktifkan"
-                            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-600 md:p-1.5"
-                          >
-                            <Ban className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(u.id)}
-                            title="Hapus"
-                            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 md:p-1.5"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleDelete(u.id)}
+                          title="Hapus"
+                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 md:p-1.5"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       )}
                     </div>
                   </td>

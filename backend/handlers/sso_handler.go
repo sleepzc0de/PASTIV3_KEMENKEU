@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -22,6 +23,9 @@ import (
 )
 
 const ssoStateTTL = 10 * time.Minute
+
+// errAccountInactive: akun sudah ada tetapi dinonaktifkan administrator, jadi login SSO ditolak.
+var errAccountInactive = errors.New("akun dinonaktifkan oleh administrator")
 
 func SSOLogin(c *gin.Context) {
 	endpoints := config.GetSSOEndpoints()
@@ -195,6 +199,11 @@ func SSOCallback(c *gin.Context) {
 	}
 
 	accessToken, expiresIn, userID, err := upsertUserFromSSO(employeeID, sub, email, nip, getClaim("name"))
+	if errors.Is(err, errAccountInactive) {
+		log.Println("[SSO] Login ditolak, akun dinonaktifkan. sub:", sub, "email:", email)
+		redirectError("Akun Anda telah dinonaktifkan. Hubungi administrator.")
+		return
+	}
 	if err != nil {
 		log.Println("[SSO ERROR] gagal upsertUserFromSSO:", err)
 		redirectError("Gagal membuat sesi akun: " + truncateError(err, 200))
@@ -296,9 +305,10 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToke
 
 	var userIDRaw mssql.UniqueIdentifier
 	var role string
+	var isActive bool
 	errQ := database.DB.QueryRow(
-		`SELECT id, role FROM users WHERE employee_id = @p1`, employeeID,
-	).Scan(&userIDRaw, &role)
+		`SELECT id, role, is_active FROM users WHERE employee_id = @p1`, employeeID,
+	).Scan(&userIDRaw, &role, &isActive)
 
 	if errQ == sql.ErrNoRows {
 		userID = uuid.New().String()
@@ -323,6 +333,13 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToke
 		return "", 0, "", fmt.Errorf("query cek user existing gagal: %w", errQ)
 	} else {
 		userID = userIDRaw.String()
+
+		// Akun yang dinonaktifkan tidak boleh masuk lagi lewat SSO. Dicek sebelum ada perubahan apa
+		// pun (last_login, token). Akun protected dikecualikan: ia selalu diaktifkan kembali di
+		// bawah supaya superadmin permanen tidak pernah terkunci.
+		if !isActive && !isProtected {
+			return "", 0, "", errAccountInactive
+		}
 
 		if isProtected {
 			_, err = database.DB.Exec(

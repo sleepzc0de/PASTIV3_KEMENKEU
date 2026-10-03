@@ -22,6 +22,10 @@ const (
 	// CodeSSOSessionExpired: 401 yang berasal dari sesi SSO Kemenkeu (token SSO habis atau ditolak),
 	// bukan dari sesi PASTI. Frontend memakainya untuk menjelaskan alasan pengguna diarahkan ke login.
 	CodeSSOSessionExpired = "sso_session_expired"
+
+	// CodeAccountInactive: akun dinonaktifkan administrator. Berlaku juga untuk sesi yang sedang
+	// berjalan (diperiksa di middleware AuthRequired), bukan hanya untuk login baru.
+	CodeAccountInactive = "account_inactive"
 )
 
 // ErrorResponseWithCode seperti ErrorResponse, ditambah "code" supaya frontend bisa membedakan

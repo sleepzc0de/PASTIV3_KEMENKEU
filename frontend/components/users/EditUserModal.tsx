@@ -5,6 +5,7 @@ import { X, Loader2, Pencil } from "lucide-react";
 import axios from "axios";
 import { getUserDetail, updateUser, UserListItem } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { useDashboard } from "@/lib/dashboard-context";
 
 interface EditUserModalProps {
   userId: string;
@@ -13,6 +14,9 @@ interface EditUserModalProps {
 }
 
 export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps) {
+  const { profile } = useDashboard();
+  // Akun sendiri tidak boleh dinonaktifkan: penonaktifan langsung mengakhiri sesi, dan backend menolaknya.
+  const isOwnAccount = Boolean(profile?.id) && profile?.id.toLowerCase() === userId.toLowerCase();
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [user, setUser] = useState<UserListItem | null>(null);
@@ -137,15 +141,27 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
                 </select>
               </div>
 
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={isActive}
-                  onChange={(e) => setIsActive(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                />
-                Akun aktif
-              </label>
+              <div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    disabled={isOwnAccount}
+                    onChange={(e) => setIsActive(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:opacity-50"
+                  />
+                  Akun aktif
+                </label>
+                {isOwnAccount ? (
+                  <p className="mt-1 text-xs text-slate-400">Anda tidak dapat menonaktifkan akun Anda sendiri.</p>
+                ) : (
+                  !isActive && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      Pengguna nonaktif tidak bisa login, dan sesi yang sedang berjalan ikut berakhir.
+                    </p>
+                  )
+                )}
+              </div>
 
               {user.auth_provider !== "sso" && (
                 <FormField
