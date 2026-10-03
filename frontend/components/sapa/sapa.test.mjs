@@ -159,6 +159,14 @@ test("parseBarangTempel", () => {
   assert.equal(rb.dilewati, 7);
 });
 
+test("alamat usulan harus berbentuk UUID", () => {
+  assert.equal(H.adalahUUID("6f9619ff-8b86-d011-b42d-00c04fc964ff"), true);
+  assert.equal(H.adalahUUID("6F9619FF-8B86-D011-B42D-00C04FC964FF"), true);
+  for (const salah of ["", "1", "12345", "6f9619ff8b86d011b42d00c04fc964ff", "{6f9619ff-8b86-d011-b42d-00c04fc964ff}", "6f9619ff-8b86-d011-b42d-00c04fc964ff/x", "6f9619ff-8b86-d011-b42d-00c04fc964fg", " 6f9619ff-8b86-d011-b42d-00c04fc964ff"]) {
+    assert.equal(H.adalahUUID(salah), false, salah);
+  }
+});
+
 test("label peran dan status", () => {
   assert.equal(H.peranLabel("ue1"), "Unit Eselon I");
   assert.equal(H.peranLabel(""), "Belum ada peran");

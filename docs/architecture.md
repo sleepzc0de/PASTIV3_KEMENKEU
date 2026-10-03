@@ -46,7 +46,7 @@ sequenceDiagram
     participant BE as Backend (Go)
     participant DB as SQL Server 2022
 
-    B->>N: GET /login
+    B->>N: GET alamat login acak (LOGIN_PATH, bukan /login)
     N->>F: proxy_pass
     F-->>B: Render halaman login
 

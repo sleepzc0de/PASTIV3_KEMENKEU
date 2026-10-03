@@ -100,6 +100,7 @@ Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
                     BIND_ADDRESS=127.0.0.1     # hanya lewat Nginx/reverse proxy di server ini
                     BACKEND_PORT=8686
                     FRONTEND_PORT=3000
+                    LOGIN_PATH=/3f9a1c07d2b84e65a0c1f7e93b2d4a68   # alamat halaman login (acak; dibuat otomatis)
   backend/.env    rahasia aplikasi, koneksi database, SSO, token Inaproc (dibuat dari
                   backend/.env.example; Anda yang mengisi nilai database & SSO).
 
@@ -480,6 +481,21 @@ load_deploy_config() {
   if [ -z "$CONTAINER_PREFIX" ]; then
     if [ "$ENVIRONMENT" = "prod" ]; then CONTAINER_PREFIX="pasti-prod"; else CONTAINER_PREFIX="pasti"; fi
   fi
+
+  # Alamat halaman login yang tidak bisa ditebak: /login biasa dijawab 404 dan halaman login dilayani di sini. Dibuat sekali lalu
+  # dipertahankan (mengubahnya memutus alamat yang sudah dibagikan ke pengguna). Ditanam ke frontend saat build lewat docker compose.
+  LOGIN_PATH=$(env_get "$DEPLOY_ENV" LOGIN_PATH)
+  if [ -z "$LOGIN_PATH" ]; then
+    LOGIN_PATH="/$(gen_hex 16)"
+    {
+      printf '# Alamat halaman login (acak, tidak bisa ditebak); /login biasa dijawab 404. Dibuat otomatis oleh deploy.sh.\n'
+      printf '# Jangan dibagikan di tempat umum. Mengubahnya memutus alamat lama: beri tahu pengguna alamat barunya.\n'
+    } >> "$DEPLOY_ENV"
+    env_set "$DEPLOY_ENV" LOGIN_PATH "$LOGIN_PATH"
+    own_file "$DEPLOY_ENV"
+    LOGIN_PATH_BARU=1
+  fi
+  [[ $LOGIN_PATH =~ ^/[0-9a-f]{32,64}$ ]] || die "LOGIN_PATH di deploy.env tidak valid: '$LOGIN_PATH' (harus /<32-64 huruf heksadesimal kecil>; hapus barisnya agar dibuat ulang)."
 
   valid_url "$API_ROOT_URL" || die "NEXT_PUBLIC_API_ROOT_URL di deploy.env tidak valid: '$API_ROOT_URL'"
   valid_api_url "$API_URL"  || die "NEXT_PUBLIC_API_URL di deploy.env tidak valid: '$API_URL'"
@@ -867,18 +883,21 @@ check_ports() {
   done
 }
 
-wait_http() {  # wait_http NAMA CONTAINER URL
-  local name=$1 container=$2 url=$3 elapsed=0 state
+wait_http() {  # wait_http NAMA CONTAINER URL [URL...]  (sehat bila salah satu URL menjawab 2xx)
+  local name=$1 container=$2 elapsed=0 state url
+  shift 2
   while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
     state=$(container_state "$container")
     case "$state" in
       running)
         # Hanya sehat bila container KITA berjalan: kalau tidak, proses lain yang kebetulan
         # memakai port yang sama bisa membuat cek ini lolos secara keliru.
-        if curl -fsS -m 5 -o /dev/null "$url" 2>/dev/null; then
-          ok "$name sehat ($url)"
-          return 0
-        fi
+        for url in "$@"; do
+          if curl -fsS -m 5 -o /dev/null "$url" 2>/dev/null; then
+            ok "$name sehat ($url)"
+            return 0
+          fi
+        done
         ;;
       restarting) err "$name restart berulang (crash-loop)."; return 1 ;;
       exited|dead|created|tidak-ada) err "$name tidak berjalan (status container $container: $state)."; return 1 ;;
@@ -886,7 +905,7 @@ wait_http() {  # wait_http NAMA CONTAINER URL
     sleep 3
     elapsed=$((elapsed + 3))
   done
-  err "$name tidak merespons dalam ${HEALTH_TIMEOUT} detik ($url)."
+  err "$name tidak merespons dalam ${HEALTH_TIMEOUT} detik ($*)."
   return 1
 }
 
@@ -895,7 +914,9 @@ health_checks() {
   local host="127.0.0.1"
   case "$BIND_ADDRESS" in 0.0.0.0|127.0.0.1) ;; *) host="$BIND_ADDRESS" ;; esac
   wait_http "Backend"  "${CONTAINER_PREFIX}-backend"  "http://${host}:${BACKEND_PORT}/health" || return 1
-  wait_http "Frontend" "${CONTAINER_PREFIX}-frontend" "http://${host}:${FRONTEND_PORT}/login" || return 1
+  # Halaman login ada di LOGIN_PATH (/login biasa dijawab 404). /login tetap diterima sebagai tanda sehat agar rollback ke image
+  # lama (sebelum alamat login tersembunyi) tidak dianggap gagal.
+  wait_http "Frontend" "${CONTAINER_PREFIX}-frontend" "http://${host}:${FRONTEND_PORT}${LOGIN_PATH}" "http://${host}:${FRONTEND_PORT}/login" || return 1
 }
 
 start_stack() {
@@ -944,10 +965,15 @@ summary() {
     Environment: $(env_label)
     Kode      : $(g rev-parse --abbrev-ref HEAD) @ $(g rev-parse --short HEAD)
     Aplikasi  : ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}
+    Halaman login: ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}${LOGIN_PATH}
+                (alamat /login biasa dijawab 404; bagikan alamat di atas hanya kepada pengguna yang berhak)
     API       : ${API_URL}
     Log       : docker compose logs -f   (atau: tail -f $LOG_FILE)
     Berikutnya: cukup jalankan ./deploy.sh setiap kali ada pembaruan (kode ditarik otomatis).
 EOF
+  if [ -n "${LOGIN_PATH_BARU:-}" ]; then
+    warn "Alamat login BARU dibuat. Alamat lama (/login) tidak berlaku lagi: beri tahu semua pengguna alamat login di atas."
+  fi
 }
 
 # ----------------------------------------------------------------------------

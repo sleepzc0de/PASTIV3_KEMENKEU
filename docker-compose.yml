@@ -26,6 +26,9 @@ services:
         # Opsional: server ubin peta (kosong = OpenStreetMap). Isi di deploy.env bila jaringan memblokir OpenStreetMap.
         NEXT_PUBLIC_MAP_TILE_URL: ${NEXT_PUBLIC_MAP_TILE_URL:-}
         NEXT_PUBLIC_MAP_TILE_ATTRIBUTION: ${NEXT_PUBLIC_MAP_TILE_ATTRIBUTION:-}
+        # Alamat halaman login yang tidak bisa ditebak (/<heksadesimal acak>); deploy.sh membuatnya di deploy.env.
+        # Build produksi menolak nilai kosong supaya /login tidak terbuka tanpa disengaja.
+        LOGIN_PATH: ${LOGIN_PATH:-}
     container_name: ${CONTAINER_PREFIX:-pasti}-frontend
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${FRONTEND_PORT:-3000}:3000"

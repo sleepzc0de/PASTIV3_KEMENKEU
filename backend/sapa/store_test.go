@@ -3,6 +3,7 @@ package sapa
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -56,8 +57,9 @@ func TestBuatPenjualanSatuTransaksi(t *testing.T) {
 		case strings.HasPrefix(strings.TrimSpace(q), "INSERT INTO sapa_penjualan"):
 			return []string{"id"}, [][]driver.Value{{int64(42)}}, nil
 		case strings.Contains(q, "FROM sapa_penjualan p WHERE p.id"):
-			return []string{"id", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"},
-				[][]driver.Value{{int64(42), "PJ-2026-00007", "015010199409294002", "KPKNL", "01501", "Budi", wkt, wkt}}, nil
+			// SQL Server mengembalikan CONVERT(NVARCHAR(36), uniqueidentifier) dalam huruf besar.
+			return []string{"id", "uuid", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"},
+				[][]driver.Value{{int64(42), "6F9619FF-8B86-D011-B42D-00C04FC964FF", "PJ-2026-00007", "015010199409294002", "KPKNL", "01501", "Budi", wkt, wkt}}, nil
 		}
 		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 	}
@@ -68,6 +70,9 @@ func TestBuatPenjualanSatuTransaksi(t *testing.T) {
 	}
 	if k.ID != 42 || k.Noreg != "PJ-2026-00007" || k.DibuatOleh != "Budi" {
 		t.Errorf("kasus = %+v", k)
+	}
+	if k.UUID != "6f9619ff-8b86-d011-b42d-00c04fc964ff" {
+		t.Errorf("UUID harus dibakukan ke huruf kecil, dapat %q", k.UUID)
 	}
 	ev := f.Events()
 	if len(ev) != 5 || ev[0] != "BEGIN" || ev[4] != "COMMIT" || !strings.Contains(ev[1], "MERGE") || !strings.Contains(ev[2], "INSERT INTO sapa_penjualan") {
@@ -81,7 +86,70 @@ func TestBuatPenjualanSatuTransaksi(t *testing.T) {
 	if got := q[1].Args[0].Value; got != fmt.Sprintf("PJ-%d-00007", time.Now().Year()) {
 		t.Errorf("noreg yang disimpan = %v", got)
 	}
+	// UUID dibuat aplikasi (acak, bukan berurutan) dan disimpan sebagai argumen terakhir INSERT.
+	disimpan, _ := q[1].Args[6].Value.(string)
+	if baku, ok := BakukanUUID(disimpan); !ok || baku != disimpan {
+		t.Errorf("UUID yang disimpan = %q, harus UUID baku huruf kecil", disimpan)
+	}
+	if !strings.Contains(q[1].Query, "uuid") {
+		t.Errorf("INSERT tidak menyimpan kolom uuid:\n%s", q[1].Query)
+	}
 	cekParameter(t, f)
+}
+
+func TestAmbilPenjualanMenurutUUID(t *testing.T) {
+	db, f := fakesql.New(t)
+	f.OnQuery = func(_ context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		if !strings.Contains(q, "WHERE p.uuid = @p1") {
+			return nil, nil, fmt.Errorf("query tak terduga: %s", q)
+		}
+		if args[0].Value == "6f9619ff-8b86-d011-b42d-00c04fc964ff" {
+			return []string{"id", "uuid", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"},
+				[][]driver.Value{{int64(42), "6F9619FF-8B86-D011-B42D-00C04FC964FF", "PJ-2026-00007", kodeA, "KPKNL", "01501", "", wkt, wkt}}, nil
+		}
+		return []string{"id", "uuid", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"}, nil, nil
+	}
+	s := NewStore(db)
+	k, err := s.AmbilPenjualanUUID(context.Background(), "6f9619ff-8b86-d011-b42d-00c04fc964ff")
+	if err != nil || k == nil || k.ID != 42 || k.UUID != "6f9619ff-8b86-d011-b42d-00c04fc964ff" {
+		t.Fatalf("hasil = %+v, err = %v", k, err)
+	}
+	if k, err := s.AmbilPenjualanUUID(context.Background(), "00000000-0000-4000-8000-000000000000"); err != nil || k != nil {
+		t.Errorf("UUID yang tidak ada harus menghasilkan nil tanpa galat: %+v, %v", k, err)
+	}
+	cekParameter(t, f)
+}
+
+func TestKasusDanDokumenTidakMengirimNomorIDInternal(t *testing.T) {
+	k, _ := json.Marshal(KasusInfo{ID: 12345, UUID: "6f9619ff-8b86-d011-b42d-00c04fc964ff", Noreg: "PJ-2026-00001"})
+	if !strings.Contains(string(k), `"id":"6f9619ff-8b86-d011-b42d-00c04fc964ff"`) || strings.Contains(string(k), "12345") {
+		t.Errorf("KasusInfo = %s; id harus UUID dan nomor internal tidak boleh ikut", k)
+	}
+	d, _ := json.Marshal(DokumenInfo{ID: 7, PenjualanID: 12345})
+	if strings.Contains(string(d), "12345") || strings.Contains(string(d), "penjualan_id") {
+		t.Errorf("DokumenInfo = %s; id penjualan internal tidak boleh ikut", d)
+	}
+}
+
+func TestBakukanUUID(t *testing.T) {
+	for _, c := range []struct {
+		masuk, want string
+		ok          bool
+	}{
+		{"6F9619FF-8B86-D011-B42D-00C04FC964FF", "6f9619ff-8b86-d011-b42d-00c04fc964ff", true},
+		{" 6f9619ff-8b86-d011-b42d-00c04fc964ff ", "6f9619ff-8b86-d011-b42d-00c04fc964ff", true},
+		{"6f9619ff8b86d011b42d00c04fc964ff", "", false},                       // tanpa tanda hubung
+		{"{6f9619ff-8b86-d011-b42d-00c04fc964ff}", "", false},                 // berkurung
+		{"urn:uuid:6f9619ff-8b86-d011-b42d-00c04fc964ff", "", false},          // berawalan
+		{"6f9619ff-8b86-d011-b42d-00c04fc964fg", "", false},                   // bukan heksadesimal
+		{"6f9619ff-8b86-d011-b42d-00c04fc964ff'; DROP TABLE x;--", "", false}, // sisipan SQL
+		{"1", "", false},
+		{"", "", false},
+	} {
+		if got, ok := BakukanUUID(c.masuk); got != c.want || ok != c.ok {
+			t.Errorf("BakukanUUID(%q) = %q, %v; want %q, %v", c.masuk, got, ok, c.want, c.ok)
+		}
+	}
 }
 
 func TestBuatPenjualanGagalMembatalkanTransaksi(t *testing.T) {
@@ -140,8 +208,8 @@ func TestDaftarPenjualanMemakaiParameterDanMeloloskanLIKE(t *testing.T) {
 		if strings.Contains(q, "COUNT(1) FROM sapa_penjualan p") {
 			return []string{"n"}, [][]driver.Value{{int64(3)}}, nil
 		}
-		return []string{"id", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"},
-			[][]driver.Value{{int64(9), "PJ-2026-00009", kodeA, "KPKNL", "01501", "", wkt, wkt}}, nil
+		return []string{"id", "uuid", "noreg", "kode_satker", "nama_satker", "kode_ue1", "dibuat_oleh", "dibuat_pada", "diperbarui_pada"},
+			[][]driver.Value{{int64(9), "6F9619FF-8B86-D011-B42D-00C04FC964FF", "PJ-2026-00009", kodeA, "KPKNL", "01501", "", wkt, wkt}}, nil
 	}
 	s := NewStore(db)
 	// Kata kunci berniat jahat dan berisi karakter khusus LIKE.

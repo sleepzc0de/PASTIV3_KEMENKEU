@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // MemRepo adalah Repo dalam memori. Dipakai oleh tes (paket ini dan handler) supaya aturan bisnis dan lapisan HTTP bisa
@@ -102,7 +104,7 @@ func (m *MemRepo) BuatPenjualan(_ context.Context, in BuatInput) (KasusInfo, err
 	m.urut[tahun]++
 	m.nextKasus++
 	now := time.Now().UTC()
-	k := &KasusInfo{ID: m.nextKasus, Noreg: fmt.Sprintf("PJ-%d-%05d", tahun, m.urut[tahun]), KodeSatker: in.KodeSatker, NamaSatker: in.NamaSatker,
+	k := &KasusInfo{ID: m.nextKasus, UUID: uuid.NewString(), Noreg: fmt.Sprintf("PJ-%d-%05d", tahun, m.urut[tahun]), KodeSatker: in.KodeSatker, NamaSatker: in.NamaSatker,
 		KodeUE1: in.KodeUE1, DibuatOleh: in.Oleh, DibuatPada: now, DiperbaruiPada: now}
 	m.kasus[k.ID] = k
 	m.tahap[k.ID] = map[string]TahapRow{}
@@ -115,6 +117,18 @@ func (m *MemRepo) AmbilPenjualan(_ context.Context, id int64) (*KasusInfo, error
 	if k, ok := m.kasus[id]; ok {
 		c := *k
 		return &c, nil
+	}
+	return nil, nil
+}
+
+func (m *MemRepo) AmbilPenjualanUUID(_ context.Context, id string) (*KasusInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.kasus {
+		if k.UUID == id {
+			c := *k
+			return &c, nil
+		}
 	}
 	return nil, nil
 }

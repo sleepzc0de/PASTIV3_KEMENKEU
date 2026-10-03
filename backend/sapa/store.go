@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Store adalah implementasi Repo di atas SQL Server (tabel sapa_* pada migrasi 021, dan DIGITALISASI_SATKER dari
@@ -127,7 +129,9 @@ func (s *Store) SimpanPeran(ctx context.Context, userID, peran, kodeSatker, kode
 
 // ---------------------------------------------------------------- usulan
 
-const kolomPenjualan = `p.id, p.noreg, p.kode_satker, p.nama_satker, p.kode_ue1, ISNULL(p.dibuat_oleh, ''), p.dibuat_pada, p.diperbarui_pada`
+// UUID dibaca sebagai teks (CONVERT) lalu dibakukan ke huruf kecil di scanKasus: driver mengembalikan UNIQUEIDENTIFIER
+// sebagai 16 byte dengan urutan byte campuran, yang mudah salah dibaca.
+const kolomPenjualan = `p.id, CONVERT(NVARCHAR(36), p.uuid), p.noreg, p.kode_satker, p.nama_satker, p.kode_ue1, ISNULL(p.dibuat_oleh, ''), p.dibuat_pada, p.diperbarui_pada`
 
 type pemindai interface {
 	Scan(dest ...interface{}) error
@@ -135,7 +139,8 @@ type pemindai interface {
 
 func scanKasus(r pemindai) (KasusInfo, error) {
 	var k KasusInfo
-	err := r.Scan(&k.ID, &k.Noreg, &k.KodeSatker, &k.NamaSatker, &k.KodeUE1, &k.DibuatOleh, &k.DibuatPada, &k.DiperbaruiPada)
+	err := r.Scan(&k.ID, &k.UUID, &k.Noreg, &k.KodeSatker, &k.NamaSatker, &k.KodeUE1, &k.DibuatOleh, &k.DibuatPada, &k.DiperbaruiPada)
+	k.UUID = strings.ToLower(k.UUID)
 	return k, err
 }
 
@@ -162,9 +167,9 @@ func (s *Store) BuatPenjualan(ctx context.Context, in BuatInput) (KasusInfo, err
 		}
 		var id int64
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO sapa_penjualan (noreg, kode_satker, nama_satker, kode_ue1, dibuat_oleh_id, dibuat_oleh)
-			 OUTPUT INSERTED.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6)`,
-			noreg, in.KodeSatker, in.NamaSatker, in.KodeUE1, userID, in.Oleh).Scan(&id)
+			`INSERT INTO sapa_penjualan (noreg, kode_satker, nama_satker, kode_ue1, dibuat_oleh_id, dibuat_oleh, uuid)
+			 OUTPUT INSERTED.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7)`,
+			noreg, in.KodeSatker, in.NamaSatker, in.KodeUE1, userID, in.Oleh, uuid.NewString()).Scan(&id)
 		if err != nil {
 			return err
 		}
@@ -176,6 +181,19 @@ func (s *Store) BuatPenjualan(ctx context.Context, in BuatInput) (KasusInfo, err
 
 func (s *Store) AmbilPenjualan(ctx context.Context, id int64) (*KasusInfo, error) {
 	k, err := scanKasus(s.DB.QueryRowContext(ctx, `SELECT `+kolomPenjualan+` FROM sapa_penjualan p WHERE p.id = @p1`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+// AmbilPenjualanUUID mencari usulan menurut UUID. Pemanggil sudah memastikan bentuknya sah (BakukanUUID), karena nilai
+// yang bukan UUID membuat SQL Server menolak konversinya.
+func (s *Store) AmbilPenjualanUUID(ctx context.Context, id string) (*KasusInfo, error) {
+	k, err := scanKasus(s.DB.QueryRowContext(ctx, `SELECT `+kolomPenjualan+` FROM sapa_penjualan p WHERE p.uuid = @p1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

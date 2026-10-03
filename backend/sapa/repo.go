@@ -14,7 +14,8 @@ type Repo interface {
 
 	// usulan penjualan
 	BuatPenjualan(ctx context.Context, in BuatInput) (KasusInfo, error)
-	AmbilPenjualan(ctx context.Context, id int64) (*KasusInfo, error) // nil bila tidak ada
+	AmbilPenjualan(ctx context.Context, id int64) (*KasusInfo, error)        // nil bila tidak ada
+	AmbilPenjualanUUID(ctx context.Context, uuid string) (*KasusInfo, error) // nil bila tidak ada; uuid sudah dibakukan (huruf kecil)
 	DaftarPenjualan(ctx context.Context, scope Scope, f FilterDaftar) ([]KasusInfo, int, error)
 	StatusTahapBanyak(ctx context.Context, ids []int64) (map[int64]StatusTahap, error)
 	TahapPenjualan(ctx context.Context, id int64) (map[string]TahapRow, error)
@@ -100,9 +101,11 @@ type BuatInput struct {
 	Oleh       string
 }
 
-// KasusInfo adalah satu usulan penjualan.
+// KasusInfo adalah satu usulan penjualan. Klien hanya mengenal UUID (dikirim sebagai "id"): nomor id berurutan adalah
+// kunci internal dan tidak pernah dikirim, supaya alamat usulan lain tidak bisa ditebak.
 type KasusInfo struct {
-	ID             int64     `json:"id"`
+	ID             int64     `json:"-"`
+	UUID           string    `json:"id"`
 	Noreg          string    `json:"noreg"`
 	KodeSatker     string    `json:"kode_satker"`
 	NamaSatker     string    `json:"nama_satker"`
@@ -147,7 +150,7 @@ type DokumenBaru struct {
 
 type DokumenInfo struct {
 	ID          int64     `json:"id"`
-	PenjualanID int64     `json:"penjualan_id"`
+	PenjualanID int64     `json:"-"` // kunci internal
 	Tahap       string    `json:"tahap"`
 	Jenis       string    `json:"jenis"`
 	JenisLabel  string    `json:"jenis_label"`

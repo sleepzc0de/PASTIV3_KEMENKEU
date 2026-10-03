@@ -21,7 +21,7 @@ import { BAForm, TimForm } from "./TimForm";
 // formulir tahap miliknya (ringkasan alur tetap menunjukkan posisi usulan di seluruh alur), sedangkan admin melihat semua
 // tahap dan bisa menyaring per peran. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir, panel pencatatan
 // (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
-export function PenjualanDetail({ id }: { id: number }) {
+export function PenjualanDetail({ id }: { id: string }) {
   const saya = useSapa();
   const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin));
   const [detail, setDetail] = useState<SapaDetail | null>(null);
@@ -434,7 +434,7 @@ function KotakLuarAplikasi({ tahap, checked, onChange }: { tahap: SapaTahapDetai
 }
 
 // Keterangan dokumen yang dibuat di luar aplikasi (mis. nomor dan tanggalnya) wajib dicatat, lalu tahap dilewati.
-function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
+function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: string; tahap: SapaTahapDetail; onChanged: () => void }) {
   const [catatan, setCatatan] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -474,7 +474,7 @@ function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: 
     </div>
   );
 }
-function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
+function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: string; tahap: SapaTahapDetail; onChanged: () => void }) {
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorInfo | null>(null);

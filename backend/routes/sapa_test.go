@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"pasti-v3-backend/handlers"
 	"pasti-v3-backend/sapa"
@@ -136,10 +137,10 @@ func (e *lingkungan) harap(j jawaban, kode int) jawaban {
 	return j
 }
 
-func (e *lingkungan) buatUsulan() int {
+func (e *lingkungan) buatUsulan() string {
 	e.t.Helper()
 	j := e.harap(e.json("satkA", "POST", "/penjualan", map[string]string{"kode_satker": kodeA}), http.StatusCreated)
-	return int(j.data()["id"].(float64))
+	return j.data()["id"].(string) // UUID usulan (pengenal publik)
 }
 
 func TestSapaTanpaLoginDitolak(t *testing.T) {
@@ -187,7 +188,7 @@ func TestSapaRuteAdminDijaga(t *testing.T) {
 		{"GET", "/template"}, {"POST", "/template/nd_satker"}, {"GET", "/template/nd_satker/unduh"},
 		{"GET", "/peran"}, {"PUT", "/peran/" + gSatkA}, {"GET", "/ref-ue1"}, {"PUT", "/ref-ue1/01501"}, {"DELETE", "/ref-ue1/01501"},
 		{"GET", "/bmn"}, {"PUT", "/bmn/satuan"}, {"DELETE", "/bmn/satuan?nama=unit"}, {"PUT", "/bmn/jenis"}, {"DELETE", "/bmn/jenis?nama=Tanah"},
-		{"POST", fmt.Sprintf("/penjualan/%d/tahap/tim/buka-ulang", id)},
+		{"POST", fmt.Sprintf("/penjualan/%s/tahap/tim/buka-ulang", id)},
 	} {
 		for _, u := range []string{"satkA", "kanwil", "ue1", "tanpa"} {
 			if j := e.kirim(u, c.method, c.path, []byte("{}"), ""); j.kode != http.StatusForbidden {
@@ -200,7 +201,7 @@ func TestSapaRuteAdminDijaga(t *testing.T) {
 func TestSapaAlurSatkerSampaiUnduh(t *testing.T) {
 	e := siapkan(t, nil)
 	id := e.buatUsulan()
-	base := fmt.Sprintf("/penjualan/%d", id)
+	base := fmt.Sprintf("/penjualan/%s", id)
 
 	// Nama satker diisi dari data Digitalisasi Aset; Noreg bernomor.
 	d := e.harap(e.kirim("satkA", "GET", base, nil, ""), 200).data()
@@ -281,7 +282,7 @@ func TestSapaAlurSatkerSampaiUnduh(t *testing.T) {
 func TestSapaMasukanTidakValid(t *testing.T) {
 	e := siapkan(t, nil)
 	id := e.buatUsulan()
-	base := fmt.Sprintf("/penjualan/%d", id)
+	base := fmt.Sprintf("/penjualan/%s", id)
 
 	for _, p := range []string{"/penjualan/abc", "/penjualan/0", "/penjualan/-1", "/penjualan/999", "/dokumen/abc/unduh", "/dokumen/999/unduh"} {
 		e.harap(e.kirim("satkA", "GET", p, nil, ""), http.StatusNotFound)
@@ -474,7 +475,7 @@ func TestSapaJenisDanSatuanBMN(t *testing.T) {
 
 	// Nota Dinas dengan pasangan tidak masuk akal ditolak (400) dan menyebut satuan yang boleh.
 	id := e.buatUsulan()
-	base := fmt.Sprintf("/penjualan/%d", id)
+	base := fmt.Sprintf("/penjualan/%s", id)
 	for _, kt := range []string{"tim", "ba"} {
 		e.harap(e.json("satkA", "POST", base+"/tahap/"+kt+"/lewati", map[string]string{"catatan": "dibuat di luar aplikasi"}), 200)
 	}
@@ -486,6 +487,64 @@ func TestSapaJenisDanSatuanBMN(t *testing.T) {
 	}
 	nd.JenisBMN, nd.Satuan = "kendaraan bermotor", "UNIT"
 	e.harap(e.json("satkA", "POST", base+"/tahap/nd_satker/dokumen", nd), http.StatusCreated)
+}
+
+func TestSapaUsulanDikenaliLewatUUID(t *testing.T) {
+	e := siapkan(t, nil)
+	a := e.buatUsulan()
+	b := e.buatUsulan()
+	for _, id := range []string{a, b} {
+		u, err := uuid.Parse(id)
+		if err != nil || u.Version() != 4 || id != strings.ToLower(id) {
+			t.Fatalf("id usulan %q harus UUID v4 huruf kecil (err %v)", id, err)
+		}
+	}
+	if a == b {
+		t.Fatal("dua usulan harus punya UUID berbeda")
+	}
+
+	// Detail, dengan UUID huruf besar sekalipun.
+	d := e.harap(e.kirim("satkA", "GET", "/penjualan/"+a, nil, ""), 200)
+	usulan, _ := d.data()["usulan"].(map[string]interface{})
+	if usulan["id"] != a {
+		t.Errorf("usulan.id = %v, want %v", usulan["id"], a)
+	}
+	e.harap(e.kirim("satkA", "GET", "/penjualan/"+strings.ToUpper(a), nil, ""), 200)
+
+	// Nomor id berurutan tidak lagi dikenali, dan tidak pernah dikirim ke klien.
+	for _, p := range []string{"/penjualan/1", "/penjualan/2", "/penjualan/" + strings.ReplaceAll(a, "-", ""), "/penjualan/{" + a + "}", "/penjualan/" + a + "x"} {
+		e.harap(e.kirim("satkA", "GET", p, nil, ""), http.StatusNotFound)
+	}
+	if body := d.w.Body.String(); strings.Contains(body, `"penjualan_id"`) || strings.Contains(body, `"id":1,`) || strings.Contains(body, `"id":2,`) {
+		t.Errorf("badan memuat nomor id internal: %s", body)
+	}
+
+	// Daftar memakai UUID yang sama.
+	l := e.harap(e.kirim("satkA", "GET", "/penjualan", nil, ""), 200).data()
+	var ids []string
+	for _, x := range l["usulan"].([]interface{}) {
+		ids = append(ids, x.(map[string]interface{})["id"].(string))
+	}
+	if len(ids) != 2 || !((ids[0] == a && ids[1] == b) || (ids[0] == b && ids[1] == a)) {
+		t.Errorf("daftar id = %v, want %v dan %v", ids, a, b)
+	}
+
+	// Usulan milik satker lain dijawab sama dengan usulan yang tidak ada: tidak ada petunjuk bahwa UUID itu benar.
+	asing := e.kirim("satkB", "GET", "/penjualan/"+a, nil, "")
+	tidakAda := e.kirim("satkB", "GET", "/penjualan/00000000-0000-4000-8000-000000000000", nil, "")
+	if asing.kode != http.StatusNotFound || tidakAda.kode != http.StatusNotFound || asing.w.Body.String() != tidakAda.w.Body.String() {
+		t.Errorf("usulan milik satker lain = %d %s; usulan tidak ada = %d %s", asing.kode, asing.w.Body.String(), tidakAda.kode, tidakAda.w.Body.String())
+	}
+	// Semua aksi tahap memakai UUID yang sama dan tetap menolak satker lain.
+	for _, p := range []string{"/tahap/tim", "/tahap/tim/lewati", "/tahap/tim/selesai", "/tahap/tim/dokumen"} {
+		method := "POST"
+		if p == "/tahap/tim" {
+			method = "PUT"
+		}
+		if j := e.json("satkB", method, "/penjualan/"+a+p, map[string]string{}); j.kode != http.StatusNotFound {
+			t.Errorf("%s %s oleh satker lain: status %d, want 404", method, p, j.kode)
+		}
+	}
 }
 
 func TestSapaTemplateImporDanEksporBarang(t *testing.T) {
