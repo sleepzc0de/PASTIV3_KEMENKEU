@@ -248,6 +248,204 @@ export async function updateSLDKOverviewSettings(flagKeysAktif: string[]) {
   return res.data;
 }
 
+// ============ Digitalisasi Aset (hasil sinkronisasi SLDK -> tabel DIGITALISASI_*) ============
+
+export type DGDatasetKey =
+  | "satker"
+  | "tanah"
+  | "gedung_kantor_utama"
+  | "gedung_lainnya"
+  | "rusunara"
+  | "rumah_negara"
+  | "mess_rumah_negara";
+
+export interface DGAgg {
+  jumlah: number;
+  luas: number;
+  nilai: number;
+}
+
+export interface DGAssetStat {
+  key: DGDatasetKey;
+  label: string;
+  geo: boolean;
+  punya_luas: boolean;
+  punya_nilai: boolean;
+  jumlah: number;
+  luas: number;
+  nilai: number;
+  bertitik: number;
+  tanpa_koordinat: number;
+  di_luar_indonesia: number;
+  tanpa_foto: number;
+  tanpa_kondisi: number;
+}
+
+export interface DGUE1 {
+  kode: string;
+  label: string;
+  satker: number;
+  kdj: number;
+  kdo: number;
+  per: Partial<Record<DGDatasetKey, DGAgg>>;
+}
+
+export interface DGProvinsi {
+  nama: string;
+  per: Partial<Record<DGDatasetKey, DGAgg>>;
+}
+
+export interface DGCount {
+  k: string | null;
+  jumlah: number;
+  nilai: number;
+}
+
+export interface DGOverviewData {
+  tersedia: true;
+  sinkron: { dataset: DGDatasetKey; label: string; jumlah_baris: number; terakhir_sukses: string | null }[];
+  satker: { total: number; induk: number; anak: number; kdj: number; kdo: number };
+  aset: DGAssetStat[];
+  hunian: Record<string, number>;
+  ue1: DGUE1[];
+  provinsi: DGProvinsi[];
+  kondisi: Partial<Record<DGDatasetKey, DGCount[]>>;
+  status_hukum: Partial<Record<DGDatasetKey, DGCount[]>>;
+  asuransi: Partial<Record<DGDatasetKey, DGCount[]>>;
+  status_penghuni: DGCount[];
+  kelengkapan: { satker_induk: number; induk_tanpa_kantor_utama: number; induk_tanpa_tanah: number };
+}
+
+export type DGOverview = DGOverviewData | { tersedia: false };
+
+export async function getDGOverview() {
+  const res = await api.get<{ success: boolean; message: string; data: DGOverview }>("/digitalisasi/ringkasan");
+  return res.data;
+}
+
+export interface DGMapSet {
+  key: DGDatasetKey;
+  label: string;
+  total: number;
+  bertitik: number;
+  tanpa_koordinat: number;
+  di_luar_indonesia: number;
+  terpotong: boolean;
+  titik: [number, number, number][]; // [id, lintang, bujur]
+}
+
+export async function getDGMap(params: { dataset?: string; ue1?: string }) {
+  const res = await api.get<{ success: boolean; message: string; data: { datasets: DGMapSet[] } }>("/digitalisasi/peta", {
+    params,
+    timeout: 60000,
+  });
+  return res.data;
+}
+
+export interface DGColumn {
+  nama: string;
+  tipe: "teks" | "bilangan" | "desimal";
+  sensitif?: boolean;
+}
+
+export type DGRow = Record<string, string | number | null> & { id: number };
+
+export interface DGListParams {
+  q?: string;
+  ue1?: string;
+  provinsi?: string;
+  kondisi?: string;
+  jenis_satker?: string;
+  tanpa_koordinat?: "1";
+  page?: number;
+  per_page?: number;
+}
+
+export interface DGListData {
+  dataset: DGDatasetKey;
+  label: string;
+  geo: boolean;
+  kolom: DGColumn[];
+  rows: DGRow[];
+  total: number;
+  page: number;
+  per_page: number;
+  filter: { ue1?: string[]; provinsi?: string[]; kondisi?: string[] };
+}
+
+export async function listDGData(dataset: DGDatasetKey, params: DGListParams) {
+  const res = await api.get<{ success: boolean; message: string; data: DGListData }>(`/digitalisasi/data/${dataset}`, { params });
+  return res.data;
+}
+
+export interface DGDetailData {
+  dataset: DGDatasetKey;
+  label: string;
+  kolom: DGColumn[];
+  row: Record<string, string | number | null>;
+}
+
+export async function getDGDetail(dataset: DGDatasetKey, id: number) {
+  const res = await api.get<{ success: boolean; message: string; data: DGDetailData }>(`/digitalisasi/data/${dataset}/${id}`);
+  return res.data;
+}
+
+export type DGSyncStatus = "antri" | "berjalan" | "sukses" | "gagal" | "dibatalkan";
+
+export interface DGSyncLog {
+  id: number;
+  dataset: DGDatasetKey;
+  status: DGSyncStatus;
+  dibuat: string;
+  mulai: string | null;
+  selesai: string | null;
+  jumlah_baris: number | null;
+  jumlah_koordinat: number | null;
+  pesan: string | null;
+  dijalankan_oleh: string | null;
+}
+
+export interface DGDatasetStatus {
+  key: DGDatasetKey;
+  label: string;
+  deskripsi: string;
+  tabel: string;
+  peta: boolean;
+  jumlah_baris: number;
+  terakhir: DGSyncLog | null;
+  terakhir_sukses: DGSyncLog | null;
+}
+
+export interface DGActiveRun {
+  datasets: DGDatasetKey[];
+  saat_ini: DGDatasetKey | "";
+  mulai: string;
+  oleh: string;
+}
+
+export interface DGSyncOverview {
+  sldk_tersedia: boolean;
+  aktif: DGActiveRun | null;
+  datasets: DGDatasetStatus[];
+  riwayat: DGSyncLog[];
+}
+
+export async function getDGSyncStatus() {
+  const res = await api.get<{ success: boolean; message: string; data: DGSyncOverview }>("/digitalisasi/sinkronisasi");
+  return res.data;
+}
+
+// Khusus admin. Sinkronisasi berjalan di server; respons langsung kembali (202) dan kemajuannya dibaca lewat getDGSyncStatus.
+export async function startDGSync(body: { datasets?: DGDatasetKey[]; semua?: boolean }) {
+  const res = await api.post<{ success: boolean; message: string; data: { aktif: DGActiveRun } }>("/digitalisasi/sinkronisasi", body);
+  return res.data;
+}
+
+export async function cancelDGSync() {
+  const res = await api.post<{ success: boolean; message: string; data: { dibatalkan: boolean } }>("/digitalisasi/sinkronisasi/batal");
+  return res.data;
+}
+
 // ============ HRIS2 Integration ============
 
 export interface HRIS2SearchResponse {

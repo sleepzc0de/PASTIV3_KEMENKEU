@@ -42,6 +42,18 @@ func SetupRoutes(r *gin.Engine) {
 			sldk.PUT("/ringkasan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.UpdateOverviewSettings)
 		}
 
+		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna login; sinkronisasi khusus admin).
+		digitalisasi := api.Group("/digitalisasi", middleware.AuthRequired())
+		{
+			digitalisasi.GET("/ringkasan", handlers.GetDigitalisasiRingkasan)
+			digitalisasi.GET("/peta", handlers.GetDigitalisasiPeta)
+			digitalisasi.GET("/data/:dataset", handlers.ListDigitalisasiData)
+			digitalisasi.GET("/data/:dataset/:id", handlers.GetDigitalisasiDetail)
+			digitalisasi.GET("/sinkronisasi", handlers.GetDigitalisasiSinkronisasi)
+			digitalisasi.POST("/sinkronisasi", middleware.RequireRole("admin", "superadmin"), handlers.StartDigitalisasiSync)
+			digitalisasi.POST("/sinkronisasi/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelDigitalisasiSync)
+		}
+
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.
 		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
 		{

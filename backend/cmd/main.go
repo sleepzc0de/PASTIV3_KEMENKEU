@@ -7,6 +7,7 @@ import (
 
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/handlers"
 	"pasti-v3-backend/middleware"
 	"pasti-v3-backend/routes"
 )
@@ -15,6 +16,7 @@ func main() {
 	config.LoadConfig()
 	database.Connect()
 	database.ConnectSLDK()
+	handlers.InitDigitalisasi()
 
 	if config.Cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
