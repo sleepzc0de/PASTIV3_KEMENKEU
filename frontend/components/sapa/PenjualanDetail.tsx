@@ -5,20 +5,25 @@ import Link from "next/link";
 import { ArrowLeft, ChevronDown, Lock, RotateCcw, SkipForward, Hourglass } from "lucide-react";
 import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
+import { Segmented } from "../digitalisasi/controls";
 import { formatDateTime } from "../sldk/overview";
+import { AlurRingkas } from "./AlurRingkas";
 import { KanalBadge, PeranBadge, StatusBadge, StepCircle } from "./badges";
 import { DokumenList } from "./DokumenList";
 import { EksternalPanel } from "./EksternalPanel";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton, TextAreaField } from "./fields";
 import { NDSatkerForm, NDUE1Form } from "./NDForms";
 import { useSapa } from "./SapaGate";
-import { ErrorInfo, errorInfo, errorStatus, formatTanggal, peranLabel } from "./sapa";
+import { ErrorInfo, Lihat, errorInfo, errorStatus, formatTanggal, giliranSaatIni, lihatAwal, peranLabel, tahapDilihat } from "./sapa";
 import { BAForm, TimForm } from "./TimForm";
 
-// Halaman satu usulan penjualan: linimasa 10 tahap. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir,
-// panel pencatatan (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
+// Halaman satu usulan penjualan: linimasa 10 tahap. Tampilan mengikuti peran: pengguna Satker/Kanwil/UE1 langsung melihat
+// formulir tahap miliknya (ringkasan alur tetap menunjukkan posisi usulan di seluruh alur), sedangkan admin melihat semua
+// tahap dan bisa menyaring per peran. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir, panel pencatatan
+// (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
 export function PenjualanDetail({ id }: { id: number }) {
   const saya = useSapa();
+  const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin));
   const [detail, setDetail] = useState<SapaDetail | null>(null);
   const [error, setError] = useState<{ message: string; hilang: boolean } | null>(null);
   const aktif = useRef(true);
@@ -69,26 +74,123 @@ export function PenjualanDetail({ id }: { id: number }) {
   if (!detail) return <div role="status" aria-label="Memuat usulan" className="h-64 animate-pulse rounded-xl bg-slate-100" />;
 
   const selesai = detail.tahap.filter((t) => t.status === "selesai" || t.status === "dilewati").length;
+  const tampil = tahapDilihat(detail.tahap, lihat, saya.peran);
+  const giliran = giliranSaatIni(detail.tahap, detail.tahap_saat_ini, saya.peran, saya.admin);
+
+  // Dari ringkasan alur: tahap milik peran lain dibuka dengan beralih ke tampilan semua tahap, lalu digulir ke kartunya.
+  const pilihTahap = (t: SapaTahapDetail) => {
+    if (!tampil.some((x) => x.kunci === t.kunci)) setLihat("semua");
+    setTimeout(() => document.getElementById(`kartu-${t.kunci}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
 
   return (
     <div className="space-y-5">
       {kembali}
       <Ringkasan usulan={detail.usulan} selesai={selesai} total={detail.tahap.length} sudahSelesai={detail.selesai} />
       {error && <Alert message={error.message} />}
+
+      <AlurRingkas tahap={detail.tahap} aktifKunci={detail.tahap_saat_ini} peranSaya={saya.admin ? "" : saya.peran} onPilih={pilihTahap} />
+
+      <GiliranBanner
+        giliran={giliran}
+        admin={saya.admin}
+        onLihatSemua={() => setLihat("semua")}
+        lihat={lihat}
+        tahapSayaTuntas={detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PilihTampilan lihat={lihat} onChange={setLihat} saya={saya} />
+        <p className="text-xs text-slate-500">
+          Menampilkan {tampil.length} dari {detail.tahap.length} tahap
+        </p>
+      </div>
+
       <ol className="space-y-3">
-        {detail.tahap.map((t, i) => (
+        {tampil.map((t, i) => (
           <TahapCard
             key={t.kunci}
             t={t}
             usulan={detail.usulan}
             saya={saya}
             aktif={t.kunci === detail.tahap_saat_ini}
-            terakhir={i === detail.tahap.length - 1}
+            terakhir={i === tampil.length - 1}
             onChanged={muat}
           />
         ))}
       </ol>
     </div>
+  );
+}
+
+// Pemilih sudut pandang. Pengguna biasa: tahap peran sendiri atau semua; admin: semua atau per peran.
+function PilihTampilan({ lihat, onChange, saya }: { lihat: Lihat; onChange: (l: Lihat) => void; saya: SapaSaya }) {
+  if (saya.admin) {
+    return (
+      <Segmented<Lihat>
+        label="Tahap yang ditampilkan"
+        value={lihat}
+        onChange={onChange}
+        options={[
+          { value: "semua", label: "Semua tahap" },
+          { value: "satker", label: "Satuan Kerja" },
+          { value: "kanwil", label: "Kantor Wilayah" },
+          { value: "ue1", label: "Unit Eselon I" },
+        ]}
+      />
+    );
+  }
+  return (
+    <Segmented<Lihat>
+      label="Tahap yang ditampilkan"
+      value={lihat}
+      onChange={onChange}
+      options={[
+        { value: "saya", label: `Tahap ${peranLabel(saya.peran)}` },
+        { value: "semua", label: "Semua tahap" },
+      ]}
+    />
+  );
+}
+
+// Pesan singkat tentang siapa yang sedang ditunggu, supaya pengguna tahu apa yang harus dikerjakan tanpa membaca seluruh alur.
+function GiliranBanner({
+  giliran,
+  admin,
+  lihat,
+  onLihatSemua,
+  tahapSayaTuntas,
+}: {
+  giliran: ReturnType<typeof giliranSaatIni>;
+  admin: boolean;
+  lihat: Lihat;
+  onLihatSemua: () => void;
+  tahapSayaTuntas: boolean; // semua tahap milik peran pengguna sudah selesai/dilewati
+}) {
+  if (giliran.jenis === "selesai") {
+    return <NoticeBox tone="ok">Seluruh tahap usulan ini sudah selesai.</NoticeBox>;
+  }
+  if (giliran.jenis === "saya") {
+    return (
+      <NoticeBox tone="info">
+        {admin ? "Tahap berjalan: " : "Giliran Anda: "}
+        <span className="font-semibold">{giliran.label}</span>
+        {admin && <span className="text-xs"> (dikerjakan oleh {peranLabel(giliran.peran ?? "")})</span>}
+      </NoticeBox>
+    );
+  }
+  return (
+    <NoticeBox tone="warn">
+      <span>
+        {tahapSayaTuntas ? "Tahap Anda sudah selesai. " : ""}Saat ini giliran <span className="font-semibold">{peranLabel(giliran.peran ?? "")}</span>: {giliran.label}.
+        {tahapSayaTuntas ? "" : " Tahap Anda terbuka setelah tahap-tahap sebelumnya selesai."}
+      </span>
+      {lihat !== "semua" && (
+        <button type="button" onClick={onLihatSemua} className="ml-2 font-medium underline underline-offset-2 hover:no-underline">
+          Lihat semua tahap
+        </button>
+      )}
+    </NoticeBox>
   );
 }
 
@@ -153,7 +255,7 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
 
   const panelId = `tahap-${t.kunci}`;
   return (
-    <li className="relative">
+    <li id={`kartu-${t.kunci}`} className="relative scroll-mt-20">
       {!terakhir && <span aria-hidden="true" className="absolute left-4 top-9 -bottom-3 w-px bg-slate-200" />}
       <div className={`rounded-xl border bg-white ${aktif ? "border-blue-300 shadow-sm" : "border-slate-200"}`}>
         <button

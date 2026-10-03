@@ -87,6 +87,52 @@ export function totalBarang(barang: SapaBarang[]): TotalBarang {
   return t;
 }
 
+// ---------------------------------------------------------------- tampilan menurut peran
+
+// Sudut pandang halaman usulan: "saya" = hanya tahap milik peran pengguna; "semua" = seluruh tahap; atau satu peran tertentu
+// (dipakai admin, yang boleh mengerjakan semua peran).
+export type Lihat = "saya" | "semua" | SapaPeran;
+
+// Pengguna biasa langsung fokus ke tahap perannya; admin melihat seluruh alur dan boleh menyaring per peran.
+export function lihatAwal(admin: boolean): Lihat {
+  return admin ? "semua" : "saya";
+}
+
+// Tahap yang ditampilkan untuk sudut pandang tertentu. Tanpa peran (tidak seharusnya terjadi) semua tahap ditampilkan,
+// supaya halaman tidak pernah kosong.
+export function tahapDilihat<T extends { peran: string }>(tahap: T[], lihat: Lihat, peranSaya: string): T[] {
+  if (lihat === "semua") return tahap;
+  const peran = lihat === "saya" ? peranSaya : lihat;
+  if (!peran) return tahap;
+  return tahap.filter((t) => t.peran === peran);
+}
+
+export interface Giliran {
+  // "selesai": semua tahap beres; "saya": tahap yang sedang berjalan milik peran pengguna; "lain": milik peran lain.
+  jenis: "selesai" | "saya" | "lain";
+  kunci?: string;
+  label?: string;
+  peran?: string;
+}
+
+// Siapa yang sedang ditunggu. Admin dianggap boleh mengerjakan tahap berjalan apa pun ("saya").
+export function giliranSaatIni<T extends { kunci: string; label: string; peran: string }>(tahap: T[], tahapSaatIni: string, peranSaya: string, admin: boolean): Giliran {
+  const t = tahap.find((x) => x.kunci === tahapSaatIni);
+  if (!t) return { jenis: "selesai" };
+  return { jenis: admin || t.peran === peranSaya ? "saya" : "lain", kunci: t.kunci, label: t.label, peran: t.peran };
+}
+
+// Kelompok tahap berurutan yang diperankan pihak yang sama (mis. Satker 1-5, Kanwil 6, UE1 7-10), untuk ringkasan alur.
+export function kelompokPeran<T extends { peran: string }>(tahap: T[]): { peran: string; items: T[] }[] {
+  const out: { peran: string; items: T[] }[] = [];
+  for (const t of tahap) {
+    const last = out[out.length - 1];
+    if (last && last.peran === t.peran) last.items.push(t);
+    else out.push({ peran: t.peran, items: [t] });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- tanggal dan ukuran
 
 const BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];

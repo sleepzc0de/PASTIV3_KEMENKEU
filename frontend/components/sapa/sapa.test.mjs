@@ -165,3 +165,49 @@ test("label peran dan status", () => {
   assert.equal(H.peranLabel("tamu"), "tamu");
   assert.equal(H.STATUS_META.selesai.tone, "ok");
 });
+
+const alur = [
+  { kunci: "tim", label: "Tim", peran: "satker" },
+  { kunci: "ba", label: "BA", peran: "satker" },
+  { kunci: "nd_satker", label: "ND Satker", peran: "satker" },
+  { kunci: "siman_kanwil", label: "Penelitian", peran: "kanwil" },
+  { kunci: "nd_ue1", label: "ND UE1", peran: "ue1" },
+  { kunci: "siman_ue1", label: "Teruskan", peran: "ue1" },
+];
+
+test("tampilan menurut peran: pengguna fokus ke tahap perannya, admin melihat semua", () => {
+  assert.equal(H.lihatAwal(false), "saya");
+  assert.equal(H.lihatAwal(true), "semua");
+  const kunci = (l, p) => H.tahapDilihat(alur, l, p).map((t) => t.kunci);
+  assert.deepEqual(kunci("saya", "satker"), ["tim", "ba", "nd_satker"]);
+  assert.deepEqual(kunci("saya", "kanwil"), ["siman_kanwil"]);
+  assert.deepEqual(kunci("saya", "ue1"), ["nd_ue1", "siman_ue1"]);
+  assert.equal(kunci("semua", "satker").length, 6);
+  // Admin menyaring per peran, tidak bergantung pada peran SAPA-nya.
+  assert.deepEqual(kunci("ue1", ""), ["nd_ue1", "siman_ue1"]);
+  assert.deepEqual(kunci("kanwil", "satker"), ["siman_kanwil"]);
+  // Tanpa peran: semua tahap (halaman tidak boleh kosong).
+  assert.equal(kunci("saya", "").length, 6);
+  // Tidak mengubah daftar asal.
+  assert.equal(alur.length, 6);
+});
+
+test("giliran saat ini", () => {
+  assert.deepEqual(H.giliranSaatIni(alur, "", "satker", false), { jenis: "selesai" });
+  assert.deepEqual(H.giliranSaatIni(alur, "zzz", "satker", false), { jenis: "selesai" });
+  assert.equal(H.giliranSaatIni(alur, "ba", "satker", false).jenis, "saya");
+  const lain = H.giliranSaatIni(alur, "siman_kanwil", "satker", false);
+  assert.equal(lain.jenis, "lain");
+  assert.equal(lain.peran, "kanwil");
+  assert.equal(lain.label, "Penelitian");
+  // Admin selalu dianggap boleh mengerjakan tahap berjalan.
+  assert.equal(H.giliranSaatIni(alur, "siman_kanwil", "", true).jenis, "saya");
+});
+
+test("kelompok peran berurutan", () => {
+  const g = H.kelompokPeran(alur);
+  assert.deepEqual(g.map((x) => [x.peran, x.items.length]), [["satker", 3], ["kanwil", 1], ["ue1", 2]]);
+  // Peran yang sama tetapi tidak berurutan membentuk kelompok terpisah.
+  assert.equal(H.kelompokPeran([{ peran: "a" }, { peran: "b" }, { peran: "a" }]).length, 3);
+  assert.deepEqual(H.kelompokPeran([]), []);
+});
