@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { SapaDataNDSatker, SapaDataNDUE1, SapaSaya, SapaTahapDetail, SapaUsulan } from "@/lib/sapa";
 import { BarangEditor } from "./BarangEditor";
+import { BMNPilihan, PasanganBMN, useRefBMN } from "./BMNPilihan";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { CheckField, NoticeBox, Section, TextAreaField, TextField } from "./fields";
-import { muatanNDSatker, normNDSatker, normNDUE1 } from "./sapa";
+import { PenandatanganField } from "./PenandatanganField";
+import { muatanNDSatker, normNDSatker, normNDUE1, periksaBMN } from "./sapa";
 import { FormFooter, useTahapAksi } from "./useTahapAksi";
 
 interface Props {
@@ -20,8 +22,10 @@ export function NDSatkerForm({ usulan, tahap, saya, onChanged }: Props) {
   const [v, setV] = useState<SapaDataNDSatker>(() => normNDSatker(tahap.data ?? tahap.saran, saya.item_dokumen));
   const aksi = useTahapAksi(usulan.id, tahap.kunci, onChanged);
   const set = <K extends keyof SapaDataNDSatker>(k: K, val: SapaDataNDSatker[K]) => setV((p) => ({ ...p, [k]: val }));
-  const setTtd = (k: "nama" | "nip" | "jabatan", val: string) => setV((p) => ({ ...p, penandatangan: { ...p.penandatangan, [k]: val } }));
   const muatan = () => muatanNDSatker(v, saya.item_dokumen);
+  const refBMN = useRefBMN();
+  // Stabil antar render: BMNPilihan merapikan nilai tersimpan lewat efek yang bergantung pada fungsi ini.
+  const aturBMN = useCallback((p: PasanganBMN) => setV((cur) => ({ ...cur, jenis_bmn: p.jenis, satuan: p.satuan })), []);
 
   return (
     <div className="space-y-6">
@@ -56,15 +60,7 @@ export function NDSatkerForm({ usulan, tahap, saya, onChanged }: Props) {
               maxLength={100}
               hint="Opsional, mis. KPKNL Jakarta I"
             />
-            <TextField label="Jenis BMN" required value={v.jenis_bmn} onChange={(x) => set("jenis_bmn", x)} maxLength={200} placeholder="mis. Tanah dan Bangunan" />
-            <TextField
-              label="Satuan jumlah BMN"
-              value={v.satuan}
-              onChange={(x) => set("satuan", x)}
-              maxLength={30}
-              placeholder="mis. unit, bidang"
-              hint="Opsional; dipakai pada terbilang jumlah BMN"
-            />
+            <BMNPilihan daftar={refBMN.daftar} error={refBMN.error} onCoba={refBMN.muat} nilai={{ jenis: v.jenis_bmn, satuan: v.satuan }} onChange={aturBMN} />
             <TextField label="Nomor tiket SIMAN" required value={v.tiket_siman} onChange={(x) => set("tiket_siman", x)} maxLength={100} />
             <TextField
               label="Tembusan: Kepala Kantor Wilayah"
@@ -87,16 +83,12 @@ export function NDSatkerForm({ usulan, tahap, saya, onChanged }: Props) {
         </div>
       </Section>
 
-      <Section title="Pejabat penandatangan" description="Pejabat satker yang menandatangani Nota Dinas dan surat pernyataan.">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <TextField label="Nama" required value={v.penandatangan.nama} onChange={(x) => setTtd("nama", x)} maxLength={150} />
-          <TextField label="NIP (18 digit)" required value={v.penandatangan.nip} onChange={(x) => setTtd("nip", x.replace(/[^\d\s]/g, ""))} inputMode="numeric" maxLength={24} />
-          <TextField label="Jabatan" required value={v.penandatangan.jabatan} onChange={(x) => setTtd("jabatan", x)} maxLength={300} />
-        </div>
+      <Section title="Pejabat penandatangan" description="Pejabat satker yang menandatangani Nota Dinas dan surat pernyataan. Cari namanya di HRIS2 agar NIP dan jabatan terisi otomatis.">
+        <PenandatanganField value={v.penandatangan} onChange={(p) => set("penandatangan", p)} denganNIP />
       </Section>
 
       <Section title="Daftar barang" description="Barang yang diusulkan untuk dijual. Jumlah dan total nilai pada dokumen dihitung dari daftar ini.">
-        <BarangEditor barang={v.barang} onChange={(b) => set("barang", b)} />
+        <BarangEditor barang={v.barang} onChange={(b) => set("barang", b)} satuan={periksaBMN(refBMN.daftar, v.jenis_bmn, v.satuan).satuanSah} />
       </Section>
 
       <Section
@@ -122,7 +114,6 @@ export function NDUE1Form({ usulan, tahap, onChanged }: Props) {
   const [v, setV] = useState<SapaDataNDUE1>(() => normNDUE1(tahap.data ?? tahap.saran));
   const aksi = useTahapAksi(usulan.id, tahap.kunci, onChanged);
   const set = <K extends keyof SapaDataNDUE1>(k: K, val: SapaDataNDUE1[K]) => setV((p) => ({ ...p, [k]: val }));
-  const setTtd = (k: "nama" | "jabatan", val: string) => setV((p) => ({ ...p, penandatangan: { ...p.penandatangan, [k]: val } }));
 
   return (
     <div className="space-y-6">
@@ -138,7 +129,7 @@ export function NDUE1Form({ usulan, tahap, onChanged }: Props) {
         </div>
       </Section>
 
-      <Section title="Tujuan, tembusan, dan penandatangan">
+      <Section title="Tujuan dan tembusan">
         <div className="grid gap-3 sm:grid-cols-2">
           <TextField label="Sekretaris UE1" required value={v.sekretaris_ue1} onChange={(x) => set("sekretaris_ue1", x)} maxLength={300} />
           <TextField label="Tembusan: Kepala Kantor Wilayah" required value={v.kepala_kanwil} onChange={(x) => set("kepala_kanwil", x)} maxLength={300} />
@@ -151,9 +142,11 @@ export function NDUE1Form({ usulan, tahap, onChanged }: Props) {
             className="sm:col-span-2"
             placeholder="mis. Direktur Barang Milik Negara"
           />
-          <TextField label="Nama pejabat UE1 penandatangan" required value={v.penandatangan.nama} onChange={(x) => setTtd("nama", x)} maxLength={150} />
-          <TextField label="Jabatan penandatangan" required value={v.penandatangan.jabatan} onChange={(x) => setTtd("jabatan", x)} maxLength={300} />
         </div>
+      </Section>
+
+      <Section title="Pejabat UE1 penandatangan" description="Cari namanya di HRIS2 agar nama dan jabatan terisi otomatis.">
+        <PenandatanganField value={v.penandatangan} onChange={(p) => set("penandatangan", p)} denganNIP={false} labelNama="Nama pejabat UE1 penandatangan" labelJabatan="Jabatan penandatangan" />
       </Section>
 
       <FormFooter

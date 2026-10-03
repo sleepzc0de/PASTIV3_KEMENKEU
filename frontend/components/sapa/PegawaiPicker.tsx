@@ -20,11 +20,13 @@ export function PegawaiPicker({
   terpakai,
   autoFocus,
   label = "Cari pegawai di HRIS2",
+  kataSukses = "ditambahkan",
 }: {
   onPilih: (p: PegawaiTerpilih) => void;
   terpakai: Set<string>; // NIP yang sudah ada di daftar: ditandai dan tidak bisa dipilih lagi
   autoFocus?: boolean;
   label?: string;
+  kataSukses?: string; // akhiran pesan setelah memilih: "<nama> <kataSukses>."
 }) {
   const id = useId();
   const [query, setQuery] = useState("");
@@ -105,7 +107,7 @@ export function PegawaiPicker({
       }
     }
     onPilih({ nip: p.nip, nama, jabatan });
-    setCatatan(jabatan ? `${nama} ditambahkan.` : `${nama} ditambahkan; jabatan tidak ditemukan di HRIS2, isi manual.`);
+    setCatatan(jabatan ? `${nama} ${kataSukses}.` : `${nama} ${kataSukses}; jabatan tidak ditemukan di HRIS2, isi manual.`);
     setQuery("");
     setHasil(null);
     setOpen(false);
@@ -179,7 +181,7 @@ export function PegawaiPicker({
           {error ? (
             <div role="alert" className="px-3 py-3 text-sm text-slate-700">
               <p className="font-medium text-red-700">{error.message}</p>
-              <p className="mt-1 text-xs text-slate-500">Anda tetap dapat mengisi nama dan jabatan anggota secara manual.</p>
+              <p className="mt-1 text-xs text-slate-500">Anda tetap dapat mengisi nama dan jabatan secara manual.</p>
             </div>
           ) : hasil && hasil.length === 0 ? (
             <div className="flex flex-col items-center px-3 py-6 text-center">

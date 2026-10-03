@@ -238,3 +238,94 @@ test("NIP terpakai dan ganda", () => {
   assert.deepEqual([...H.nipGanda(daftar)], ["19800101"]);
   assert.equal(H.nipGanda([a(""), a("")]).size, 0);
 });
+
+// Daftar contoh yang sama bentuknya dengan jawaban GET /sapa/referensi/bmn.
+const REF = {
+  satuan: [
+    { nama: "bidang", aktif: true, urutan: 1 },
+    { nama: "unit", aktif: true, urutan: 2 },
+    { nama: "buah", aktif: true, urutan: 3 },
+    { nama: "set", aktif: true, urutan: 4 },
+  ],
+  jenis: [
+    { nama: "Tanah", aktif: true, urutan: 1, satuan: ["bidang"], satuan_bawaan: "bidang" },
+    { nama: "Peralatan dan Mesin", aktif: true, urutan: 2, satuan: ["unit", "buah", "set"], satuan_bawaan: "unit" },
+    { nama: "Tanah dan Bangunan", aktif: true, urutan: 3, satuan: ["bidang", "unit"], satuan_bawaan: "unit" },
+  ],
+};
+
+test("memilih jenis BMN tidak pernah menghasilkan pasangan yang tidak masuk akal", () => {
+  // Satuan bawaan dipakai saat belum ada satuan.
+  assert.deepEqual(H.pilihJenisBMN(REF, "Tanah", ""), { jenis: "Tanah", satuan: "bidang" });
+  assert.deepEqual(H.pilihJenisBMN(REF, "Peralatan dan Mesin", ""), { jenis: "Peralatan dan Mesin", satuan: "unit" });
+  // Satuan yang sedang dipakai dipertahankan bila masih diizinkan untuk jenis baru ...
+  assert.deepEqual(H.pilihJenisBMN(REF, "Peralatan dan Mesin", "set"), { jenis: "Peralatan dan Mesin", satuan: "set" });
+  assert.deepEqual(H.pilihJenisBMN(REF, "Tanah dan Bangunan", "BIDANG"), { jenis: "Tanah dan Bangunan", satuan: "bidang" });
+  // ... dan diganti satuan bawaan bila tidak (Peralatan dan Mesin dalam "set" lalu pindah ke Tanah).
+  assert.deepEqual(H.pilihJenisBMN(REF, "Tanah", "set"), { jenis: "Tanah", satuan: "bidang" });
+  assert.deepEqual(H.pilihJenisBMN(REF, "Tanah dan Bangunan", "buah"), { jenis: "Tanah dan Bangunan", satuan: "unit" });
+  // Nama jenis dikanonkan menurut daftar; jenis yang tidak dikenal tidak mengubah satuan.
+  assert.equal(H.pilihJenisBMN(REF, "tanah", "").jenis, "Tanah");
+  assert.deepEqual(H.pilihJenisBMN(REF, "Pesawat", "unit"), { jenis: "Pesawat", satuan: "unit" });
+  assert.deepEqual(H.pilihJenisBMN(null, "Tanah", "x"), { jenis: "Tanah", satuan: "x" });
+});
+
+test("periksaBMN menandai data lama yang tidak sesuai daftar", () => {
+  assert.deepEqual(H.periksaBMN(REF, "", ""), { jenis: null, satuanSah: "", pesanJenis: null, pesanSatuan: null });
+  const ok = H.periksaBMN(REF, "tanah", "BIDANG");
+  assert.equal(ok.jenis.nama, "Tanah");
+  assert.equal(ok.satuanSah, "bidang");
+  assert.equal(ok.pesanJenis, null);
+  assert.equal(ok.pesanSatuan, null);
+
+  const asing = H.periksaBMN(REF, "Pesawat Terbang", "unit");
+  assert.equal(asing.jenis, null);
+  assert.match(asing.pesanJenis, /tidak ada di daftar/);
+
+  const salah = H.periksaBMN(REF, "Tanah", "unit");
+  assert.equal(salah.satuanSah, "");
+  assert.match(salah.pesanSatuan, /tidak sesuai untuk Tanah.*bidang/);
+  assert.match(H.periksaBMN(REF, "Peralatan dan Mesin", "meter").pesanSatuan, /unit, buah, set/);
+
+  // Satuan belum dipilih bukan galat di sini (formulir menandainya wajib).
+  assert.equal(H.periksaBMN(REF, "Tanah", "").pesanSatuan, null);
+  // Daftar belum termuat: tidak ada penilaian.
+  assert.equal(H.periksaBMN(null, "Tanah", "unit").pesanSatuan, null);
+});
+
+test("satuanDiizinkan dan cariJenisBMN tidak membedakan huruf besar/kecil", () => {
+  assert.equal(H.satuanDiizinkan(REF.jenis[1], " Unit "), "unit");
+  assert.equal(H.satuanDiizinkan(REF.jenis[0], "unit"), null);
+  assert.equal(H.satuanDiizinkan(null, "unit"), null);
+  assert.equal(H.cariJenisBMN(REF, "  peralatan DAN mesin ").nama, "Peralatan dan Mesin");
+  assert.equal(H.cariJenisBMN(REF, ""), null);
+});
+
+test("pengaturan admin: satuan jenis disusun menurut urutan daftar satuan", () => {
+  // Urutan centang tidak dipakai: urutan mengikuti daftar satuan.
+  assert.deepEqual(H.susunSatuanJenis(REF.satuan, ["set", "unit"], "set"), { satuan: ["unit", "set"], bawaan: "set" });
+  // Bawaan yang tidak dicentang lagi jatuh ke satuan pertama.
+  assert.deepEqual(H.susunSatuanJenis(REF.satuan, ["buah", "set"], "unit"), { satuan: ["buah", "set"], bawaan: "buah" });
+  // Tidak ada yang dicentang: kosong (backend menolak jenis tanpa satuan).
+  assert.deepEqual(H.susunSatuanJenis(REF.satuan, [], "unit"), { satuan: [], bawaan: "" });
+  assert.equal(H.urutanBerikut([]), 1);
+  assert.equal(H.urutanBerikut([{ urutan: 3 }, { urutan: 7 }, { urutan: 5 }]), 8);
+});
+
+test("gabungBarang: ganti, tambah, dan batas jumlah", () => {
+  const b = (nama) => ({ ...H.kosongBarang(), nama, nilai_perolehan: "1", nilai_limit: "1" });
+  const lama = [b("A"), H.kosongBarang(), b("B")];
+  const baru = [b("C"), b("D")];
+  assert.deepEqual(H.gabungBarang(lama, baru, "ganti").barang.map((x) => x.nama), ["C", "D"]);
+  // Baris kosong pada daftar lama dibuang saat menambahkan.
+  assert.deepEqual(H.gabungBarang(lama, baru, "tambah").barang.map((x) => x.nama), ["A", "B", "C", "D"]);
+  assert.deepEqual(H.gabungBarang([H.kosongBarang()], baru, "tambah").barang.map((x) => x.nama), ["C", "D"]);
+
+  const banyak = Array.from({ length: 498 }, (_, i) => b(`L${i}`));
+  const r = H.gabungBarang(banyak, [b("X"), b("Y"), b("Z"), b("W")], "tambah");
+  assert.equal(r.barang.length, 500);
+  assert.equal(r.terbuang, 2);
+  assert.equal(r.barang[499].nama, "Y");
+  assert.equal(H.gabungBarang(lama, baru, "ganti").terbuang, 0);
+  assert.equal(H.MAKS_BYTE_XLSX, 2 * 1024 * 1024);
+});

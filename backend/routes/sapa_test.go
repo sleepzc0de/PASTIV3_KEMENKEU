@@ -186,6 +186,7 @@ func TestSapaRuteAdminDijaga(t *testing.T) {
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/template"}, {"POST", "/template/nd_satker"}, {"GET", "/template/nd_satker/unduh"},
 		{"GET", "/peran"}, {"PUT", "/peran/" + gSatkA}, {"GET", "/ref-ue1"}, {"PUT", "/ref-ue1/01501"}, {"DELETE", "/ref-ue1/01501"},
+		{"GET", "/bmn"}, {"PUT", "/bmn/satuan"}, {"DELETE", "/bmn/satuan?nama=unit"}, {"PUT", "/bmn/jenis"}, {"DELETE", "/bmn/jenis?nama=Tanah"},
 		{"POST", fmt.Sprintf("/penjualan/%d/tahap/tim/buka-ulang", id)},
 	} {
 		for _, u := range []string{"satkA", "kanwil", "ue1", "tanpa"} {
@@ -432,4 +433,128 @@ func TestSapaGalatInternalTidakBocor(t *testing.T) {
 	if j.m["message"] != "Terjadi kesalahan pada server" {
 		t.Errorf("message = %v", j.m["message"])
 	}
+}
+
+func TestSapaJenisDanSatuanBMN(t *testing.T) {
+	e := siapkan(t, nil)
+
+	// Pengguna SAPA melihat daftar aktif; Tanah hanya boleh bersatuan bidang.
+	j := e.harap(e.kirim("satkA", "GET", "/referensi/bmn", nil, ""), 200).data()
+	jenis := j["jenis"].([]interface{})
+	var tanah map[string]interface{}
+	for _, x := range jenis {
+		if m := x.(map[string]interface{}); m["nama"] == "Tanah" {
+			tanah = m
+		}
+	}
+	if len(jenis) != 7 || tanah == nil || len(tanah["satuan"].([]interface{})) != 1 || tanah["satuan_bawaan"] != "bidang" {
+		t.Errorf("referensi BMN = %v", j)
+	}
+	e.harap(e.kirim("tanpa", "GET", "/referensi/bmn", nil, ""), http.StatusForbidden)
+
+	// Admin menambah satuan dan jenis yang namanya memuat koma, spasi, dan huruf non-ASCII.
+	e.harap(e.json("admin", "PUT", "/bmn/satuan", map[string]interface{}{"nama": "meter lari", "aktif": true, "urutan": 7}), 200)
+	e.harap(e.json("admin", "PUT", "/bmn/jenis", map[string]interface{}{"nama": "Pagar, Jalan & Taman – Kantor", "aktif": true, "urutan": 8, "satuan": []string{"meter lari", "unit"}}), 200)
+	all := e.harap(e.kirim("admin", "GET", "/bmn", nil, ""), 200).data()
+	if len(all["jenis"].([]interface{})) != 8 || len(all["satuan"].([]interface{})) != 7 {
+		t.Errorf("daftar lengkap = %v", all)
+	}
+	// Dihapus lewat query (bukan segmen jalur) walau namanya memuat karakter khusus.
+	e.harap(e.kirim("admin", "DELETE", "/bmn/jenis?nama="+"Pagar%2C+Jalan+%26+Taman+%E2%80%93+Kantor", nil, ""), 200)
+	e.harap(e.kirim("admin", "DELETE", "/bmn/jenis?nama=Pagar%2C+Jalan+%26+Taman+%E2%80%93+Kantor", nil, ""), http.StatusNotFound)
+
+	// Validasi dan konflik dipetakan ke 400 dan 409.
+	e.harap(e.json("admin", "PUT", "/bmn/satuan", map[string]interface{}{"nama": "a/b", "aktif": true}), http.StatusBadRequest)
+	e.harap(e.json("admin", "PUT", "/bmn/jenis", map[string]interface{}{"nama": "Kosong", "aktif": true, "satuan": []string{}}), http.StatusBadRequest)
+	e.harap(e.kirim("admin", "PUT", "/bmn/jenis", []byte("{bukan json"), ""), http.StatusBadRequest)
+	k := e.harap(e.kirim("admin", "DELETE", "/bmn/satuan?nama=bidang", nil, ""), http.StatusConflict) // satu-satunya satuan Tanah
+	if msg, _ := k.m["message"].(string); !strings.Contains(msg, "Tanah") {
+		t.Errorf("pesan konflik = %q", msg)
+	}
+
+	// Nota Dinas dengan pasangan tidak masuk akal ditolak (400) dan menyebut satuan yang boleh.
+	id := e.buatUsulan()
+	base := fmt.Sprintf("/penjualan/%d", id)
+	for _, kt := range []string{"tim", "ba"} {
+		e.harap(e.json("satkA", "POST", base+"/tahap/"+kt+"/lewati", map[string]string{"catatan": "dibuat di luar aplikasi"}), 200)
+	}
+	nd := sapa.ContohNDSatker()
+	nd.JenisBMN, nd.Satuan = "Peralatan dan Mesin", "meter lari"
+	bad := e.harap(e.json("satkA", "POST", base+"/tahap/nd_satker/dokumen", nd), http.StatusBadRequest)
+	if msg, _ := bad.m["message"].(string); !strings.Contains(msg, "tidak sesuai") || !strings.Contains(msg, "unit") {
+		t.Errorf("pesan = %q", msg)
+	}
+	nd.JenisBMN, nd.Satuan = "kendaraan bermotor", "UNIT"
+	e.harap(e.json("satkA", "POST", base+"/tahap/nd_satker/dokumen", nd), http.StatusCreated)
+}
+
+func TestSapaTemplateImporDanEksporBarang(t *testing.T) {
+	e := siapkan(t, nil)
+	const tipeXLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+	// Hanya pengguna SAPA yang dilayani.
+	for _, c := range []struct{ method, path string }{{"GET", "/barang/template"}, {"POST", "/barang/impor"}, {"POST", "/barang/ekspor"}} {
+		if j := e.kirim("tanpa", c.method, c.path, []byte("{}"), ""); j.kode != http.StatusForbidden {
+			t.Errorf("%s %s tanpa peran: status %d, want 403", c.method, c.path, j.kode)
+		}
+	}
+
+	// Template: berkas xlsx yang diunduh sebagai lampiran.
+	tpl := e.harap(e.kirim("satkA", "GET", "/barang/template", nil, ""), 200)
+	if ct := tpl.w.Header().Get("Content-Type"); ct != tipeXLSX {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	if cd := tpl.w.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") || !strings.Contains(cd, ".xlsx") {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	if !bytes.HasPrefix(tpl.w.Body.Bytes(), []byte("PK")) {
+		t.Error("isi template bukan berkas zip/xlsx")
+	}
+
+	// Ekspor lalu impor kembali mengembalikan daftar yang sama.
+	daftar := []sapa.Barang{
+		{Nama: "Gedung Lama", Kode: "4010101001", NUP: "1", Kondisi: "Rusak Berat", TahunPerolehan: "1999", NilaiPerolehan: "2500000000", NilaiLimit: "1500000000"},
+		{Nama: "Truk", NilaiPerolehan: "100", NilaiLimit: "50"},
+	}
+	eks := e.harap(e.json("satkA", "POST", "/barang/ekspor", map[string]interface{}{"barang": daftar}), 200)
+	if ct := eks.w.Header().Get("Content-Type"); ct != tipeXLSX {
+		t.Errorf("Content-Type ekspor = %q", ct)
+	}
+	body, tipe := formBerkas(t, "berkas", "daftar.xlsx", eks.w.Body.Bytes(), "")
+	imp := e.harap(e.kirim("satkA", "POST", "/barang/impor", body, tipe), 200).data()
+	got, _ := imp["barang"].([]interface{})
+	if len(got) != 2 || got[0].(map[string]interface{})["nama"] != "Gedung Lama" || got[1].(map[string]interface{})["nama"] != "Truk" {
+		t.Errorf("barang hasil impor = %v", imp["barang"])
+	}
+	if g, _ := imp["galat"].([]interface{}); len(g) != 0 {
+		t.Errorf("galat = %v", g)
+	}
+
+	// Berkas yang salah dijawab dengan pesan yang bisa ditindaklanjuti.
+	for _, c := range []struct {
+		nama   string
+		isi    []byte
+		status int
+		pesan  string
+	}{
+		{"daftar.csv", []byte("a,b"), http.StatusBadRequest, ".xlsx"},
+		{"rusak.xlsx", []byte("bukan zip"), http.StatusBadRequest, "tidak dapat dibaca"},
+		{"template.xlsx", tpl.w.Body.Bytes(), http.StatusBadRequest, "Tidak ada baris data"},
+	} {
+		b, tp := formBerkas(t, "berkas", c.nama, c.isi, "")
+		j := e.harap(e.kirim("satkA", "POST", "/barang/impor", b, tp), c.status)
+		if msg, _ := j.m["message"].(string); !strings.Contains(msg, c.pesan) {
+			t.Errorf("%s: pesan = %q, want memuat %q", c.nama, msg, c.pesan)
+		}
+	}
+	// Tanpa berkas sama sekali.
+	b, tp := formBerkas(t, "lain", "daftar.xlsx", []byte("x"), "")
+	e.harap(e.kirim("satkA", "POST", "/barang/impor", b, tp), http.StatusBadRequest)
+	// Berkas melebihi batas ukuran.
+	besar, tp := formBerkas(t, "berkas", "besar.xlsx", bytes.Repeat([]byte("x"), sapa.MaksUkuranXLSX+(2<<20)), "")
+	e.harap(e.kirim("satkA", "POST", "/barang/impor", besar, tp), http.StatusRequestEntityTooLarge)
+
+	// Ekspor: JSON rusak dan daftar melebihi batas ditolak.
+	e.harap(e.kirim("satkA", "POST", "/barang/ekspor", []byte("{bukan json"), ""), http.StatusBadRequest)
+	e.harap(e.json("satkA", "POST", "/barang/ekspor", map[string]interface{}{"barang": make([]sapa.Barang, sapa.MaksBarang+1)}), http.StatusBadRequest)
 }

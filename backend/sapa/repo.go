@@ -36,6 +36,13 @@ type Repo interface {
 	SimpanRefUE1(ctx context.Context, r RefUE1, oleh string) error
 	HapusRefUE1(ctx context.Context, kode string) error
 	CariSatker(ctx context.Context, kode18 string) (*SatkerInfo, error) // dari data Digitalisasi Aset; nil bila tidak ada
+
+	// jenis BMN dan satuan jumlahnya (diatur admin)
+	AmbilRefBMN(ctx context.Context) (RefBMN, error) // semua, termasuk yang nonaktif
+	SimpanSatuanBMN(ctx context.Context, s SatuanBMN, oleh string) error
+	HapusSatuanBMN(ctx context.Context, nama string) error             // juga menghapus pemetaannya ke jenis
+	SimpanJenisBMN(ctx context.Context, j JenisBMN, oleh string) error // menggantikan seluruh pemetaan satuan jenis itu
+	HapusJenisBMN(ctx context.Context, nama string) error
 }
 
 // PeranInfo: peran SAPA seorang pengguna beserta cakupannya. Nama diisi dari data pengguna bila tersedia; Peran kosong

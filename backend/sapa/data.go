@@ -292,6 +292,35 @@ func (d DataNDSatker) Total() (jumlah int, perolehan, limit int64, err error) {
 	return len(d.Barang), perolehan, limit, nil
 }
 
+// validasiBarang memeriksa satu baris daftar barang. sufiks menempel pada nama bidang pada pesan: " 3" di formulir
+// ("Nama barang 3 wajib diisi"), atau " (baris 5)" pada impor Excel.
+func validasiBarang(sufiks string, b Barang) []string {
+	var g galat
+	g.wajib("Nama barang"+sufiks, b.Nama, 300)
+	g.opsional("Kode barang"+sufiks, b.Kode, 30)
+	g.opsional("NUP barang"+sufiks, b.NUP, 30)
+	g.opsional("Lokasi/merk/tipe barang"+sufiks, b.Lokasi, 500)
+	g.opsional("Kondisi barang"+sufiks, b.Kondisi, 50)
+	g.opsional("Keterangan barang"+sufiks, b.Keterangan, 300)
+	if b.TahunPerolehan != "" {
+		y := 0
+		if len(b.TahunPerolehan) == 4 {
+			fmt.Sscanf(b.TahunPerolehan, "%d", &y)
+		}
+		if y < 1900 || y > time.Now().Year()+1 {
+			g.add("Tahun perolehan barang%s tidak valid", sufiks)
+		}
+	}
+	if _, e := ParseUang(b.NilaiPerolehan); e != nil {
+		g.add("Nilai perolehan barang%s: %s", sufiks, e.Error())
+	}
+	if l, e := ParseUang(b.NilaiLimit); e != nil {
+		g.add("Nilai limit barang%s: %s", sufiks, e.Error())
+	} else if l == 0 {
+		g.add("Nilai limit barang%s harus lebih dari nol", sufiks)
+	}
+	return g
+}
 func (d DataNDSatker) Validasi() []string {
 	var g galat
 	if !d.SudahRP4 {
@@ -301,7 +330,7 @@ func (d DataNDSatker) Validasi() []string {
 	g.wajib("Kota/kabupaten lokasi satker", d.Kota, 100)
 	g.opsional("Singkatan satker", d.SingkatanSatker, 100)
 	g.wajib("Jenis BMN", d.JenisBMN, 200)
-	g.opsional("Satuan", d.Satuan, 30)
+	g.wajib("Satuan jumlah BMN", d.Satuan, 30)
 	g.wajib("Alasan/pertimbangan penjualan", d.Alasan, 2000)
 	g.wajib("Nomor tiket SIMAN", d.TiketSiman, 100)
 	g.wajib("Tembusan Kepala Kantor Wilayah", d.KepalaKanwil, 300)
@@ -317,34 +346,9 @@ func (d DataNDSatker) Validasi() []string {
 	if len(d.Barang) > 500 {
 		g.add("Daftar barang terlalu banyak (maksimal 500)")
 	}
-	thisYear := time.Now().Year() + 1
 	for i, b := range d.Barang {
-		n := i + 1
-		g.wajib(fmt.Sprintf("Nama barang %d", n), b.Nama, 300)
-		g.opsional(fmt.Sprintf("Kode barang %d", n), b.Kode, 30)
-		g.opsional(fmt.Sprintf("NUP barang %d", n), b.NUP, 30)
-		g.opsional(fmt.Sprintf("Lokasi/merk/tipe barang %d", n), b.Lokasi, 500)
-		g.opsional(fmt.Sprintf("Kondisi barang %d", n), b.Kondisi, 50)
-		g.opsional(fmt.Sprintf("Keterangan barang %d", n), b.Keterangan, 300)
-		if b.TahunPerolehan != "" {
-			y := 0
-			if len(b.TahunPerolehan) == 4 {
-				fmt.Sscanf(b.TahunPerolehan, "%d", &y)
-			}
-			if y < 1900 || y > thisYear {
-				g.add("Tahun perolehan barang %d tidak valid", n)
-			}
-		}
-		if _, e := ParseUang(b.NilaiPerolehan); e != nil {
-			g.add("Nilai perolehan barang %d: %s", n, e.Error())
-		}
-		if l, e := ParseUang(b.NilaiLimit); e != nil {
-			g.add("Nilai limit barang %d: %s", n, e.Error())
-		} else if l == 0 {
-			g.add("Nilai limit barang %d harus lebih dari nol", n)
-		}
+		g = append(g, validasiBarang(fmt.Sprintf(" %d", i+1), b)...)
 	}
-
 	for k, v := range d.Dokumen {
 		it, ok := ItemDokumenByKunci(k)
 		if !ok {

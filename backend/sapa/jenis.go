@@ -45,7 +45,7 @@ var penandaND = []Penanda{
 	{Nama: "kota", Keterangan: "Kota/kabupaten lokasi satker"},
 	{Nama: "jenis bmn", Keterangan: "Jenis BMN yang diusulkan"},
 	{Nama: "jumlah bmn", Keterangan: "Jumlah BMN (dihitung dari daftar barang)"},
-	{Nama: "terbilang jumlah bmn", Keterangan: "Jumlah BMN terbilang, mis. (Tiga) atau (Tiga) bidang bila satuan diisi"},
+	{Nama: "terbilang jumlah bmn", Keterangan: "Jumlah BMN terbilang beserta satuan yang dipilih untuk jenis BMN-nya, mis. (Tiga) bidang"},
 	{Nama: "total nilai perolehan", Keterangan: "Jumlah nilai perolehan, mis. Rp1.500.000,00"},
 	{Nama: "terbilang nilai perolehan", Keterangan: "Terbilang nilai perolehan, mis. (Satu Juta Lima Ratus Ribu Rupiah); juga tersedia: terbilang total nilai perolehan"},
 	{Nama: "total nilai limit", Keterangan: "Jumlah nilai limit"},

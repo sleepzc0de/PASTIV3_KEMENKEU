@@ -478,6 +478,12 @@ func (l *Layanan) Hasilkan(ctx context.Context, id Identitas, pid int64, kunci s
 	if err != nil {
 		return nil, err
 	}
+	// Jenis dan satuan BMN harus sesuai daftar admin (mis. Tanah tidak boleh bersatuan "unit").
+	if d, ok := v.(*DataNDSatker); ok {
+		if err := l.cekBMN(ctx, d); err != nil {
+			return nil, err
+		}
+	}
 	tpl, err := l.template(ctx, jenis)
 	if err != nil {
 		return nil, err

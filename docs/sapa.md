@@ -96,13 +96,59 @@ sejalan dengan template bawaan).
 Kode UE1 (5 digit) → nama dan sebutan Sekretaris, dipakai mengisi **tujuan Nota Dinas**. Diisi admin di Pengaturan SAPA →
 Referensi UE1. Tidak ada data awal supaya tidak ada nama yang keliru; bila belum diisi, pengguna mengetik tujuan manual.
 
+## Jenis BMN dan satuan jumlahnya
+
+Pada Nota Dinas usulan Satker, **jenis BMN dipilih dari daftar** (satu jenis per usulan) dan **satuan jumlah BMN** dipilih dari
+satuan yang diizinkan untuk jenis itu. Daftar dan pemetaannya diatur admin di Pengaturan SAPA → **Jenis & satuan BMN**.
+
+- Aturan kewajaran ada di pemetaan: tiap jenis hanya boleh memakai satuan yang dicentang padanya, sehingga Peralatan dan Mesin
+  tidak mungkin ber-satuan "meter" dan Tanah tidak mungkin ber-satuan "unit". Memilih jenis lain mengganti satuan ke satuan
+  bawaan jenis itu bila satuan saat ini tidak diizinkan.
+- Aturan ditegakkan **di backend** (`sapa.ValidasiBMN`, dipanggil saat dokumen dibuat), bukan hanya di formulir, jadi API
+  tidak bisa dipakai menembusnya. Nama jenis/satuan dikanonkan menurut daftar (huruf besar/kecil).
+- Daftar awal (disemai migrasi 022 dan dijaga selaras dengan `sapa.DefaultRefBMN()` oleh tes): satuan bidang, unit, buah,
+  set, paket, eksemplar; jenis Tanah (bidang), Gedung dan Bangunan (unit, buah), Tanah dan Bangunan (bidang, unit, paket),
+  Peralatan dan Mesin (unit, buah, set, paket), Kendaraan Bermotor (unit), Jalan, Irigasi, dan Jaringan (unit, paket),
+  Aset Tetap Lainnya (unit, buah, set, eksemplar). Admin bebas mengubahnya.
+- Jenis/satuan yang **dinonaktifkan** tidak muncul di formulir; jenis tanpa satuan aktif juga disembunyikan. Satuan yang
+  menjadi satu-satunya satuan sebuah jenis tidak bisa dihapus (dijawab 409 dengan nama jenisnya).
+- Draf lama yang berisi teks bebas (sebelum fitur ini) tetap terbaca: formulir menandai jenis/satuan yang tidak sesuai daftar
+  dan pengguna memilih ulang sebelum membuat dokumen.
+- Asumsi: **satu jenis BMN per Nota Dinas** (satu nilai pada `<<jenis bmn>>` dan satu satuan pada terbilang jumlah).
+  Usulan yang memuat beberapa jenis dibuat per jenis.
+
+## Pejabat penandatangan dari HRIS2
+
+Penandatangan ND Satker (nama, NIP, jabatan) dan ND UE1 (nama, jabatan) dipilih lewat kotak **Cari pejabat di HRIS2**, dengan
+mekanisme yang sama dengan anggota tim (sesi SSO pengguna, hanya NIP/nama/jabatan yang diteruskan). Nama terisi dengan gelar,
+NIP dan jabatan otomatis; semua bidang tetap bisa diubah atau diketik manual. NIP tidak disimpan pada ND UE1 (template-nya
+tidak memakainya).
+
+## Template Excel daftar barang
+
+Daftar barang bisa diisi lewat Excel, selain mengetik satu per satu atau menempel:
+
+- **Unduh template Excel** (`GET /sapa/barang/template`): berkas `.xlsx` dengan sheet *Daftar Barang* (judul kolom, kolom
+  Kode/NUP berformat teks agar nol di depan tidak hilang, daftar pilihan Kondisi, validasi Tahun dan nilai uang, baris judul
+  dibekukan) dan sheet *Petunjuk*.
+- **Unggah Excel** (`POST /sapa/barang/impor`, multipart `berkas`): kolom dikenali dari **judulnya** (urutan bebas, kolom tambahan
+  diabaikan; wajib ada Nama Barang, Nilai Perolehan, Nilai Limit), sheet *Daftar Barang* dipakai bila ada, selain itu sheet
+  pertama. Maksimal 2 MB dan 500 barang; baris kosong dilewati. Angka dari Excel dirapikan (notasi ilmiah, sisa pembulatan,
+  "2001.0"). Baris yang bermasalah **tetap dimuat** dan dilaporkan per baris (nomor baris = baris di Excel) supaya diperbaiki di
+  formulir. Bila daftar saat ini sudah berisi, pengguna memilih *Ganti* atau *Tambahkan*.
+- **Unduh daftar ini** (`POST /sapa/barang/ekspor`): daftar yang sedang dikerjakan dalam format template yang sama, untuk
+  diedit di Excel lalu diunggah kembali. Semua teks ditulis sebagai teks (bukan rumus) sehingga isi yang diawali `=`, `+`, `-`,
+  atau `@` tidak dieksekusi Excel.
+- Berkas dibaca dengan batas bongkar zip dan penangkap *panic* agar berkas rusak/zip bomb hanya menghasilkan galat 400.
+
 ## Yang dihitung otomatis
 
 - **Jumlah BMN, total nilai perolehan, total nilai limit** dihitung dari daftar barang (tidak diinput), beserta terbilangnya
   ("Tiga Miliar Lima Ratus … Rupiah Lima Puluh Sen"), supaya angka di surat selalu sama dengan tabel lampiran.
 - Hari, tanggal, bulan, dan tahun pada Berita Acara dibentuk dari tanggal penelitian.
 - Nilai uang boleh diketik `1500000`, `1500000.50`, atau `1.500.000,50` (paling banyak dua desimal). Tabel daftar barang bisa
-  **ditempel dari Excel** (kolom: Nama, Kode, NUP, Lokasi/Merk/Tipe, Kondisi, Tahun, Nilai Perolehan, Nilai Limit, Keterangan).
+  **ditempel dari Excel** (kolom: Nama, Kode, NUP, Lokasi/Merk/Tipe, Kondisi, Tahun, Nilai Perolehan, Nilai Limit, Keterangan)
+  atau diunggah dari template `.xlsx` (lihat bagian di atas).
 - Saran isian: tujuan surat dari referensi UE1; kota dari data satker (awalan "KOTA ADM."/"KAB." dibuang); nomor dan tanggal
   ND UE1 dari catatan Nadine tahap 4; data penandatangan tidak ditebak (diketik pengguna).
 
@@ -118,6 +164,9 @@ Referensi UE1. Tidak ada data awal supaya tidak ada nama yang keliru; bila belum
 | `sapa_penjualan_tahap` | status, isian (JSON), nomor/tanggal/catatan tiap tahap |
 | `sapa_dokumen` | dokumen Word hasil (riwayat semua versi) |
 
+Migrasi `022_create_sapa_bmn.sql` menambah `sapa_satuan` (satuan jumlah), `sapa_jenis_bmn` (jenis + satuan bawaan), dan
+`sapa_jenis_bmn_satuan` (pemetaan jenis → satuan yang diizinkan, `ON DELETE CASCADE`), lengkap dengan daftar awalnya.
+
 Nama satker dan UE1 pada formulir usulan baru dicari di `DIGITALISASI_SATKER` (data Digitalisasi Aset); bila belum disinkronkan,
 pembuat usulan mengetik nama satker manual.
 
@@ -132,7 +181,9 @@ pembuat usulan mengetik nama satker manual.
 
 Rute: `GET /sapa/saya`, `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
 `PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (admin),
-`GET /sapa/dokumen/:id/unduh`; admin: `/sapa/template`, `/sapa/peran`, `/sapa/ref-ue1`.
+`GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`,
+`POST /sapa/barang/ekspor`; admin: `/sapa/template`, `/sapa/peran`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
+`PUT|DELETE /sapa/bmn/satuan`, `PUT|DELETE /sapa/bmn/jenis` (nama lewat badan JSON atau `?nama=`).
 
 ## Pengujian
 
@@ -145,13 +196,18 @@ cd frontend && node --test components/sapa/sapa.test.mjs
   (driver palsu: urutan transaksi, jumlah parameter, escape `LIKE`).
 - `backend/routes/sapa_test.go`: HTTP dengan tabel rute asli (`RegisterSapa`): hak akses per peran, 404 vs 403, alur lengkap
   sampai unduhan, unggah template (multipart), batas ukuran, dan galat internal yang tidak bocor.
-- `frontend/components/sapa/sapa.test.mjs`: fungsi murni (nilai uang yang sama dengan backend, normalisasi isian, tempel dari Excel).
+- `backend/sapa/bmn_test.go`: kewajaran jenis-satuan, pengaturan admin (konflik hapus), dan kesamaan seed migrasi 022 dengan
+  `DefaultRefBMN()`; `backend/sapa/barang_xlsx_test.go`: template, ekspor→impor, anti-rumus, urutan kolom bebas, angka ala Excel,
+  galat per baris, berkas rusak, dan batas baris.
+- `frontend/components/sapa/sapa.test.mjs`: fungsi murni (nilai uang yang sama dengan backend, normalisasi isian, tempel dari Excel,
+  pemilihan jenis/satuan BMN, penggabungan hasil impor).
 
 ## Menjalankan pertama kali
 
-1. `./deploy.sh` (migrasi 021 berjalan otomatis).
-2. Admin membuka **Pengaturan SAPA**: isi **Referensi UE1**, unggah template SK Tim dan Berita Acara (bila ingin dibuat di
-   aplikasi), lalu tetapkan **peran pengguna** (Satker + kode satker, Kanwil, UE1 + kode UE1).
+1. `./deploy.sh` (migrasi 021 dan 022 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal).
+2. Admin membuka **Pengaturan SAPA**: isi **Referensi UE1**, periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
+   unggah template SK Tim dan Berita Acara (bila ingin dibuat di aplikasi), lalu tetapkan **peran pengguna** (Satker + kode
+   satker, Kanwil, UE1 + kode UE1).
 3. Pengguna Satker membuka SAPA → Penjualan → *Buat usulan penjualan*.
 
 ## Yang belum diverifikasi / batasan
@@ -160,7 +216,11 @@ cd frontend && node --test components/sapa/sapa.test.mjs
   `UPDATE ... WITH (UPDLOCK, SERIALIZABLE)`, indeks unik terfilter, `OFFSET/FETCH` perlu diperiksa saat migrasi pertama).
 - Dokumen hasil diperiksa lewat isi XML-nya (penanda terganti, tabel terisi) dan dibuka ulang oleh pustaka .docx; **belum dibuka
   di aplikasi Microsoft Word** (tidak ada di lingkungan pengembangan). Buka satu hasil di Word untuk memastikan tampilannya.
-- `<<jumlah bmn>>` pada template mencetak angka saja (mis. "3"); satuan hanya muncul lewat `<<terbilang jumlah bmn>>` bila satuan diisi.
+- `<<jumlah bmn>>` pada template mencetak angka saja (mis. "3"); satuan muncul lewat `<<terbilang jumlah bmn>>`. Satuan kini
+  wajib dan dibatasi oleh daftar jenis BMN.
+- Impor Excel diuji dengan berkas buatan `excelize` sendiri (ekspor → impor, variasi urutan kolom, angka ala Excel); **belum diuji
+  dengan berkas yang disimpan oleh aplikasi Microsoft Excel/LibreOffice sungguhan**. Buka template di Excel sekali untuk memastikan
+  daftar pilihan Kondisi dan validasi isian tampil.
 - Template T02 (ND UE1) memuat salah ketik "Pengadaab" pada tembusan; template tidak diubah aplikasi, perbaiki di berkas Word lalu unggah ulang.
 - Peran Kanwil melihat **semua** usulan karena kode wilayah belum ada pada data satker.
 - Tidak ada pengiriman email: dokumen diunduh dari aplikasi.

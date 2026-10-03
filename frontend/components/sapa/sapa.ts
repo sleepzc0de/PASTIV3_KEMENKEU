@@ -10,7 +10,9 @@ import type {
   SapaDataTim,
   SapaDokPendukung,
   SapaItemDokumen,
+  SapaJenisBMN,
   SapaPeran,
+  SapaRefBMN,
   SapaStatusTahap,
 } from "@/lib/sapa";
 
@@ -429,4 +431,80 @@ export function parseBarangTempel(text: string): HasilTempel {
     rows.push(b);
   });
   return { barang: rows, dilewati };
+}
+
+// ---------------------------------------------------------------- impor Excel
+
+export const MAKS_BYTE_XLSX = 2 * 1024 * 1024; // sama dengan batas backend
+
+export type ModeImpor = "ganti" | "tambah";
+
+// Menggabungkan barang hasil impor/tempel ke daftar yang sedang dikerjakan. Baris kosong (mis. baris contoh yang tidak diisi)
+// dibuang lebih dulu; hasilnya tidak pernah melebihi MAKS_BARANG, dan jumlah yang terpaksa dibuang dilaporkan.
+export function gabungBarang(lama: SapaBarang[], baru: SapaBarang[], mode: ModeImpor): { barang: SapaBarang[]; terbuang: number } {
+  const dasar = mode === "ganti" ? [] : lama.filter((b) => !barangKosong(b));
+  const gabung = [...dasar, ...baru];
+  return { barang: gabung.slice(0, MAKS_BARANG), terbuang: Math.max(gabung.length - MAKS_BARANG, 0) };
+}
+
+// ---------------------------------------------------------------- jenis BMN dan satuan
+
+const samaNama = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+export function cariJenisBMN(ref: SapaRefBMN | null, nama: string): SapaJenisBMN | null {
+  if (!ref || nama.trim() === "") return null;
+  return ref.jenis.find((j) => samaNama(j.nama, nama)) ?? null;
+}
+
+// Nama satuan menurut daftar jenis (huruf besar/kecil seperti di daftar), atau null bila tidak diizinkan untuk jenis itu.
+export function satuanDiizinkan(jenis: SapaJenisBMN | null, satuan: string): string | null {
+  if (!jenis) return null;
+  return jenis.satuan.find((x) => samaNama(x, satuan)) ?? null;
+}
+
+// Memilih jenis: satuan yang sedang dipakai dipertahankan bila masih diizinkan untuk jenis baru, selain itu satuan bawaan jenis itu.
+// Pasangan jenis-satuan yang tidak masuk akal (Peralatan dan Mesin dalam "meter", Tanah dalam "unit") tidak pernah dihasilkan.
+export function pilihJenisBMN(ref: SapaRefBMN | null, namaJenis: string, satuanSaatIni: string): { jenis: string; satuan: string } {
+  const j = cariJenisBMN(ref, namaJenis);
+  if (!j) return { jenis: namaJenis, satuan: satuanSaatIni };
+  const tetap = satuanDiizinkan(j, satuanSaatIni);
+  return { jenis: j.nama, satuan: tetap ?? satuanDiizinkan(j, j.satuan_bawaan) ?? j.satuan[0] ?? "" };
+}
+
+// Pengaturan admin: satuan yang dicentang disusun menurut urutan daftar satuan, dan satuan bawaan dikoreksi bila tidak lagi
+// termasuk yang dicentang (jatuh ke yang pertama).
+export function susunSatuanJenis(semua: { nama: string }[], dicentang: string[], bawaan: string): { satuan: string[]; bawaan: string } {
+  const satuan = semua.filter((s) => dicentang.some((d) => samaNama(d, s.nama))).map((s) => s.nama);
+  const tetap = satuan.find((s) => samaNama(s, bawaan));
+  return { satuan, bawaan: tetap ?? satuan[0] ?? "" };
+}
+
+// Urutan tampil untuk entri baru: setelah yang terakhir.
+export function urutanBerikut(items: { urutan: number }[]): number {
+  return items.reduce((m, x) => Math.max(m, x.urutan), 0) + 1;
+}
+
+export interface PeriksaBMN {
+  jenis: SapaJenisBMN | null; // jenis yang dikenali (null bila kosong atau tidak ada di daftar)
+  satuanSah: string; // satuan yang diizinkan untuk jenis itu ("" bila belum diisi atau tidak sesuai)
+  pesanJenis: string | null;
+  pesanSatuan: string | null;
+}
+
+// Pemeriksaan isian terhadap daftar, untuk menampilkan masalah sebelum surat dibuat (data lama bisa memuat teks bebas dari versi
+// sebelumnya). Aturan yang berlaku tetap ditegakkan backend.
+export function periksaBMN(ref: SapaRefBMN | null, jenis: string, satuan: string): PeriksaBMN {
+  const hasil: PeriksaBMN = { jenis: null, satuanSah: "", pesanJenis: null, pesanSatuan: null };
+  if (!ref) return hasil;
+  const j = cariJenisBMN(ref, jenis);
+  if (jenis.trim() !== "" && !j) {
+    hasil.pesanJenis = `Jenis BMN "${jenis.trim()}" tidak ada di daftar; pilih salah satu jenis di bawah.`;
+    return hasil;
+  }
+  hasil.jenis = j;
+  if (!j || satuan.trim() === "") return hasil;
+  const sah = satuanDiizinkan(j, satuan);
+  if (sah) hasil.satuanSah = sah;
+  else hasil.pesanSatuan = `Satuan "${satuan.trim()}" tidak sesuai untuk ${j.nama}; pilih salah satu: ${j.satuan.join(", ")}.`;
+  return hasil;
 }
