@@ -18,6 +18,7 @@ import {
   FileSignature,
   ScrollText,
   Megaphone,
+  MapPinned,
 } from "lucide-react";
 
 export interface NavItem {
@@ -49,6 +50,13 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/assets",
     icon: DatabaseZap,
     description: "Cari dan telusuri data aset dari SLDK",
+  },
+  {
+    type: "item",
+    label: "Digitalisasi Aset",
+    href: "/dashboard/digitalisasi",
+    icon: MapPinned,
+    description: "Peta, analitik, dan sinkronisasi data aset KL 015 dari SLDK",
   },
   {
     type: "group",
