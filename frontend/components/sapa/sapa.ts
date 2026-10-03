@@ -89,6 +89,16 @@ export function totalBarang(barang: SapaBarang[]): TotalBarang {
   return t;
 }
 
+// ---------------------------------------------------------------- alamat usulan
+
+const POLA_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Usulan dialamatkan dengan UUID (bukan nomor urut). Memeriksa bentuknya sebelum meminta ke backend, yang menjawab 404 untuk
+// bentuk lain.
+export function adalahUUID(s: string): boolean {
+  return POLA_UUID.test(s);
+}
+
 // ---------------------------------------------------------------- tampilan menurut peran
 
 // Sudut pandang halaman usulan: "saya" = hanya tahap milik peran pengguna; "semua" = seluruh tahap; atau satu peran tertentu

@@ -18,7 +18,7 @@ export interface AksiState {
 
 // Aksi tahap berformulir: simpan draf dan buat dokumen. Keberhasilan memanggil onChanged (induk memuat ulang detail);
 // kegagalan ditampilkan di bawah formulir bersama rincian validasinya.
-export function useTahapAksi(usulanId: number, kunci: string, onChanged: () => void): AksiState {
+export function useTahapAksi(usulanId: string, kunci: string, onChanged: () => void): AksiState {
   const [busy, setBusy] = useState<AksiState["busy"]>(null);
   const [error, setError] = useState<ErrorInfo | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

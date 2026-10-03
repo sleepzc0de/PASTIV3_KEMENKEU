@@ -8,7 +8,7 @@ import { ErrorInfo, errorInfo } from "./sapa";
 
 // Tahap yang dikerjakan di aplikasi lain (Nadine, SIMAN): aplikasi hanya mencatat bahwa tahap itu sudah selesai,
 // beserta nomor dan tanggal dokumen bila ada.
-export function EksternalPanel({ usulanId, tahap, sudahSelesai, onChanged }: { usulanId: number; tahap: SapaTahapDetail; sudahSelesai: boolean; onChanged: () => void }) {
+export function EksternalPanel({ usulanId, tahap, sudahSelesai, onChanged }: { usulanId: string; tahap: SapaTahapDetail; sudahSelesai: boolean; onChanged: () => void }) {
   const [nomor, setNomor] = useState(tahap.nomor ?? "");
   const [tanggal, setTanggal] = useState(tahap.tanggal ?? "");
   const [catatan, setCatatan] = useState(tahap.catatan ?? "");

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
 import { Loader2, ShieldAlert } from "lucide-react";
+import { JALUR_KEMBALI } from "@/lib/loginPath";
 
 export default function SSOCallbackPage() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function SSOCallbackPage() {
         <p className="max-w-sm text-sm text-slate-500">
           Terjadi kesalahan saat memproses login SSO Kemenkeu. Silakan coba lagi.
         </p>
-        <a href="/login" className="mt-2 text-sm font-medium text-blue-600 hover:underline">
+        <a href={JALUR_KEMBALI} className="mt-2 text-sm font-medium text-blue-600 hover:underline">
           Kembali ke halaman login
         </a>
       </div>

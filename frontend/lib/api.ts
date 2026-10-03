@@ -1,5 +1,6 @@
 import axios from "axios";
 import Cookies from "js-cookie";
+import { JALUR_KEMBALI } from "./loginPath";
 import { netEnd, netStart } from "./netActivity";
 
 export const api = axios.create({
@@ -42,7 +43,8 @@ api.interceptors.response.use(
       if (typeof window !== "undefined") {
         // Halaman login menampilkan alasannya (LoginErrorBanner); tanpa reason dipakai teks bawaannya.
         const reason = SESSION_END_REASONS.get(error.response.data?.code) ?? "";
-        window.location.href = "/login?error=session_expired" + (reason ? "&reason=" + encodeURIComponent(reason) : "");
+        // Bukan langsung ke halaman login: alamat login disembunyikan, jadi server yang mengarahkannya (JALUR_KEMBALI).
+        window.location.href = JALUR_KEMBALI + "?error=session_expired" + (reason ? "&reason=" + encodeURIComponent(reason) : "");
       }
     }
     return Promise.reject(error);

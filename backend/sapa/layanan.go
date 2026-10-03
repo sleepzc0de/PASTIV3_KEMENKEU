@@ -144,6 +144,27 @@ func (l *Layanan) muat(ctx context.Context, id Identitas, pid int64) (*KasusInfo
 	return k, nil
 }
 
+// IDUsulan mengubah UUID usulan (pengenal publik di alamat halaman dan API) menjadi id internal. UUID yang bentuknya tidak
+// sah, usulan yang tidak ada, dan usulan yang tidak boleh dilihat pengguna dijawab sama (ErrTidakDitemukan), sehingga
+// keberadaan usulan tidak bisa diketahui dengan menebak. Hak akses tetap diperiksa lagi oleh tiap aksi lewat muat.
+func (l *Layanan) IDUsulan(ctx context.Context, id Identitas, uuid string) (int64, error) {
+	if err := Akses(id); err != nil {
+		return 0, err
+	}
+	baku, ok := BakukanUUID(uuid)
+	if !ok {
+		return 0, ErrTidakDitemukan
+	}
+	k, err := l.Repo.AmbilPenjualanUUID(ctx, baku)
+	if err != nil {
+		return 0, err
+	}
+	if k == nil || !Terlihat(id, k.Kasus()) {
+		return 0, ErrTidakDitemukan
+	}
+	return k.ID, nil
+}
+
 // RingkasanUsulan: satu baris pada daftar usulan.
 type RingkasanUsulan struct {
 	KasusInfo

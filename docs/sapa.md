@@ -141,6 +141,20 @@ Daftar barang bisa diisi lewat Excel, selain mengetik satu per satu atau menempe
   atau `@` tidak dieksekusi Excel.
 - Berkas dibaca dengan batas bongkar zip dan penangkap *panic* agar berkas rusak/zip bomb hanya menghasilkan galat 400.
 
+## Alamat usulan memakai UUID
+
+Halaman dan API usulan dialamatkan dengan **UUID acak**, mis. `/dashboard/sapa/penjualan/6f9619ff-8b86-d011-b42d-00c04fc964ff`, bukan nomor
+berurutan, supaya alamat usulan lain tidak bisa ditebak dengan menambah/mengurangi angka.
+
+- Migrasi `023_sapa_penjualan_uuid.sql` menambah kolom `uuid` (UNIQUEIDENTIFIER, indeks unik) pada `sapa_penjualan`; usulan yang sudah ada
+  otomatis mendapat UUID. `id` BIGINT tetap menjadi kunci internal (relasi tahap dan dokumen) dan **tidak pernah dikirim ke klien**:
+  JSON usulan memuat `id` = UUID, dan dokumen tidak lagi memuat `penjualan_id`.
+- Semua rute `/sapa/penjualan/:id/...` menerima UUID bentuk baku (8-4-4-4-12 heksadesimal; huruf besar/kecil sama). Nomor lama (`/penjualan/1`),
+  UUID tanpa tanda hubung, atau yang berkurung dijawab **404**. UUID yang tidak ada dan usulan milik satker lain dijawab sama persis (404).
+- UUID **bukan** pengganti hak akses: setiap aksi tetap memeriksa peran dan cakupan pengguna. Noreg (`PJ-<tahun>-<5 digit>`) tetap berurutan
+  karena hanya nomor tampilan pada surat, bukan alamat.
+- Dokumen hasil diunduh lewat `/sapa/dokumen/:id/unduh` dengan nomor dokumen berurutan; tidak terlihat di bilah alamat dan dijaga hak akses yang sama.
+
 ## Yang dihitung otomatis
 
 - **Jumlah BMN, total nilai perolehan, total nilai limit** dihitung dari daftar barang (tidak diinput), beserta terbilangnya
@@ -179,7 +193,7 @@ pembuat usulan mengetik nama satker manual.
 | `backend/handlers/sapa_handler.go`, `backend/routes/sapa_routes.go` | HTTP `/api/v1/sapa/...` |
 | `frontend/lib/sapa.ts`, `frontend/components/sapa/` | tipe, API, dan halaman |
 
-Rute: `GET /sapa/saya`, `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
+Rute (`:id` = UUID usulan): `GET /sapa/saya`, `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
 `PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (admin),
 `GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`,
 `POST /sapa/barang/ekspor`; admin: `/sapa/template`, `/sapa/peran`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
@@ -204,7 +218,7 @@ cd frontend && node --test components/sapa/sapa.test.mjs
 
 ## Menjalankan pertama kali
 
-1. `./deploy.sh` (migrasi 021 dan 022 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal).
+1. `./deploy.sh` (migrasi 021, 022, dan 023 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal, 023 memberi UUID pada usulan).
 2. Admin membuka **Pengaturan SAPA**: isi **Referensi UE1**, periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
    unggah template SK Tim dan Berita Acara (bila ingin dibuat di aplikasi), lalu tetapkan **peran pengguna** (Satker + kode
    satker, Kanwil, UE1 + kode UE1).

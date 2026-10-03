@@ -4,6 +4,7 @@ import { createContext, useContext, useState, ReactNode, useCallback } from "rea
 import Cookies from "js-cookie";
 import { useRouter, usePathname } from "next/navigation";
 import { loginUser } from "./api";
+import { JALUR_KEMBALI } from "./loginPath";
 import { useIdleTimer } from "./useIdleTimer";
 import { IdleWarningModal } from "@/components/ui/IdleWarningModal";
 
@@ -69,11 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Pakai hard redirect (bukan router.push) supaya navigasi selalu terjadi
     // secara pasti, memicu middleware re-check, dan mereset seluruh state JS
     // termasuk timer-timer yang mungkin masih berjalan.
+    // Alamat login disembunyikan: ke JALUR_KEMBALI, lalu server mengarahkan ke halaman login.
     const target =
       reason === "idle"
-        ? "/login?error=session_expired&reason=" +
+        ? JALUR_KEMBALI + "?error=session_expired&reason=" +
         encodeURIComponent("Sesi berakhir karena tidak ada aktivitas")
-        : "/login";
+        : JALUR_KEMBALI;
 
     window.location.href = target;
   }, []);

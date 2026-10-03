@@ -40,7 +40,7 @@ export interface SapaSaya {
 }
 
 export interface SapaUsulan {
-  id: number;
+  id: string; // UUID (alamat usulan); nomor urut internal tidak dikirim backend
   noreg: string;
   kode_satker: string;
   nama_satker: string;
@@ -68,7 +68,6 @@ export interface SapaHalaman {
 
 export interface SapaDokumen {
   id: number;
-  penjualan_id: number;
   tahap: string;
   jenis: string;
   jenis_label: string;
@@ -266,32 +265,32 @@ export async function createSapaPenjualan(body: { kode_satker: string; nama_satk
   return res.data;
 }
 
-export async function getSapaPenjualan(id: number) {
+export async function getSapaPenjualan(id: string) {
   const res = await api.get<SapaRes<SapaDetail>>(`/sapa/penjualan/${id}`);
   return res.data;
 }
 
-export async function saveSapaDraf(id: number, tahap: string, data: unknown) {
+export async function saveSapaDraf(id: string, tahap: string, data: unknown) {
   const res = await api.put<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}`, data);
   return res.data;
 }
 
-export async function generateSapaDokumen(id: number, tahap: string, data: unknown) {
+export async function generateSapaDokumen(id: string, tahap: string, data: unknown) {
   const res = await api.post<SapaRes<{ dokumen: SapaDokumen; peringatan: string[] }>>(`/sapa/penjualan/${id}/tahap/${tahap}/dokumen`, data);
   return res.data;
 }
 
-export async function completeSapaTahap(id: number, tahap: string, body: { nomor: string; tanggal: string; catatan: string }) {
+export async function completeSapaTahap(id: string, tahap: string, body: { nomor: string; tanggal: string; catatan: string }) {
   const res = await api.post<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/selesai`, body);
   return res.data;
 }
 
-export async function skipSapaTahap(id: number, tahap: string, catatan: string) {
+export async function skipSapaTahap(id: string, tahap: string, catatan: string) {
   const res = await api.post<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/lewati`, { catatan });
   return res.data;
 }
 
-export async function reopenSapaTahap(id: number, tahap: string) {
+export async function reopenSapaTahap(id: string, tahap: string) {
   const res = await api.post<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/buka-ulang`);
   return res.data;
 }

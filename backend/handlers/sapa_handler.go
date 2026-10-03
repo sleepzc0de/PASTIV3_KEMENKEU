@@ -104,6 +104,18 @@ func sapaGagal(c *gin.Context, apa string, err error) {
 	}
 }
 
+// sapaUsulanID membaca UUID usulan dari alamat (:id) dan mengubahnya menjadi id internal. UUID yang tidak sah, usulan yang
+// tidak ada, dan usulan yang tidak boleh dilihat pengguna dijawab sama: 404.
+func sapaUsulanID(c *gin.Context, ctx context.Context, id sapa.Identitas) (int64, bool) {
+	pid, err := sapaLayanan().IDUsulan(ctx, id, c.Param("id"))
+	if err != nil {
+		sapaGagal(c, "cari usulan", err)
+		return 0, false
+	}
+	return pid, true
+}
+
+// sapaIDParam membaca id angka (dokumen) dari alamat.
 func sapaIDParam(c *gin.Context, nama string) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param(nama), 10, 64)
 	if err != nil || id < 1 {
@@ -220,7 +232,7 @@ func GetSapaPenjualan(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
@@ -240,7 +252,7 @@ func SaveSapaTahap(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
@@ -263,7 +275,7 @@ func GenerateSapaDokumen(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
@@ -287,7 +299,7 @@ func CompleteSapaTahap(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
@@ -314,7 +326,7 @@ func SkipSapaTahap(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
@@ -339,7 +351,7 @@ func ReopenSapaTahap(c *gin.Context) {
 	if !ok {
 		return
 	}
-	pid, ok := sapaIDParam(c, "id")
+	pid, ok := sapaUsulanID(c, ctx, id)
 	if !ok {
 		return
 	}
