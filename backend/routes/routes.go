@@ -34,8 +34,12 @@ func SetupRoutes(r *gin.Engine) {
 
 		sldk := api.Group("/sldk", middleware.AuthRequired())
 		{
-			sldk.GET("/assets/columns", handlers.GetAssetColumns)
+			sldk.GET("/referensi", handlers.GetAssetReferences)
+			sldk.GET("/satker", handlers.SearchSatker)
 			sldk.GET("/assets/search", handlers.SearchAssets)
+			sldk.GET("/assets/:id/detail", handlers.GetAssetDetail)
+			sldk.GET("/ringkasan", handlers.GetAssetOverview)
+			sldk.PUT("/ringkasan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.UpdateOverviewSettings)
 		}
 
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.

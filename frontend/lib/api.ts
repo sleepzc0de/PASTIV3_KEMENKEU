@@ -88,26 +88,163 @@ export async function loginUser(
 
 // ============ SLDK Integration ============
 
-export interface SLDKColumn {
-  name: string;
-  data_type: string;
-  is_searchable: boolean;
+export interface SLDKRefItem {
+  kode: string;
+  nama: string;
 }
 
-export interface SLDKSearchResponse {
-  success: boolean;
-  message: string;
-  data: {
-    columns: SLDKColumn[];
-    results: Record<string, unknown>[];
-    count: number;
-  };
+// Aturan pemantauan (aset idle, hilang, dst.); definisinya hidup di backend (backend/sldk/rules.go).
+export interface SLDKRule {
+  key: string;
+  label: string;
+  keterangan: string;
 }
 
-export async function searchSLDKAssets(query: string, limit = 50) {
-  const res = await api.get<SLDKSearchResponse>("/sldk/assets/search", {
-    params: { q: query, limit },
+export interface SLDKReferences {
+  jenis_bmn: SLDKRefItem[];
+  kondisi: SLDKRefItem[];
+  status_penggunaan: SLDKRefItem[];
+  status_hukum: SLDKRefItem[];
+  anomali: SLDKRule[];
+}
+
+export async function getSLDKReferences() {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKReferences }>("/sldk/referensi");
+  return res.data;
+}
+
+export interface SLDKSatker {
+  id: number;
+  kode: string;
+  nama: string;
+}
+
+export async function searchSLDKSatker(q: string) {
+  const res = await api.get<{ success: boolean; message: string; data: { items: SLDKSatker[] } }>("/sldk/satker", {
+    params: { q },
   });
+  return res.data;
+}
+
+export interface SLDKAssetSearchParams {
+  q?: string;
+  by?: "id" | "teks"; // id = kode persis (cepat), teks = mengandung kata (lambat)
+  id_satker?: number;
+  kd_jns_bmn?: string;
+  kd_kondisi?: string;
+  kd_status?: string;
+  tahun?: string;
+  anomali?: string; // kunci aturan pemantauan (SLDKRule.key)
+  limit?: number;
+}
+
+export interface SLDKAssetSearchData {
+  results: Record<string, unknown>[];
+  count: number;
+  limit: number;
+  satker: Record<string, { id: number; kode: string; nama: string }>;
+  elapsed_ms: number;
+}
+
+// Server membatasi pencarian 25 detik; timeout klien sedikit di atasnya supaya pesan dari server sempat tiba.
+export async function searchSLDKAssets(params: SLDKAssetSearchParams) {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKAssetSearchData }>("/sldk/assets/search", {
+    params,
+    timeout: 40000,
+  });
+  return res.data;
+}
+
+export interface SLDKDetailSection {
+  rows: Record<string, unknown>[];
+  error?: string;
+}
+
+export interface SLDKAssetDetailData {
+  id_aset: number;
+  sections: Record<string, SLDKDetailSection>;
+}
+
+export async function getSLDKAssetDetail(idAset: number) {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKAssetDetailData }>(
+    `/sldk/assets/${idAset}/detail`,
+    { timeout: 40000 }
+  );
+  return res.data;
+}
+
+// ----- Ringkasan & Pemantauan: dibaca dari hasil sinkronisasi di database PASTI, bukan dari SLDK langsung -----
+
+export interface SLDKSyncInfo {
+  id: number;
+  status: "berjalan" | "sukses" | "gagal";
+  mulai: string;
+  selesai: string | null;
+  cakupan: string | null;
+  jumlah_baris: number | null;
+  total_aset: number | null;
+  data_per: string | null;
+  pesan: string | null;
+}
+
+export interface SLDKOverviewGroup {
+  k1: string | null;
+  k2?: string | null;
+  jumlah: number;
+  nilai_perolehan: number;
+  nilai_buku: number;
+  nilai_susut: number;
+}
+
+export interface SLDKOverviewTotal {
+  jumlah: number;
+  nilai_perolehan: number;
+  nilai_buku: number;
+  nilai_susut: number;
+}
+
+export interface SLDKOverviewAnomaly extends SLDKRule {
+  jumlah: number;
+  satker_teratas: { id: string; jumlah: number }[];
+}
+
+export interface SLDKFlagKey {
+  key: string;
+  jumlah: number;
+}
+
+// tersedia=false: belum ada sinkronisasi yang sukses, hanya sinkron_terakhir (bila ada) yang terisi.
+export type SLDKOverviewData =
+  | { tersedia: false; sinkron_terakhir: SLDKSyncInfo | null; sinkron_sukses: null }
+  | {
+      tersedia: true;
+      sinkron_terakhir: SLDKSyncInfo | null;
+      sinkron_sukses: SLDKSyncInfo;
+      definisi: { flag_keys_aktif: string[]; terkonfirmasi: boolean };
+      flag_keys: SLDKFlagKey[];
+      total: SLDKOverviewTotal;
+      jenis: SLDKOverviewGroup[];
+      kondisi: SLDKOverviewGroup[];
+      status: SLDKOverviewGroup[];
+      jenis_kondisi: SLDKOverviewGroup[];
+      provinsi: SLDKOverviewGroup[];
+      tahun: SLDKOverviewGroup[];
+      satker_teratas: SLDKOverviewGroup[];
+      anomali: SLDKOverviewAnomaly[];
+      satker: Record<string, { id: number; kode: string; nama: string }>;
+    };
+
+export async function getSLDKOverview() {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKOverviewData }>("/sldk/ringkasan");
+  return res.data;
+}
+
+// Khusus admin. Daftar kosong = semua baris dihitung sebagai aset.
+export async function updateSLDKOverviewSettings(flagKeysAktif: string[]) {
+  const res = await api.put<{ success: boolean; message: string; data: { flag_keys_aktif: string[] } }>(
+    "/sldk/ringkasan/pengaturan",
+    { flag_keys_aktif: flagKeysAktif }
+  );
   return res.data;
 }
 
