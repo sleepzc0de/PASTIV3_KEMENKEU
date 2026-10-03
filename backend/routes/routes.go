@@ -54,6 +54,10 @@ func SetupRoutes(r *gin.Engine) {
 			digitalisasi.POST("/sinkronisasi/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelDigitalisasiSync)
 		}
 
+		// SAPA (Sistem Administrasi Pengelolaan Aset), modul Penjualan. Hak akses per usulan dan per tahap diperiksa di
+		// paket sapa menurut peran SAPA pengguna; pengaturan (template, peran, referensi UE1) khusus admin/superadmin.
+		RegisterSapa(api.Group("/sapa", middleware.AuthRequired()))
+
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.
 		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
 		{

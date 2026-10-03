@@ -22,7 +22,7 @@ function buildSections(role: string): Section[] {
     if (!canSee(entry.roles)) continue;
 
     if (entry.type === "group") {
-      groups.push({ title: entry.label, icon: entry.icon, items: entry.children });
+      groups.push({ title: entry.label, icon: entry.icon, items: entry.children.filter((c) => canSee(c.roles)) });
     } else if (entry.href !== "/dashboard") {
       (entry.roles ? adminItems : dataItems).push(entry);
     }

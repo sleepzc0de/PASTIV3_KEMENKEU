@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
-import { NAV_ENTRIES } from "@/lib/navigation";
+import { NAV_ENTRIES, isNavActive } from "@/lib/navigation";
 import { ROLE_LABEL } from "@/lib/roles";
 
 // Sama dengan breakpoint `md` Tailwind: di bawah ini sidebar jadi drawer.
@@ -35,7 +35,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
 
   // Grup yang berisi halaman aktif saat ini (kalau ada).
   const activeGroupLabel = NAV_ENTRIES.find(
-    (e) => e.type === "group" && e.children.some((c) => pathname === c.href)
+    (e) => e.type === "group" && e.children.some((c) => isNavActive(pathname, c))
   )?.label;
 
   // Status buka/tutup disimpan per grup (kunci: label), supaya membuka
@@ -145,7 +145,9 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
           // entry.type === "group"
           if (!canSee(entry.roles)) return null;
           const GroupIcon = entry.icon;
-          const hasActiveChild = entry.children.some((c) => pathname === c.href);
+          const children = entry.children.filter((c) => canSee(c.roles));
+          if (children.length === 0) return null;
+          const hasActiveChild = children.some((c) => isNavActive(pathname, c));
           const isOpen = Boolean(openGroups[entry.label]);
 
           return (
@@ -174,8 +176,8 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
 
               {!isCollapsed && isOpen && (
                 <div className="mt-1 space-y-0.5 border-l border-slate-800 pl-3.5 ml-3.5">
-                  {entry.children.map((child) => {
-                    const isActive = pathname === child.href;
+                  {children.map((child) => {
+                    const isActive = isNavActive(pathname, child);
                     const ChildIcon = child.icon;
                     return (
                       <Link
