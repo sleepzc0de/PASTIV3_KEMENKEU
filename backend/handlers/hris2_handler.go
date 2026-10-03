@@ -112,7 +112,7 @@ func SearchPegawai(c *gin.Context) {
 	accessToken, err := getValidAccessToken(userID)
 	if err != nil {
 		log.Println("[HRIS2 ERROR] gagal ambil access token:", err)
-		utils.ErrorResponse(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan logout lalu login ulang via SSO Kemenkeu")
+		utils.ErrorResponseWithCode(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan logout lalu login ulang via SSO Kemenkeu", utils.CodeSSOSessionExpired)
 		return
 	}
 
@@ -144,7 +144,7 @@ func SearchPegawai(c *gin.Context) {
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		utils.ErrorResponse(c, http.StatusUnauthorized, "Token SSO ditolak oleh HRIS2, silakan login ulang")
+		utils.ErrorResponseWithCode(c, http.StatusUnauthorized, "Token SSO ditolak oleh HRIS2, silakan login ulang", utils.CodeSSOSessionExpired)
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -176,7 +176,7 @@ func SearchPegawaiByNIP(c *gin.Context) {
 	accessToken, err := getValidAccessToken(adminUserID)
 	if err != nil {
 		log.Println("[HRIS2 ERROR] gagal ambil access token:", err)
-		utils.ErrorResponse(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan logout lalu login ulang via SSO Kemenkeu untuk menggunakan fitur ini")
+		utils.ErrorResponseWithCode(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan logout lalu login ulang via SSO Kemenkeu untuk menggunakan fitur ini", utils.CodeSSOSessionExpired)
 		return
 	}
 

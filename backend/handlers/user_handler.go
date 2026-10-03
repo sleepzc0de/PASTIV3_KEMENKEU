@@ -88,7 +88,7 @@ func CreateUser(c *gin.Context) {
 		adminUserID := c.GetString("user_id")
 		accessToken, err := getValidAccessToken(adminUserID)
 		if err != nil {
-			utils.ErrorResponse(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan login ulang via SSO untuk memakai fitur ini")
+			utils.ErrorResponseWithCode(c, http.StatusUnauthorized, "Sesi SSO Anda telah berakhir, silakan login ulang via SSO untuk memakai fitur ini", utils.CodeSSOSessionExpired)
 			return
 		}
 
