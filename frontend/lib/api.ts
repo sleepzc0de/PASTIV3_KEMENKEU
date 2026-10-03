@@ -93,11 +93,19 @@ export interface SLDKRefItem {
   nama: string;
 }
 
+// Aturan pemantauan (aset idle, hilang, dst.); definisinya hidup di backend (backend/sldk/rules.go).
+export interface SLDKRule {
+  key: string;
+  label: string;
+  keterangan: string;
+}
+
 export interface SLDKReferences {
   jenis_bmn: SLDKRefItem[];
   kondisi: SLDKRefItem[];
   status_penggunaan: SLDKRefItem[];
   status_hukum: SLDKRefItem[];
+  anomali: SLDKRule[];
 }
 
 export async function getSLDKReferences() {
@@ -126,6 +134,7 @@ export interface SLDKAssetSearchParams {
   kd_kondisi?: string;
   kd_status?: string;
   tahun?: string;
+  anomali?: string; // kunci aturan pemantauan (SLDKRule.key)
   limit?: number;
 }
 
@@ -160,6 +169,81 @@ export async function getSLDKAssetDetail(idAset: number) {
   const res = await api.get<{ success: boolean; message: string; data: SLDKAssetDetailData }>(
     `/sldk/assets/${idAset}/detail`,
     { timeout: 40000 }
+  );
+  return res.data;
+}
+
+// ----- Ringkasan & Pemantauan: dibaca dari hasil sinkronisasi di database PASTI, bukan dari SLDK langsung -----
+
+export interface SLDKSyncInfo {
+  id: number;
+  status: "berjalan" | "sukses" | "gagal";
+  mulai: string;
+  selesai: string | null;
+  cakupan: string | null;
+  jumlah_baris: number | null;
+  total_aset: number | null;
+  data_per: string | null;
+  pesan: string | null;
+}
+
+export interface SLDKOverviewGroup {
+  k1: string | null;
+  k2?: string | null;
+  jumlah: number;
+  nilai_perolehan: number;
+  nilai_buku: number;
+  nilai_susut: number;
+}
+
+export interface SLDKOverviewTotal {
+  jumlah: number;
+  nilai_perolehan: number;
+  nilai_buku: number;
+  nilai_susut: number;
+}
+
+export interface SLDKOverviewAnomaly extends SLDKRule {
+  jumlah: number;
+  satker_teratas: { id: string; jumlah: number }[];
+}
+
+export interface SLDKFlagKey {
+  key: string;
+  jumlah: number;
+}
+
+// tersedia=false: belum ada sinkronisasi yang sukses, hanya sinkron_terakhir (bila ada) yang terisi.
+export type SLDKOverviewData =
+  | { tersedia: false; sinkron_terakhir: SLDKSyncInfo | null; sinkron_sukses: null }
+  | {
+      tersedia: true;
+      sinkron_terakhir: SLDKSyncInfo | null;
+      sinkron_sukses: SLDKSyncInfo;
+      definisi: { flag_keys_aktif: string[]; terkonfirmasi: boolean };
+      flag_keys: SLDKFlagKey[];
+      total: SLDKOverviewTotal;
+      jenis: SLDKOverviewGroup[];
+      kondisi: SLDKOverviewGroup[];
+      status: SLDKOverviewGroup[];
+      jenis_kondisi: SLDKOverviewGroup[];
+      provinsi: SLDKOverviewGroup[];
+      tahun: SLDKOverviewGroup[];
+      satker_teratas: SLDKOverviewGroup[];
+      anomali: SLDKOverviewAnomaly[];
+      satker: Record<string, { id: number; kode: string; nama: string }>;
+    };
+
+export async function getSLDKOverview() {
+  const res = await api.get<{ success: boolean; message: string; data: SLDKOverviewData }>("/sldk/ringkasan");
+  return res.data;
+}
+
+// Khusus admin. Daftar kosong = semua baris dihitung sebagai aset.
+export async function updateSLDKOverviewSettings(flagKeysAktif: string[]) {
+  const res = await api.put<{ success: boolean; message: string; data: { flag_keys_aktif: string[] } }>(
+    "/sldk/ringkasan/pengaturan",
+    { flag_keys_aktif: flagKeysAktif }
   );
   return res.data;
 }

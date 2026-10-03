@@ -47,6 +47,8 @@ type Config struct {
 	SLDKDBName          string
 	SLDKAssetTable      string
 	SLDKAssetSearchCols []string
+	// SLDKKLKode membatasi data aset ke satu K/L menurut kodenya (mis. 015 = Kementerian Keuangan). Kosong = seluruh K/L.
+	SLDKKLKode string
 
 	TokenEncryptionKey string
 	InaprocBaseURL     string
@@ -101,6 +103,7 @@ func LoadConfig() {
 		SLDKDBName:          getEnv("SLDK_DB_NAME", ""),
 		SLDKAssetTable:      getEnv("SLDK_ASSET_TABLE", ""),
 		SLDKAssetSearchCols: parseCommaList(getEnv("SLDK_ASSET_SEARCH_COLUMNS", "")),
+		SLDKKLKode:          strings.TrimSpace(getEnv("SLDK_KL_KODE", "")),
 
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),

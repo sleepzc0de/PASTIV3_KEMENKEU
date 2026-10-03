@@ -16,6 +16,7 @@ import (
 
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/sldk"
 	"pasti-v3-backend/utils"
 )
 
@@ -54,8 +55,7 @@ func sldkReady(c *gin.Context) bool {
 
 // sldkTable memberi nama tabel SLDK lain dengan skema yang sama dengan tabel aset (mis. DJKN.SIMAN2_R_SATKER).
 func sldkTable(name string) string {
-	schema, _ := splitSchemaTable(config.Cfg.SLDKAssetTable)
-	return quoteIdent(schema) + "." + quoteIdent(name)
+	return sldk.SiblingTable(config.Cfg.SLDKAssetTable, name)
 }
 
 // queryMaps menjalankan query dan mengembalikan baris sebagai map. Galat yang muncul saat iterasi
@@ -117,11 +117,27 @@ type refItem struct {
 	Nama string `json:"nama"`
 }
 
+// ruleInfo: aturan pemantauan (statis, bukan dari database) untuk filter pencarian dan dashboard.
+type ruleInfo struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	Keterangan string `json:"keterangan"`
+}
+
+func ruleInfos() []ruleInfo {
+	out := make([]ruleInfo, 0, len(sldk.Rules))
+	for _, r := range sldk.Rules {
+		out = append(out, ruleInfo{Key: r.Key, Label: r.Label, Keterangan: r.Keterangan})
+	}
+	return out
+}
+
 type refSet struct {
-	JenisBMN         []refItem `json:"jenis_bmn"`
-	Kondisi          []refItem `json:"kondisi"`
-	StatusPenggunaan []refItem `json:"status_penggunaan"`
-	StatusHukum      []refItem `json:"status_hukum"`
+	JenisBMN         []refItem  `json:"jenis_bmn"`
+	Kondisi          []refItem  `json:"kondisi"`
+	StatusPenggunaan []refItem  `json:"status_penggunaan"`
+	StatusHukum      []refItem  `json:"status_hukum"`
+	Anomali          []ruleInfo `json:"anomali"`
 }
 
 var refCache struct {
@@ -174,27 +190,26 @@ func GetAssetReferences(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), sldkLookupTimeout)
 	defer cancel()
 
-	set := &refSet{}
+	set := &refSet{Anomali: ruleInfos()}
 	allOK := true
-	load := func(dst *[]refItem, name, query string) {
-		items, err := loadRefItems(ctx, query)
+	for _, def := range sldk.RefDefs {
+		items, err := loadRefItems(ctx, def.Query(sldkTable(def.Table)))
 		if err != nil {
 			allOK = false
-			log.Println("[SLDK WARN] gagal memuat referensi", name+":", err)
-			*dst = []refItem{}
-			return
+			log.Println("[SLDK WARN] gagal memuat referensi", def.Key+":", err)
+			items = []refItem{}
 		}
-		*dst = items
+		switch def.Key {
+		case "jenis_bmn":
+			set.JenisBMN = items
+		case "kondisi":
+			set.Kondisi = items
+		case "status_penggunaan":
+			set.StatusPenggunaan = items
+		case "status_hukum":
+			set.StatusHukum = items
+		}
 	}
-	load(&set.JenisBMN, "jenis BMN", fmt.Sprintf(
-		"SELECT CAST(kd_jns_bmn AS nvarchar(20)), nm_jns_bmn FROM %s ORDER BY order_no, kd_jns_bmn", sldkTable("SIMAN2_R_JNS_BMN")))
-	load(&set.Kondisi, "kondisi", fmt.Sprintf(
-		"SELECT kd_kondisi, ur_kondisi FROM %s ORDER BY kd_kondisi", sldkTable("SIMAN2_R_KONDISI")))
-	load(&set.StatusPenggunaan, "status penggunaan", fmt.Sprintf(
-		"SELECT kd_status, ur_status FROM %s ORDER BY kd_status", sldkTable("SIMAN2_R_STATUS")))
-	load(&set.StatusHukum, "status hukum", fmt.Sprintf(
-		"SELECT kd_status_hukum, COALESCE(NULLIF(status_hukum, ''), jns_status_hukum) FROM %s ORDER BY kd_status_hukum",
-		sldkTable("SIMAN2_R_STATUS_HUKUM")))
 
 	if allOK {
 		refCache.data = set
@@ -301,9 +316,16 @@ func SearchSatker(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), sldkLookupTimeout)
 	defer cancel()
 
-	rows, err := queryMaps(ctx, fmt.Sprintf(
-		"SELECT TOP (20) id_satker, kd_satker, ur_satker FROM %s WHERE kd_satker LIKE @p1 ESCAPE '\\' OR ur_satker LIKE @p2 ESCAPE '\\' ORDER BY ur_satker",
-		sldkTable("SIMAN2_R_SATKER")), escapeLike(q)+"%", "%"+escapeLike(q)+"%")
+	query := fmt.Sprintf(
+		"SELECT TOP (20) id_satker, kd_satker, ur_satker FROM %s WHERE (kd_satker LIKE @p1 ESCAPE '\\' OR ur_satker LIKE @p2 ESCAPE '\\')",
+		sldkTable(sldk.TableSatker))
+	args := []interface{}{escapeLike(q) + "%", "%" + escapeLike(q) + "%"}
+	if kl := config.Cfg.SLDKKLKode; kl != "" {
+		query += " AND " + sldk.SatkerScopePredicate(config.Cfg.SLDKAssetTable, "@p3")
+		args = append(args, kl)
+	}
+	query += " ORDER BY ur_satker"
+	rows, err := queryMaps(ctx, query, args...)
 	if err != nil {
 		respondSLDKError(c, ctx, err, "Gagal mencari satker di SLDK", "Pencarian satker melebihi batas waktu")
 		return
@@ -342,8 +364,9 @@ func SearchAssets(c *gin.Context) {
 		Kondisi:  c.Query("kd_kondisi"),
 		Status:   c.Query("kd_status"),
 		Tahun:    c.Query("tahun"),
+		Anomali:  c.Query("anomali"),
 		Limit:    c.Query("limit"),
-	}, quoteTableRef(config.Cfg.SLDKAssetTable), resolveTextColumns(config.Cfg.SLDKAssetSearchCols))
+	}, config.Cfg.SLDKAssetTable, resolveTextColumns(config.Cfg.SLDKAssetSearchCols), config.Cfg.SLDKKLKode)
 	if err != nil {
 		var qe queryError
 		if errors.As(err, &qe) {
@@ -405,27 +428,6 @@ type detailSection struct {
 	Error string                   `json:"error,omitempty"`
 }
 
-// Tabel anak ini kecil (di bawah ~1 GB), jadi aman dipindai langsung per id_aset. Tabel besar seperti
-// SIMAN2_T_PENGELOLAAN_DETAIL (~208 GB) dan SIMAN2_M_ASET_PEMAKAI (berisi data pribadi) sengaja tidak dipakai.
-var assetDetailSections = []struct{ key, table, query string }{
-	{"kendaraan", "SIMAN2_M_KANGK",
-		"SELECT TOP (3) pabrik, thn_rakit, thn_buat, negara, muat, bobot, daya, msn_gerak, jml_msn, bhn_bakar, no_mesin, no_rangka, no_polisi FROM %s WHERE id_aset = @p1"},
-	{"tik", "SIMAN2_M_KKTIK",
-		"SELECT TOP (3) jns_processor, processor, ram, hdd, monitor, spek_lain FROM %s WHERE id_aset = @p1"},
-	{"riwayat_nopol", "SIMAN2_M_ASET_NOPOL",
-		"SELECT TOP (20) no_polisi, jenis_plat_nopol, tgl_keluar, tgl_sd_berlaku, ket, terakhir_yn FROM %s WHERE id_aset = @p1 ORDER BY tgl_keluar DESC"},
-	{"konstruksi_bangunan", "SIMAN2_M_ASET_KONS_BDG",
-		"SELECT TOP (3) tgl_inv, str_atap, str_rangka, material_atap, material_langit, lantai, pelapis_dindin_dlm, pelapis_dindin_lr, perkerasan, pagar, kd_kondisi, matrial_dinding FROM %s WHERE id_aset = @p1 ORDER BY tgl_inv DESC"},
-	{"tanah_bangunan", "SIMAN2_M_ASET_TANAH_BANGUNAN",
-		"SELECT TOP (10) id_aset_tanah, id_aset_bangunan, nm_pemilik_bangunan, ur_jenis_kepemilikan, jml_lantai, luas_bangunan, luas_dasar_bangunan, keterangan FROM %s WHERE id_aset_tanah = @p1 OR id_aset_bangunan = @p1"},
-	{"objek_tanah", "SIMAN2_M_ASET_OBJEK_TANAH",
-		"SELECT TOP (3) luas, ukuran, lebar, is_rawan_bencana, is_permasalahan_hukum, tahun_pajak, njop, njop_per_meter, kode_pos, lebar_jalan, nm_jalan_utama, jarak_jalan_utama, nm_cbd_terdekat, jarak_cbd_terdekat, koordinat FROM %s WHERE id_aset = @p1"},
-	{"riwayat_hukum", "SIMAN2_M_ASET_HUKUM",
-		"SELECT TOP (20) tgl, phk_sengketa, ur_masalah, no_reg_perkara, kd_status_hukum, terakhir_yn FROM %s WHERE id_aset = @p1 ORDER BY tgl DESC"},
-	{"foto", "SIMAN2_M_ASET_PHOTO",
-		"SELECT TOP (10) nm_photo, ket_photo, tanggal, photo_utama_yn FROM %s WHERE id_aset = @p1 ORDER BY tanggal DESC"},
-}
-
 // GetAssetDetail mengambil bagian-bagian kartu aset secara paralel. Setiap bagian berdiri sendiri: yang gagal
 // ditandai error, yang lain tetap tampil.
 func GetAssetDetail(c *gin.Context) {
@@ -452,14 +454,15 @@ func GetAssetDetail(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), sldkSearchTimeout)
 	defer cancel()
 
-	sections := make(map[string]detailSection, len(assetDetailSections))
+	sections := make(map[string]detailSection, len(sldk.DetailSections))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, s := range assetDetailSections {
+	for _, def := range sldk.DetailSections {
 		wg.Add(1)
-		go func(key, table, query string) {
+		go func(def sldk.DetailSection) {
 			defer wg.Done()
-			rows, err := queryMaps(ctx, fmt.Sprintf(query, sldkTable(table)), id)
+			key := def.Key
+			rows, err := queryMaps(ctx, def.Query(sldkTable(def.Table)), id)
 			section := detailSection{Rows: rows}
 			if err != nil {
 				log.Println("[SLDK WARN] bagian kartu aset", key, "gagal:", err)
@@ -471,7 +474,7 @@ func GetAssetDetail(c *gin.Context) {
 			mu.Lock()
 			sections[key] = section
 			mu.Unlock()
-		}(s.key, s.table, s.query)
+		}(def)
 	}
 	wg.Wait()
 
@@ -482,14 +485,6 @@ func GetAssetDetail(c *gin.Context) {
 }
 
 // ============ Bantuan umum ============
-
-func splitSchemaTable(ref string) (schema, table string) {
-	parts := strings.SplitN(ref, ".", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
-	}
-	return "dbo", parts[0]
-}
 
 // rowsToMaps juga dipakai handler Inaproc.
 func rowsToMaps(rows *sql.Rows) ([]map[string]interface{}, error) {
@@ -527,11 +522,3 @@ func rowsToMaps(rows *sql.Rows) ([]map[string]interface{}, error) {
 	return results, nil
 }
 
-func quoteIdent(name string) string {
-	return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
-}
-
-func quoteTableRef(ref string) string {
-	schema, table := splitSchemaTable(ref)
-	return quoteIdent(schema) + "." + quoteIdent(table)
-}

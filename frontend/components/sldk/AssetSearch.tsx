@@ -3,15 +3,28 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { Search, Loader2, DatabaseZap, ChevronRight, Info, SearchX, Package, MapPin, RotateCcw, Building2 } from "lucide-react";
-import { getSLDKReferences, searchSLDKAssets, SLDKReferences, SLDKSatker, SLDKAssetSearchData } from "@/lib/api";
+import { searchSLDKAssets, SLDKReferences, SLDKSatker, SLDKAssetSearchData } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { Alert } from "@/components/ui/Alert";
 import { SatkerPicker } from "@/components/sldk/SatkerPicker";
 import { AssetDetailModal } from "@/components/sldk/AssetDetailModal";
 import { KondisiBadge, FlagBadge } from "@/components/sldk/AssetBadges";
 import { AssetSummary, normalizeAsset, namaDari, str } from "@/components/sldk/asset";
+import { SearchPreset } from "@/components/sldk/overview";
 
 const MIN_TEXT = 3;
+
+// Isi formulir pencarian; dipisah dari state supaya preset dari tab Pemantauan bisa langsung dijalankan.
+interface Criteria {
+  q: string;
+  by: "id" | "teks";
+  satker: SLDKSatker | null;
+  jns: string;
+  kondisi: string;
+  status: string;
+  tahun: string;
+  anomali: string;
+}
 
 interface SearchResult {
   assets: AssetSummary[];
@@ -25,14 +38,21 @@ interface SearchError {
   status?: number;
 }
 
-export function AssetSearch() {
-  const [refs, setRefs] = useState<SLDKReferences | null>(null);
+interface AssetSearchProps {
+  // Tabel referensi (kode -> nama) kecil, dimuat induk; bila gagal, daftar filter disembunyikan dan kode ditampilkan apa adanya.
+  refs: SLDKReferences | null;
+  // Permintaan dari tab Pemantauan: mengisi filter lalu langsung mencari.
+  preset?: SearchPreset;
+}
+
+export function AssetSearch({ refs, preset }: AssetSearchProps) {
   const [by, setBy] = useState<"id" | "teks">("id");
   const [q, setQ] = useState("");
   const [jns, setJns] = useState("");
   const [kondisi, setKondisi] = useState("");
   const [status, setStatus] = useState("");
   const [tahun, setTahun] = useState("");
+  const [anomali, setAnomali] = useState("");
   const [satker, setSatker] = useState<SLDKSatker | null>(null);
 
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -41,41 +61,27 @@ export function AssetSearch() {
   const [selected, setSelected] = useState<AssetSummary | null>(null);
   const requestId = useRef(0);
 
-  // Tabel referensi (kode -> nama) kecil; bila gagal, daftar filter disembunyikan dan kode ditampilkan apa adanya.
-  useEffect(() => {
-    let cancelled = false;
-    getSLDKReferences()
-      .then((res) => {
-        if (!cancelled) setRefs(res.data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const qTrim = q.trim();
   const tahunTrim = tahun.trim();
   const tahunInvalid = tahunTrim !== "" && !/^\d{4}$/.test(tahunTrim);
   const qTooShort = qTrim.length > 0 && qTrim.length < MIN_TEXT;
-  const hasFilter = Boolean(jns || kondisi || status || tahunTrim || satker);
+  const hasFilter = Boolean(jns || kondisi || status || tahunTrim || satker || anomali);
   const canSearch = !isLoading && !qTooShort && !tahunInvalid && (qTrim.length > 0 || hasFilter);
 
-  const handleSearch = async (e?: FormEvent) => {
-    e?.preventDefault();
-    if (!canSearch) return;
+  const runSearch = async (c: Criteria) => {
     const id = ++requestId.current;
     setIsLoading(true);
     setError(null);
     try {
       const res = await searchSLDKAssets({
-        q: qTrim || undefined,
-        by,
-        id_satker: satker?.id,
-        kd_jns_bmn: jns || undefined,
-        kd_kondisi: kondisi || undefined,
-        kd_status: status || undefined,
-        tahun: tahunTrim || undefined,
+        q: c.q.trim() || undefined,
+        by: c.by,
+        id_satker: c.satker?.id,
+        kd_jns_bmn: c.jns || undefined,
+        kd_kondisi: c.kondisi || undefined,
+        kd_status: c.status || undefined,
+        tahun: c.tahun.trim() || undefined,
+        anomali: c.anomali || undefined,
       });
       if (id !== requestId.current) return;
       setResult({
@@ -99,6 +105,40 @@ export function AssetSearch() {
     }
   };
 
+  const handleSearch = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!canSearch) return;
+    void runSearch({ q, by, satker, jns, kondisi, status, tahun, anomali });
+  };
+
+  // Preset dari tab Pemantauan: formulir diganti seluruhnya (bukan digabung dengan isian lama) lalu dicari.
+  const appliedNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!preset || appliedNonce.current === preset.nonce) return;
+    appliedNonce.current = preset.nonce;
+    const c: Criteria = {
+      q: "",
+      by: "id",
+      satker: preset.satker ?? null,
+      jns: "",
+      kondisi: preset.kdKondisi ?? "",
+      status: "",
+      tahun: "",
+      anomali: preset.anomali ?? "",
+    };
+    setQ(c.q);
+    setBy(c.by);
+    setSatker(c.satker);
+    setJns(c.jns);
+    setKondisi(c.kondisi);
+    setStatus(c.status);
+    setTahun(c.tahun);
+    setAnomali(c.anomali);
+    void runSearch(c);
+    // runSearch hanya memakai setter state dan ref, jadi tidak perlu menjadi dependensi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
+
   const reset = () => {
     requestId.current++;
     setQ("");
@@ -106,6 +146,7 @@ export function AssetSearch() {
     setKondisi("");
     setStatus("");
     setTahun("");
+    setAnomali("");
     setSatker(null);
     setResult(null);
     setError(null);
@@ -167,8 +208,8 @@ export function AssetSearch() {
         </p>
         {qTooShort && <p className="text-xs text-amber-600">Kata kunci minimal {MIN_TEXT} karakter.</p>}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <div className="sm:col-span-2 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="sm:col-span-2">
             <FieldLabel>Satuan kerja</FieldLabel>
             <SatkerPicker value={satker} onChange={setSatker} />
           </div>
@@ -180,6 +221,9 @@ export function AssetSearch() {
           )}
           {refs && refs.status_penggunaan.length > 0 && (
             <FilterSelect label="Status penggunaan" value={status} onChange={setStatus} items={refs.status_penggunaan} />
+          )}
+          {refs && refs.anomali?.length > 0 && (
+            <FilterSelect label="Penanda" value={anomali} onChange={setAnomali} items={refs.anomali.map((a) => ({ kode: a.key, nama: a.label }))} />
           )}
           <div>
             <FieldLabel>Tahun perolehan</FieldLabel>
