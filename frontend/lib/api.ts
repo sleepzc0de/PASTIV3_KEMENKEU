@@ -14,8 +14,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Kode galat dari backend (field "code") untuk 401 yang berasal dari sesi SSO Kemenkeu, bukan sesi PASTI.
-const SSO_SESSION_EXPIRED = "sso_session_expired";
+// Alasan yang ditampilkan di halaman login untuk 401 yang membawa kode galat dari backend (field "code").
+// 401 tanpa kode (token tidak valid/kedaluwarsa) memakai teks bawaan halaman login.
+const SESSION_END_REASONS = new Map<string, string>([
+  ["sso_session_expired", "Sesi SSO Kemenkeu Anda telah berakhir. Silakan masuk kembali melalui SSO Kemenkeu."],
+  ["account_inactive", "Akun Anda telah dinonaktifkan. Hubungi administrator."],
+]);
 
 api.interceptors.response.use(
   (response) => response,
@@ -27,10 +31,7 @@ api.interceptors.response.use(
       Cookies.remove("pasti_access_token");
       if (typeof window !== "undefined") {
         // Halaman login menampilkan alasannya (LoginErrorBanner); tanpa reason dipakai teks bawaannya.
-        const reason =
-          error.response.data?.code === SSO_SESSION_EXPIRED
-            ? "Sesi SSO Kemenkeu Anda telah berakhir. Silakan masuk kembali melalui SSO Kemenkeu."
-            : "";
+        const reason = SESSION_END_REASONS.get(error.response.data?.code) ?? "";
         window.location.href = "/login?error=session_expired" + (reason ? "&reason=" + encodeURIComponent(reason) : "");
       }
     }

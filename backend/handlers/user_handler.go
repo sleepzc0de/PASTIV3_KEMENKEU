@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,6 +14,13 @@ import (
 	"pasti-v3-backend/dto"
 	"pasti-v3-backend/utils"
 )
+
+// isSelf memeriksa apakah target adalah akun yang sedang login. GUID dibandingkan tanpa
+// membedakan huruf besar/kecil karena token dan database bisa memformatnya berbeda.
+func isSelf(c *gin.Context, targetID string) bool {
+	me := c.GetString("user_id")
+	return me != "" && strings.EqualFold(me, targetID)
+}
 
 // ListUsers mengembalikan daftar semua user (admin/superadmin only)
 func ListUsers(c *gin.Context) {
@@ -280,6 +288,12 @@ func DeleteUser(c *gin.Context) {
 func DeactivateUser(c *gin.Context) {
 	targetID := c.Param("id")
 
+	// Penonaktifan langsung mengakhiri sesi, jadi menonaktifkan akun sendiri berarti mengunci diri.
+	if isSelf(c, targetID) {
+		utils.ErrorResponse(c, http.StatusForbidden, "Anda tidak dapat menonaktifkan akun Anda sendiri")
+		return
+	}
+
 	var isProtected bool
 	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
 	if err == sql.ErrNoRows {
@@ -312,6 +326,11 @@ func UpdateUser(c *gin.Context) {
 	var req dto.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.ErrorResponse(c, http.StatusBadRequest, "Data tidak valid: "+err.Error())
+		return
+	}
+
+	if !req.IsActive && isSelf(c, targetID) {
+		utils.ErrorResponse(c, http.StatusForbidden, "Anda tidak dapat menonaktifkan akun Anda sendiri")
 		return
 	}
 
