@@ -1,28 +1,59 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { UserPlus, Loader2, ShieldCheck, Trash2, Ban, Pencil, Search, SearchX, X } from "lucide-react";
+import { UserPlus, ShieldCheck, Trash2, Ban, Pencil, Search, SearchX, X, Users } from "lucide-react";
 import axios from "axios";
 import { listUsers, UserListItem, deactivateUser, deleteUser } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
 import { CreateUserModal } from "@/components/users/CreateUserModal";
 import { EditUserModal } from "@/components/users/EditUserModal";
 import { matchesUser, parseTerms } from "@/components/users/userSearch";
+import { initialsOf } from "@/lib/initials";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonTable } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 
 // Pesan dari backend (mis. "tidak dapat menonaktifkan akun Anda sendiri") lebih berguna daripada pesan umum.
 function errorMessage(err: unknown, fallback: string): string {
   return axios.isAxiosError(err) && err.response?.data?.message ? err.response.data.message : fallback;
 }
 
+const ROLE_CLS: Record<string, string> = {
+  superadmin: "bg-violet-50 text-violet-700 ring-violet-200",
+  admin: "bg-blue-50 text-blue-700 ring-blue-200",
+  user: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+function RoleBadge({ role }: { role: string }) {
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${ROLE_CLS[role] ?? ROLE_CLS.user}`}>{role}</span>;
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`} aria-hidden="true" />
+      {active ? "Aktif" : "Nonaktif"}
+    </span>
+  );
+}
+
+type Pending = { kind: "deactivate" | "delete"; user: UserListItem } | null;
+
 export default function UsersPage() {
   const { profile } = useDashboard();
+  const toast = useToast();
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editUserId, setEditUserId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [busy, setBusy] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -43,222 +74,218 @@ export default function UsersPage() {
 
   const terms = useMemo(() => parseTerms(query), [query]);
   const filtered = useMemo(() => users.filter((u) => matchesUser(u, terms)), [users, terms]);
+  const activeCount = useMemo(() => users.filter((u) => u.is_active).length, [users]);
 
   const isOwnAccount = (u: UserListItem) => Boolean(profile?.id) && profile?.id.toLowerCase() === u.id.toLowerCase();
 
-  const handleDeactivate = async (u: UserListItem) => {
-    // Penonaktifan langsung berlaku: pengguna tidak bisa login dan sesi yang sedang berjalan ikut berakhir.
-    if (
-      !confirm(
-        `Nonaktifkan ${u.full_name}?\n\nPengguna ini langsung tidak bisa login, dan sesi yang sedang berjalan ikut berakhir.`
-      )
-    )
-      return;
-    setActionError(null);
+  const runPending = async () => {
+    if (!pending) return;
+    const { kind, user } = pending;
+    setBusy(true);
     try {
-      await deactivateUser(u.id);
+      if (kind === "deactivate") {
+        await deactivateUser(user.id);
+        toast.success(`${user.full_name} dinonaktifkan.`);
+      } else {
+        await deleteUser(user.id);
+        toast.success(`${user.full_name} dihapus.`);
+      }
+      setPending(null);
       fetchUsers();
     } catch (err) {
-      setActionError(errorMessage(err, "Gagal menonaktifkan user"));
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Yakin ingin menghapus user ini?")) return;
-    setActionError(null);
-    try {
-      await deleteUser(id);
-      fetchUsers();
-    } catch {
-      setActionError("Gagal menghapus user");
+      toast.error(errorMessage(err, kind === "deactivate" ? "Gagal menonaktifkan user" : "Gagal menghapus user"));
+      setPending(null);
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="w-full space-y-6">
-      <div className="flex flex-col gap-4 rounded-xl bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Manajemen Pengguna</h1>
-          <p className="mt-1 text-sm text-slate-500">Kelola akun pengguna PASTI V3</p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          <UserPlus className="h-4 w-4" />
-          Tambah Pengguna
-        </button>
-      </div>
+    <div className="w-full space-y-5">
+      <PageHeader
+        title="Manajemen Pengguna"
+        icon={Users}
+        description="Kelola akun pengguna PASTI V3: tambah, ubah peran, nonaktifkan, atau hapus."
+        actions={
+          <Button fullWidth={false} onClick={() => setShowCreateModal(true)} icon={<UserPlus className="h-4 w-4" />}>
+            Tambah Pengguna
+          </Button>
+        }
+      />
 
-      {actionError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{actionError}</div>
-      )}
-
-      <div className="rounded-xl bg-white p-4 shadow-sm">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            inputMode="search"
-            autoComplete="off"
-            aria-label="Cari pengguna"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-            placeholder="Cari nama, username, email, NIP, atau satker..."
-            className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-9 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              aria-label="Hapus pencarian"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            >
-              <X className="h-4 w-4" />
-            </button>
+      <div className="card p-4 sm:p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[16rem] flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              inputMode="search"
+              autoComplete="off"
+              aria-label="Cari pengguna"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && setQuery("")}
+              placeholder="Cari nama, username, email, NIP, atau satker…"
+              className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Hapus pencarian"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {!isLoading && users.length > 0 && (
+            <p aria-live="polite" className="text-xs text-slate-500">
+              {terms.length > 0 ? (
+                `Menampilkan ${filtered.length} dari ${users.length} pengguna`
+              ) : (
+                <>
+                  <span className="font-semibold text-slate-700">{users.length}</span> pengguna · <span className="font-semibold text-emerald-700">{activeCount}</span> aktif
+                </>
+              )}
+            </p>
           )}
         </div>
-        {!isLoading && users.length > 0 && (
-          <p aria-live="polite" className="mt-2 text-xs text-slate-400">
-            {terms.length > 0 ? `Menampilkan ${filtered.length} dari ${users.length} pengguna` : `${users.length} pengguna`}
-          </p>
-        )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
-        {isLoading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-          </div>
-        ) : loadError ? (
-          <p className="px-4 py-12 text-center text-sm text-red-600">{loadError}</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 text-left font-semibold text-slate-600">Nama</th>
-                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Username</th>
-                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Role</th>
-                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Sumber</th>
-                <th className="hidden px-4 py-3 text-left font-semibold text-slate-600 md:table-cell">Status</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-600">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {users.length === 0 && (
+      {loadError && <Alert message={loadError} />}
+
+      {isLoading ? (
+        <SkeletonTable rows={6} cols={5} label="Memuat pengguna" />
+      ) : !loadError && users.length === 0 ? (
+        <EmptyState icon={Users} title="Belum ada pengguna" description="Tambahkan pengguna pertama dengan tombol Tambah Pengguna." />
+      ) : !loadError && filtered.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title={`Tidak ada pengguna yang cocok dengan “${query.trim()}”`}
+          description="Periksa ejaan atau coba kata kunci lain."
+          action={
+            <button type="button" onClick={() => setQuery("")} className="text-sm font-medium text-blue-600 hover:underline">
+              Hapus pencarian
+            </button>
+          }
+        />
+      ) : (
+        !loadError && (
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-100 bg-slate-50/80">
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
-                    Belum ada pengguna
-                  </td>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-500">Pengguna</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Username</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Role</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Sumber</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Status</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-500">Aksi</th>
                 </tr>
-              )}
-              {users.length > 0 && filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <SearchX className="mx-auto h-8 w-8 text-slate-400" />
-                    <p className="mt-2 break-words text-sm font-medium text-slate-700">
-                      Tidak ada pengguna yang cocok dengan &ldquo;{query.trim()}&rdquo;
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setQuery("")}
-                      className="mt-2 text-sm font-medium text-blue-600 hover:underline"
-                    >
-                      Hapus pencarian
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {filtered.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="font-medium text-slate-900">{u.full_name}</span>
-                      {u.is_protected && (
-                        <span title="Superadmin permanen">
-                          <ShieldCheck className="h-4 w-4 text-amber-500" />
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map((u) => (
+                  <tr key={u.id} className="hover:bg-blue-50/40">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                            u.is_active ? "bg-gradient-to-br from-blue-100 to-blue-200 text-blue-700" : "bg-slate-100 text-slate-400"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {initialsOf(u.full_name)}
                         </span>
-                      )}
-                      {isOwnAccount(u) && (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Anda</span>
-                      )}
-                    </div>
-                    <p className="break-all text-xs text-slate-400">{u.email}</p>
-                    {/* Di mobile kolom Username/Role/Sumber/Status disembunyikan; ringkasannya dipindah ke sini. */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">{u.role}</span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          u.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
-                        }`}
-                      >
-                        {u.is_active ? "Aktif" : "Nonaktif"}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        @{u.username} · {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="hidden px-4 py-3 text-slate-600 md:table-cell">{u.username}</td>
-                  <td className="hidden px-4 py-3 md:table-cell">
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">{u.role}</span>
-                  </td>
-                  <td className="hidden px-4 py-3 text-xs text-slate-500 md:table-cell">
-                    {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
-                  </td>
-                  <td className="hidden px-4 py-3 md:table-cell">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                        u.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {u.is_active ? "Aktif" : "Nonaktif"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => setEditUserId(u.id)}
-                        title="Edit"
-                        className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-blue-600 md:p-1.5"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      {/* Pengguna yang sudah nonaktif diaktifkan lagi lewat Edit; akun sendiri tidak boleh dinonaktifkan. */}
-                      {!u.is_protected && u.is_active && !isOwnAccount(u) && (
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-medium text-slate-900">{u.full_name}</span>
+                            {u.is_protected && (
+                              <span title="Superadmin permanen">
+                                <ShieldCheck className="h-4 w-4 text-amber-500" />
+                              </span>
+                            )}
+                            {isOwnAccount(u) && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">Anda</span>}
+                          </div>
+                          <p className="break-all text-xs text-slate-400">{u.email}</p>
+                          {/* Di mobile kolom Username/Role/Sumber/Status disembunyikan; ringkasannya dipindah ke sini. */}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
+                            <RoleBadge role={u.role} />
+                            <StatusBadge active={u.is_active} />
+                            <span className="text-[11px] text-slate-400">
+                              @{u.username} · {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="hidden px-4 py-3 text-slate-600 md:table-cell">{u.username}</td>
+                    <td className="hidden px-4 py-3 md:table-cell">
+                      <RoleBadge role={u.role} />
+                    </td>
+                    <td className="hidden px-4 py-3 text-xs text-slate-500 md:table-cell">{u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}</td>
+                    <td className="hidden px-4 py-3 md:table-cell">
+                      <StatusBadge active={u.is_active} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
                         <button
-                          onClick={() => handleDeactivate(u)}
-                          title="Nonaktifkan"
-                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-amber-600 md:p-1.5"
+                          onClick={() => setEditUserId(u.id)}
+                          title="Edit"
+                          aria-label={`Edit ${u.full_name}`}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
                         >
-                          <Ban className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
                         </button>
-                      )}
-                      {!u.is_protected && (
-                        <button
-                          onClick={() => handleDelete(u.id)}
-                          title="Hapus"
-                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-red-600 md:p-1.5"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {showCreateModal && (
-        <CreateUserModal onClose={() => setShowCreateModal(false)} onCreated={fetchUsers} />
+                        {/* Pengguna yang sudah nonaktif diaktifkan lagi lewat Edit; akun sendiri tidak boleh dinonaktifkan. */}
+                        {!u.is_protected && u.is_active && !isOwnAccount(u) && (
+                          <button
+                            onClick={() => setPending({ kind: "deactivate", user: u })}
+                            title="Nonaktifkan"
+                            aria-label={`Nonaktifkan ${u.full_name}`}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </button>
+                        )}
+                        {!u.is_protected && (
+                          <button
+                            onClick={() => setPending({ kind: "delete", user: u })}
+                            title="Hapus"
+                            aria-label={`Hapus ${u.full_name}`}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
 
-      {editUserId && (
-        <EditUserModal userId={editUserId} onClose={() => setEditUserId(null)} onUpdated={fetchUsers} />
+      {showCreateModal && <CreateUserModal onClose={() => setShowCreateModal(false)} onCreated={fetchUsers} />}
+
+      {editUserId && <EditUserModal userId={editUserId} onClose={() => setEditUserId(null)} onUpdated={fetchUsers} />}
+
+      {pending && (
+        <ConfirmDialog
+          tone={pending.kind === "delete" ? "danger" : "warning"}
+          title={pending.kind === "deactivate" ? `Nonaktifkan ${pending.user.full_name}?` : `Hapus ${pending.user.full_name}?`}
+          message={
+            pending.kind === "deactivate"
+              ? "Pengguna ini langsung tidak bisa login, dan sesi yang sedang berjalan ikut berakhir. Akun bisa diaktifkan lagi lewat Edit."
+              : "Akun ini akan dihapus permanen dan tidak bisa dikembalikan."
+          }
+          confirmLabel={pending.kind === "deactivate" ? "Nonaktifkan" : "Hapus permanen"}
+          busy={busy}
+          onConfirm={runPending}
+          onCancel={() => !busy && setPending(null)}
+        />
       )}
     </div>
   );

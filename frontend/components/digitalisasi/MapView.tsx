@@ -227,5 +227,5 @@ export default function MapView({ sets, visible, selected, focus, onSelect, onTi
     mapRef.current.setView([focus.lat, focus.lng], 17);
   }, [focus]);
 
-  return <div ref={box} className="h-full w-full" role="application" aria-label="Peta aset" />;
+  return <div ref={box} className="isolate h-full w-full" role="application" aria-label="Peta aset" />;
 }

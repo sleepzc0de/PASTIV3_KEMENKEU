@@ -1,8 +1,8 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useId } from "react";
 
-// Kontrol kecil yang dipakai berulang di halaman Digitalisasi Aset.
+// Kontrol kecil yang dipakai berulang di halaman Digitalisasi Aset dan Data Aset (SLDK), juga SAPA.
 
 export function Segmented<T extends string>({
   label,
@@ -16,14 +16,16 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex max-w-full flex-wrap rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
+    <div role="group" aria-label={label} className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl bg-slate-100 p-1 text-sm">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
           aria-pressed={value === o.value}
-          className={`rounded-md px-3 py-1 text-xs font-medium sm:text-sm ${value === o.value ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all sm:text-sm ${
+            value === o.value ? "bg-white text-blue-700 shadow-sm ring-1 ring-slate-900/5" : "text-slate-500 hover:text-slate-800"
+          }`}
         >
           {o.label}
         </button>
@@ -53,14 +55,15 @@ export function SelectField({
   options: { value: string; label: string }[];
   allLabel?: string;
 }) {
+  const id = useId();
   return (
     <div>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <select
-        aria-label={label}
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
       >
         <option value="">{allLabel}</option>
         {options.map((o) => (

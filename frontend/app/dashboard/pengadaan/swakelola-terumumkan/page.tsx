@@ -1,17 +1,15 @@
 import { PaketSwakelolaTerumumkanTable } from "@/components/inaproc/PaketSwakelolaTerumumkanTable";
+import { PageShell } from "@/components/ui/PageHeader";
+import { ClipboardCheck } from "lucide-react";
 
 export default function PaketSwakelolaTerumumkanPage() {
   return (
-    <div className="w-full space-y-6">
-      <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
-        <h1 className="text-xl font-bold text-slate-900">Paket Swakelola Terumumkan (Inaproc)</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Data diambil langsung dari API Inaproc (data.inaproc.id) secara real-time
-        </p>
-      </div>
-      <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
-        <PaketSwakelolaTerumumkanTable />
-      </div>
-    </div>
+    <PageShell
+      title="Paket Swakelola Terumumkan (Inaproc)"
+      icon={ClipboardCheck}
+      description="Data diambil langsung dari API Inaproc (data.inaproc.id) secara real-time."
+    >
+      <PaketSwakelolaTerumumkanTable />
+    </PageShell>
   );
 }

@@ -71,14 +71,14 @@ export function NonTenderPengumumanDetailModal({ item, onClose }: NonTenderPengu
   return (
     // `!mt-0`: modal ini dirender di dalam wadah `space-y-*` yang memberi margin-top pada
     // setiap anaknya; tanpa ini overlay `fixed inset-0` bergeser dan menyisakan celah di atas.
-    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 !mt-0 flex animate-fade-in items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Detail Pengumuman Non Tender"
-        className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl"
+        className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto animate-scale-in rounded-t-3xl bg-white shadow-xl sm:rounded-2xl"
       >
-        <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+        <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-100 bg-white/90 px-4 py-4 backdrop-blur sm:px-6">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900">Detail Pengumuman Non Tender</h2>
             <p className="mt-0.5 text-xs text-slate-500">

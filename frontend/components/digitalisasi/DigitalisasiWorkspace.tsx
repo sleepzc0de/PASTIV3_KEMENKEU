@@ -1,9 +1,10 @@
 "use client";
 
-import { KeyboardEvent, useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { BarChart3, Map, RefreshCw, Table2 } from "lucide-react";
 import { DGDatasetKey } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
+import { Tabs } from "@/components/ui/Tabs";
 import { DigitalisasiData, DataPreset } from "./DigitalisasiData";
 import { DigitalisasiOverview } from "./DigitalisasiOverview";
 import { MapPanel } from "./MapPanel";
@@ -14,11 +15,11 @@ import { useDGOverview, useDGSync } from "./useDigitalisasi";
 
 type TabKey = "ringkasan" | "peta" | "data" | "sinkronisasi";
 
-const TABS: { key: TabKey; label: string; Icon: typeof Map }[] = [
-  { key: "ringkasan", label: "Ringkasan", Icon: BarChart3 },
-  { key: "peta", label: "Peta", Icon: Map },
-  { key: "data", label: "Data", Icon: Table2 },
-  { key: "sinkronisasi", label: "Sinkronisasi", Icon: RefreshCw },
+const TABS: { key: TabKey; label: string; icon: typeof Map }[] = [
+  { key: "ringkasan", label: "Ringkasan", icon: BarChart3 },
+  { key: "peta", label: "Peta", icon: Map },
+  { key: "data", label: "Data", icon: Table2 },
+  { key: "sinkronisasi", label: "Sinkronisasi", icon: RefreshCw },
 ];
 
 export function DigitalisasiWorkspace() {
@@ -33,7 +34,6 @@ export function DigitalisasiWorkspace() {
   const [dataPreset, setDataPreset] = useState<DataPreset | undefined>();
   const [mapFocus, setMapFocus] = useState<MapFocus | null>(null);
   const [detail, setDetail] = useState<{ dataset: DGDatasetKey; id: number } | null>(null);
-  const tabRefs = useRef<Record<TabKey, HTMLButtonElement | null>>({ ringkasan: null, peta: null, data: null, sinkronisasi: null });
 
   const overview = useDGOverview(true, version);
   const onFinished = useCallback(() => setVersion((v) => v + 1), []);
@@ -57,49 +57,16 @@ export function DigitalisasiWorkspace() {
     return d && d.tersedia ? d.ue1.filter((u) => u.kode !== "(kosong)").map((u) => ({ value: u.kode, label: u.label })) : [];
   }, [overview.data]);
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const i = TABS.findIndex((t) => t.key === tab);
-    let next = -1;
-    if (e.key === "ArrowRight") next = (i + 1) % TABS.length;
-    else if (e.key === "ArrowLeft") next = (i - 1 + TABS.length) % TABS.length;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = TABS.length - 1;
-    if (next < 0) return;
-    e.preventDefault();
-    select(TABS[next].key);
-    tabRefs.current[TABS[next].key]?.focus();
-  };
 
   return (
     <div className="space-y-5">
-      <div role="tablist" aria-label="Bagian Digitalisasi Aset" onKeyDown={onKeyDown} className="flex gap-0.5 overflow-x-auto border-b border-slate-200 sm:gap-1">
-        {TABS.map(({ key, label, Icon }) => {
-          const selected = tab === key;
-          return (
-            <button
-              key={key}
-              ref={(el) => {
-                tabRefs.current[key] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`dg-tab-${key}`}
-              aria-selected={selected}
-              aria-controls={`dg-panel-${key}`}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => select(key)}
-              className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 sm:px-3 ${
-                selected ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {/* Ikon disembunyikan di layar sempit supaya keempat tab muat tanpa menggulir. */}
-              <Icon className="hidden h-4 w-4 sm:block" aria-hidden="true" />
-              {label}
-              {key === "sinkronisasi" && sync.data?.aktif && <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" aria-label="sedang berjalan" />}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs
+        tabs={TABS.map((t) => (t.key === "sinkronisasi" && sync.data?.aktif ? { ...t, badge: <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" aria-label="sedang berjalan" /> } : t))}
+        value={tab}
+        onChange={select}
+        label="Bagian Digitalisasi Aset"
+        idPrefix="dg"
+      />
 
       <div role="tabpanel" id="dg-panel-ringkasan" aria-labelledby="dg-tab-ringkasan" hidden={tab !== "ringkasan"}>
         <DigitalisasiOverview overview={overview} isAdmin={isAdmin} onGoSync={() => select("sinkronisasi")} onOpenData={openData} />

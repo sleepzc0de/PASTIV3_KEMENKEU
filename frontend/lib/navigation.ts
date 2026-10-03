@@ -197,3 +197,58 @@ export const NAV_ENTRIES: NavEntry[] = [
     roles: ["admin", "superadmin"],
   },
 ];
+
+export interface FlatNavItem extends NavItem {
+  group?: string;
+}
+
+// Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti).
+export function flattenNav(role?: string): FlatNavItem[] {
+  const ok = (roles?: string[]) => !roles || (role !== undefined && roles.includes(role));
+  const out: FlatNavItem[] = [];
+  for (const e of NAV_ENTRIES) {
+    if (!ok(e.roles)) continue;
+    if (e.type === "item") {
+      out.push(e);
+    } else {
+      for (const c of e.children) if (ok(c.roles)) out.push({ ...c, group: e.label });
+    }
+  }
+  return out;
+}
+
+export interface Crumb {
+  label: string;
+  href?: string;
+}
+
+// Remah roti dari alamat saat ini: "Beranda > Grup > Menu [> Detail]". Halaman di bawah menu yang `matchPrefix`
+// (mis. detail usulan SAPA) mendapat satu remah tambahan "Detail".
+export function breadcrumbsFor(pathname: string): Crumb[] {
+  if (pathname === "/dashboard") return [{ label: "Beranda" }];
+  const crumbs: Crumb[] = [{ label: "Beranda", href: "/dashboard" }];
+  for (const e of NAV_ENTRIES) {
+    if (e.type === "item") {
+      if (isNavActive(pathname, e)) {
+        crumbs.push({ label: e.label, href: pathname === e.href ? undefined : e.href });
+        if (pathname !== e.href) crumbs.push({ label: "Detail" });
+        return crumbs;
+      }
+    } else {
+      const child = e.children.find((c) => isNavActive(pathname, c));
+      if (child) {
+        crumbs.push({ label: e.label });
+        crumbs.push({ label: child.label, href: pathname === child.href ? undefined : child.href });
+        if (pathname !== child.href) crumbs.push({ label: "Detail" });
+        return crumbs;
+      }
+    }
+  }
+  return crumbs;
+}
+
+// Judul halaman untuk <title> dan penanda halaman aktif.
+export function pageTitleFor(pathname: string): string {
+  const c = breadcrumbsFor(pathname);
+  return c[c.length - 1]?.label ?? "PASTI V3";
+}
