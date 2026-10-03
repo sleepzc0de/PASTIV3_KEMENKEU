@@ -43,7 +43,7 @@ export const CaptchaField = forwardRef<HTMLInputElement, CaptchaFieldProps>(
         {/* flex-wrap + min-w pada input: di layar sempit input turun ke baris sendiri,
             bukan melebihi lebar form (lebar bawaan <input> sekitar 190px). */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex h-[50px] w-[150px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-300 bg-slate-50">
+          <div className="flex h-[50px] w-[150px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-50">
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
             ) : captchaImage ? (
@@ -57,8 +57,9 @@ export const CaptchaField = forwardRef<HTMLInputElement, CaptchaFieldProps>(
             type="button"
             onClick={loadCaptcha}
             disabled={isLoading}
-            className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-lg border border-slate-300 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+            className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-500 shadow-sm hover:border-slate-400 hover:bg-slate-50 hover:text-blue-600 active:scale-95 disabled:opacity-50"
             title="Muat ulang captcha"
+            aria-label="Muat ulang captcha"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
           </button>
@@ -69,10 +70,11 @@ export const CaptchaField = forwardRef<HTMLInputElement, CaptchaFieldProps>(
             placeholder="Masukkan kode"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-[50px] min-w-[8rem] flex-1 rounded-lg border border-slate-300 px-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+            aria-label="Kode keamanan"
+            className="h-[50px] min-w-[8rem] flex-1 rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
           />
         </div>
-        {error && <p className="mt-1.5 text-xs font-medium text-red-500">{error}</p>}
+        {error && <p className="mt-1.5 animate-fade-in text-xs font-medium text-red-600">{error}</p>}
       </div>
     );
   }

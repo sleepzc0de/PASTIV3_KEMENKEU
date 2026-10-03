@@ -7,7 +7,7 @@ import { KondisiPart, Metric, METRIC_LABEL, Point, axisLabel, formatMetric, nice
 // Grafik ringan tanpa pustaka: batang horizontal, batang bertumpuk (satu batang), dan garis. Satu seri = satu warna
 // (biru merek); status (baik/rusak) memakai warna status dengan ikon dan label.
 
-const BAR = "#2563eb"; // blue-600, selaras dengan tombol dan tautan aplikasi
+const BAR = "#3358e0"; // blue-600 pada tailwind.config.ts (biru merek), selaras dengan tombol dan tautan aplikasi
 const GRID = "#e2e8f0"; // slate-200, hairline
 const AXIS = "#cbd5e1"; // slate-300
 const MUTED = "#64748b"; // slate-500, teks sumbu
@@ -17,9 +17,9 @@ const STATUS = { good: "#0ca30c", warning: "#fab219", critical: "#d03b3b", other
 
 export function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200 p-4">
-      <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition-shadow hover:shadow-md">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>
       {sub && <p className="mt-0.5 break-words text-xs text-slate-500">{sub}</p>}
     </div>
   );
@@ -29,7 +29,7 @@ export function StatTile({ label, value, sub }: { label: string; value: string; 
 export function ChartCard({ title, subtitle, table, children }: { title: string; subtitle?: string; table?: ReactNode; children: ReactNode }) {
   const [asTable, setAsTable] = useState(false);
   return (
-    <section className="min-w-0 rounded-xl border border-slate-200 p-4">
+    <section className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
@@ -120,7 +120,7 @@ export function BarList({ items, wide = false }: { items: BarItem[]; wide?: bool
             <div className="flex items-center gap-3">
               <div className="h-3 min-w-0 flex-1 border-l border-slate-300" aria-hidden="true">
                 <div
-                  className="h-full rounded-r-[4px]"
+                  className="h-full origin-left animate-grow-x rounded-r-[4px]"
                   style={{ width: `${width}%`, backgroundColor: it.muted ? STATUS.other : BAR }}
                 />
               </div>

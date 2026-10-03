@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { User, Lock, Landmark, X, Info } from "lucide-react";
+import { User, Lock, Landmark, Info } from "lucide-react";
 import axios from "axios";
 
 import { loginSchema, LoginFormData } from "@/lib/validation";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { ModalShell } from "@/components/ui/ModalShell";
 import { CaptchaField } from "@/components/auth/CaptchaField";
 
 export function LoginForm() {
@@ -49,15 +50,20 @@ export function LoginForm() {
   const ssoLoginUrl = process.env.NEXT_PUBLIC_API_ROOT_URL + "/sso/login";
 
   return (
-    <div className="w-full space-y-5">
-      <a href={ssoLoginUrl} className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-[0.98]">
-        <Landmark className="h-4 w-4 text-blue-700" />
+    <div className="w-full space-y-6">
+      <a
+        href={ssoLoginUrl}
+        className="group flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md active:translate-y-0 active:scale-[0.98]"
+      >
+        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+          <Landmark className="h-3.5 w-3.5" />
+        </span>
         Masuk dengan SSO Kemenkeu
       </a>
 
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-slate-200" />
-        <span className="text-xs font-medium text-slate-400">ATAU</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">atau dengan akun PASTI</span>
         <div className="h-px flex-1 bg-slate-200" />
       </div>
 
@@ -94,53 +100,39 @@ export function LoginForm() {
           )}
         />
 
-        <div className="flex items-center justify-between text-sm">
-          <label className="flex items-center gap-2 text-slate-600">
-            <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-blue-600" />
-            Ingat saya
-          </label>
+        <div className="flex justify-end text-sm">
           <button
             type="button"
             onClick={() => setShowForgotPasswordInfo(true)}
-            className="font-medium text-blue-600 hover:underline"
+            className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
           >
             Lupa password?
           </button>
         </div>
 
-        <Button type="submit" isLoading={isLoading}>
+        <Button type="submit" isLoading={isLoading} size="lg" className="rounded-xl">
           {isLoading ? "Memproses..." : "Masuk"}
         </Button>
       </form>
 
       {showForgotPasswordInfo && (
-        <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100">
-                  <Info className="h-5 w-5 text-blue-600" />
-                </div>
-                <h2 className="text-base font-semibold text-slate-900">Lupa Password</h2>
-              </div>
-              <button
-                onClick={() => setShowForgotPasswordInfo(false)}
-                className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
+        <ModalShell title="Lupa Password" subtitle="Cara mengatur ulang akses akun" size="sm" onClose={() => setShowForgotPasswordInfo(false)}>
+          <div className="p-5 sm:p-6">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <Info className="h-5 w-5" />
+              </span>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Untuk reset password, silakan hubungi Administrator sistem PASTI. Jika akun Anda terdaftar melalui SSO Kemenkeu, gunakan tombol{" "}
+                <span className="font-medium text-slate-800">&quot;Masuk dengan SSO Kemenkeu&quot;</span> di atas. Password Anda dikelola langsung oleh sistem SSO
+                Kemenkeu, bukan oleh PASTI.
+              </p>
             </div>
-            <p className="mt-4 text-sm text-slate-600">
-              Untuk reset password, silakan hubungi Administrator sistem PASTI. Jika akun Anda
-              terdaftar melalui SSO Kemenkeu, gunakan tombol{" "}
-              <span className="font-medium">&quot;Masuk dengan SSO Kemenkeu&quot;</span> di atas —
-              password Anda dikelola langsung oleh sistem SSO Kemenkeu, bukan oleh PASTI.
-            </p>
             <Button onClick={() => setShowForgotPasswordInfo(false)} className="mt-5">
               Mengerti
             </Button>
           </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   );

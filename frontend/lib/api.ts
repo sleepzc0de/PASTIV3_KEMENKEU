@@ -1,18 +1,23 @@
 import axios from "axios";
 import Cookies from "js-cookie";
+import { netEnd, netStart } from "./netActivity";
 
 export const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
   headers: { "Content-Type": "application/json" },
 });
 
-api.interceptors.request.use((config) => {
-  const token = Cookies.get("pasti_access_token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+api.interceptors.request.use(
+  (config) => {
+    const token = Cookies.get("pasti_access_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    netStart(); // bilah kemajuan di atas halaman (TopLoader); setiap netStart dipasangkan dengan netEnd di interceptor respons
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 // Alasan yang ditampilkan di halaman login untuk 401 yang membawa kode galat dari backend (field "code").
 // 401 tanpa kode (token tidak valid/kedaluwarsa) memakai teks bawaan halaman login.
@@ -22,8 +27,13 @@ const SESSION_END_REASONS = new Map<string, string>([
 ]);
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    netEnd();
+    return response;
+  },
   (error) => {
+    // Permintaan yang dibatalkan sebelum terkirim tidak melewati interceptor permintaan, jadi tidak pernah netStart.
+    if (error?.config) netEnd();
     // 401 baru berarti "sesi berakhir" bila pengguna memang punya sesi. Tanpa cookie (mis. salah
     // password di halaman login) itu galat biasa milik pemanggil: mengarahkan ulang di sini akan
     // memuat ulang halaman login dan menghapus pesan galat beserta isian form.

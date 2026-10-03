@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { FileCheck2, Save } from "lucide-react";
 import { generateSapaDokumen, saveSapaDraf } from "@/lib/sapa";
+import { useToast } from "@/components/ui/Toast";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton } from "./fields";
 import { ErrorInfo, errorInfo } from "./sapa";
 
@@ -22,6 +23,7 @@ export function useTahapAksi(usulanId: number, kunci: string, onChanged: () => v
   const [error, setError] = useState<ErrorInfo | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [peringatan, setPeringatan] = useState<string[]>([]);
+  const toast = useToast();
 
   const jalankan = useCallback(
     async (jenis: "draf" | "dokumen", fn: () => Promise<void>, galat: string) => {
@@ -47,11 +49,12 @@ export function useTahapAksi(usulanId: number, kunci: string, onChanged: () => v
         async () => {
           await saveSapaDraf(usulanId, kunci, data);
           setNotice("Draf tersimpan.");
+          toast.success("Draf tersimpan.");
           onChanged();
         },
         "Gagal menyimpan draf"
       ),
-    [jalankan, usulanId, kunci, onChanged]
+    [jalankan, usulanId, kunci, onChanged, toast]
   );
 
   const buat = useCallback(
@@ -61,12 +64,14 @@ export function useTahapAksi(usulanId: number, kunci: string, onChanged: () => v
         async () => {
           const res = await generateSapaDokumen(usulanId, kunci, data);
           setNotice("Dokumen berhasil dibuat. Unduh dari daftar dokumen hasil di bawah.");
+          // Formulir tertutup setelah tahap selesai, jadi pesan di dalam formulir tidak terlihat; toast tetap tampil.
+          toast.success("Dokumen Word siap diunduh dari daftar dokumen hasil.", "Dokumen berhasil dibuat");
           setPeringatan(res.data.peringatan ?? []);
           onChanged();
         },
         "Gagal membuat dokumen"
       ),
-    [jalankan, usulanId, kunci, onChanged]
+    [jalankan, usulanId, kunci, onChanged, toast]
   );
 
   return { busy, error, notice, peringatan, simpan, buat };
@@ -95,7 +100,6 @@ export function FormFooter({
         </NoticeBox>
       )}
       <ErrorBox error={aksi.error} />
-      {aksi.notice && <NoticeBox tone="ok">{aksi.notice}</NoticeBox>}
       {aksi.peringatan.length > 0 && (
         <NoticeBox tone="warn">
           <p className="font-medium">Dokumen dibuat dengan catatan:</p>

@@ -94,8 +94,8 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
   };
 
   return (
-    <div className="fixed inset-0 z-50 !mt-0 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 !mt-0 flex animate-fade-in items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto animate-scale-in rounded-t-3xl bg-white shadow-xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
             <Pencil className="h-5 w-5 text-blue-600" />

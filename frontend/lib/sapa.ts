@@ -84,6 +84,7 @@ export interface SapaAnggota {
   nama: string;
   jabatan: string;
   kedudukan: string;
+  nip: string; // opsional; terisi saat anggota dipilih dari HRIS2
 }
 
 export interface SapaDataTim {
@@ -340,5 +341,98 @@ export async function saveSapaRefUE1(r: SapaRefUE1) {
 
 export async function deleteSapaRefUE1(kode: string) {
   const res = await api.delete<SapaRes<null>>(`/sapa/ref-ue1/${kode}`);
+  return res.data;
+}
+
+// Jenis BMN dan satuan jumlahnya (diatur admin di Pengaturan SAPA). Tiap jenis hanya boleh memakai satuan yang dipetakan padanya.
+export interface SapaSatuanBMN {
+  nama: string;
+  aktif: boolean;
+  urutan: number;
+}
+
+export interface SapaJenisBMN {
+  nama: string;
+  aktif: boolean;
+  urutan: number;
+  satuan: string[]; // satuan yang diizinkan, urut tampil
+  satuan_bawaan: string; // terpilih otomatis saat jenis dipilih
+}
+
+export interface SapaRefBMN {
+  jenis: SapaJenisBMN[];
+  satuan: SapaSatuanBMN[];
+}
+
+// Untuk formulir: hanya yang aktif. Untuk admin: lengkap.
+export async function getSapaRefBMN() {
+  const res = await api.get<SapaRes<SapaRefBMN>>("/sapa/referensi/bmn");
+  return res.data;
+}
+
+export async function listSapaBMN() {
+  const res = await api.get<SapaRes<SapaRefBMN>>("/sapa/bmn");
+  return res.data;
+}
+
+export async function saveSapaSatuanBMN(s: SapaSatuanBMN) {
+  const res = await api.put<SapaRes<null>>("/sapa/bmn/satuan", s);
+  return res.data;
+}
+
+// Nama dikirim lewat query (bukan segmen jalur) karena bisa memuat koma, spasi, dan huruf non-ASCII.
+export async function deleteSapaSatuanBMN(nama: string) {
+  const res = await api.delete<SapaRes<null>>("/sapa/bmn/satuan", { params: { nama } });
+  return res.data;
+}
+
+export async function saveSapaJenisBMN(j: SapaJenisBMN) {
+  const res = await api.put<SapaRes<null>>("/sapa/bmn/jenis", j);
+  return res.data;
+}
+
+export async function deleteSapaJenisBMN(nama: string) {
+  const res = await api.delete<SapaRes<null>>("/sapa/bmn/jenis", { params: { nama } });
+  return res.data;
+}
+
+// Template Excel daftar barang: unduh template, impor berkas yang sudah diisi, dan ekspor daftar yang sedang dikerjakan.
+export interface SapaHasilImpor {
+  barang: SapaBarang[];
+  galat: string[]; // masalah per baris (baris tetap dimuat agar bisa diperbaiki di formulir)
+  peringatan: string[];
+  jumlah_baca: number;
+}
+
+export const unduhSapaTemplateBarang = () => unduhBerkas("/sapa/barang/template");
+
+export async function imporSapaBarang(berkas: File) {
+  const form = new FormData();
+  form.append("berkas", berkas);
+  const res = await api.post<SapaRes<SapaHasilImpor>>("/sapa/barang/impor", form, { headers: { "Content-Type": undefined } });
+  return res.data;
+}
+
+export async function eksporSapaBarang(barang: SapaBarang[]): Promise<{ blob: Blob; disposition: string }> {
+  const res = await api.post<Blob>("/sapa/barang/ekspor", { barang }, { responseType: "blob" });
+  return { blob: res.data, disposition: String(res.headers["content-disposition"] ?? "") };
+}
+
+// Pegawai dari HRIS2 (hanya bidang yang dibutuhkan formulir; data pribadi tidak diteruskan backend).
+export interface SapaPegawai {
+  nip: string;
+  nama: string;
+  nama_lengkap: string; // dengan gelar, untuk dokumen resmi
+  jabatan: string; // bisa kosong pada hasil pencarian; selalu dicoba pada detail
+  satker: string;
+}
+
+export async function cariSapaPegawai(q: string, signal?: AbortSignal) {
+  const res = await api.get<SapaRes<{ pegawai: SapaPegawai[]; batas: number }>>("/sapa/pegawai", { params: { q }, signal });
+  return res.data;
+}
+
+export async function getSapaPegawai(nip: string) {
+  const res = await api.get<SapaRes<SapaPegawai>>(`/sapa/pegawai/${encodeURIComponent(nip)}`);
   return res.data;
 }

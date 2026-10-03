@@ -10,7 +10,9 @@ import type {
   SapaDataTim,
   SapaDokPendukung,
   SapaItemDokumen,
+  SapaJenisBMN,
   SapaPeran,
+  SapaRefBMN,
   SapaStatusTahap,
 } from "@/lib/sapa";
 
@@ -85,6 +87,52 @@ export function totalBarang(barang: SapaBarang[]): TotalBarang {
     if (l !== null) t.limit += l;
   }
   return t;
+}
+
+// ---------------------------------------------------------------- tampilan menurut peran
+
+// Sudut pandang halaman usulan: "saya" = hanya tahap milik peran pengguna; "semua" = seluruh tahap; atau satu peran tertentu
+// (dipakai admin, yang boleh mengerjakan semua peran).
+export type Lihat = "saya" | "semua" | SapaPeran;
+
+// Pengguna biasa langsung fokus ke tahap perannya; admin melihat seluruh alur dan boleh menyaring per peran.
+export function lihatAwal(admin: boolean): Lihat {
+  return admin ? "semua" : "saya";
+}
+
+// Tahap yang ditampilkan untuk sudut pandang tertentu. Tanpa peran (tidak seharusnya terjadi) semua tahap ditampilkan,
+// supaya halaman tidak pernah kosong.
+export function tahapDilihat<T extends { peran: string }>(tahap: T[], lihat: Lihat, peranSaya: string): T[] {
+  if (lihat === "semua") return tahap;
+  const peran = lihat === "saya" ? peranSaya : lihat;
+  if (!peran) return tahap;
+  return tahap.filter((t) => t.peran === peran);
+}
+
+export interface Giliran {
+  // "selesai": semua tahap beres; "saya": tahap yang sedang berjalan milik peran pengguna; "lain": milik peran lain.
+  jenis: "selesai" | "saya" | "lain";
+  kunci?: string;
+  label?: string;
+  peran?: string;
+}
+
+// Siapa yang sedang ditunggu. Admin dianggap boleh mengerjakan tahap berjalan apa pun ("saya").
+export function giliranSaatIni<T extends { kunci: string; label: string; peran: string }>(tahap: T[], tahapSaatIni: string, peranSaya: string, admin: boolean): Giliran {
+  const t = tahap.find((x) => x.kunci === tahapSaatIni);
+  if (!t) return { jenis: "selesai" };
+  return { jenis: admin || t.peran === peranSaya ? "saya" : "lain", kunci: t.kunci, label: t.label, peran: t.peran };
+}
+
+// Kelompok tahap berurutan yang diperankan pihak yang sama (mis. Satker 1-5, Kanwil 6, UE1 7-10), untuk ringkasan alur.
+export function kelompokPeran<T extends { peran: string }>(tahap: T[]): { peran: string; items: T[] }[] {
+  const out: { peran: string; items: T[] }[] = [];
+  for (const t of tahap) {
+    const last = out[out.length - 1];
+    if (last && last.peran === t.peran) last.items.push(t);
+    else out.push({ peran: t.peran, items: [t] });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- tanggal dan ukuran
@@ -192,7 +240,7 @@ const s = (v: unknown): string => (typeof v === "string" ? v : "");
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
-export const kosongAnggota = (): SapaAnggota => ({ nama: "", jabatan: "", kedudukan: "" });
+export const kosongAnggota = (): SapaAnggota => ({ nama: "", jabatan: "", kedudukan: "", nip: "" });
 
 export const kosongBarang = (): SapaBarang => ({
   nama: "",
@@ -225,7 +273,7 @@ export function normTim(v: unknown): SapaDataTim {
   const o = rec(v);
   const anggota = arr(o.anggota).map((a) => {
     const x = rec(a);
-    return { nama: s(x.nama), jabatan: s(x.jabatan), kedudukan: s(x.kedudukan) };
+    return { nama: s(x.nama), jabatan: s(x.jabatan), kedudukan: s(x.kedudukan), nip: s(x.nip) };
   });
   return {
     jabatan_pimpinan: s(o.jabatan_pimpinan),
@@ -306,6 +354,34 @@ export function muatanNDSatker(d: SapaDataNDSatker, items: SapaItemDokumen[]): S
   return { ...d, barang: d.barang.filter((b) => !barangKosong(b)), dokumen };
 }
 
+// ---------------------------------------------------------------- pencarian pegawai (HRIS2)
+
+export const MIN_CARI_PEGAWAI = 3;
+
+// Kata kunci pencarian pegawai yang layak dikirim: dirapikan spasinya, dan baru dicari setelah cukup panjang (backend menolak
+// yang lebih pendek agar tidak menarik daftar besar). Karakter khusus dibuang di backend; di sini cukup memeriksa panjang.
+export function kataKunciPegawai(q: string): string | null {
+  const t = q.trim().replace(/\s+/g, " ");
+  return Array.from(t.replace(/ /g, "")).length >= MIN_CARI_PEGAWAI ? t : null; // spasi tidak dihitung
+}
+
+// NIP yang sudah ada di daftar anggota (untuk menandai hasil pencarian yang sudah ditambahkan).
+export function nipTerpakai(anggota: SapaAnggota[]): Set<string> {
+  return new Set(anggota.map((a) => a.nip.replace(/\s+/g, "")).filter((n) => n !== ""));
+}
+
+// NIP yang muncul lebih dari sekali dalam daftar anggota.
+export function nipGanda(anggota: SapaAnggota[]): Set<string> {
+  const seen = new Set<string>();
+  const ganda = new Set<string>();
+  for (const a of anggota) {
+    const n = a.nip.replace(/\s+/g, "");
+    if (!n) continue;
+    if (seen.has(n)) ganda.add(n);
+    seen.add(n);
+  }
+  return ganda;
+}
 export function muatanTim(d: SapaDataTim): SapaDataTim {
   return { ...d, anggota: d.anggota.filter((a) => a.nama.trim() !== "" || a.jabatan.trim() !== "" || a.kedudukan.trim() !== "") };
 }
@@ -355,4 +431,80 @@ export function parseBarangTempel(text: string): HasilTempel {
     rows.push(b);
   });
   return { barang: rows, dilewati };
+}
+
+// ---------------------------------------------------------------- impor Excel
+
+export const MAKS_BYTE_XLSX = 2 * 1024 * 1024; // sama dengan batas backend
+
+export type ModeImpor = "ganti" | "tambah";
+
+// Menggabungkan barang hasil impor/tempel ke daftar yang sedang dikerjakan. Baris kosong (mis. baris contoh yang tidak diisi)
+// dibuang lebih dulu; hasilnya tidak pernah melebihi MAKS_BARANG, dan jumlah yang terpaksa dibuang dilaporkan.
+export function gabungBarang(lama: SapaBarang[], baru: SapaBarang[], mode: ModeImpor): { barang: SapaBarang[]; terbuang: number } {
+  const dasar = mode === "ganti" ? [] : lama.filter((b) => !barangKosong(b));
+  const gabung = [...dasar, ...baru];
+  return { barang: gabung.slice(0, MAKS_BARANG), terbuang: Math.max(gabung.length - MAKS_BARANG, 0) };
+}
+
+// ---------------------------------------------------------------- jenis BMN dan satuan
+
+const samaNama = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+export function cariJenisBMN(ref: SapaRefBMN | null, nama: string): SapaJenisBMN | null {
+  if (!ref || nama.trim() === "") return null;
+  return ref.jenis.find((j) => samaNama(j.nama, nama)) ?? null;
+}
+
+// Nama satuan menurut daftar jenis (huruf besar/kecil seperti di daftar), atau null bila tidak diizinkan untuk jenis itu.
+export function satuanDiizinkan(jenis: SapaJenisBMN | null, satuan: string): string | null {
+  if (!jenis) return null;
+  return jenis.satuan.find((x) => samaNama(x, satuan)) ?? null;
+}
+
+// Memilih jenis: satuan yang sedang dipakai dipertahankan bila masih diizinkan untuk jenis baru, selain itu satuan bawaan jenis itu.
+// Pasangan jenis-satuan yang tidak masuk akal (Peralatan dan Mesin dalam "meter", Tanah dalam "unit") tidak pernah dihasilkan.
+export function pilihJenisBMN(ref: SapaRefBMN | null, namaJenis: string, satuanSaatIni: string): { jenis: string; satuan: string } {
+  const j = cariJenisBMN(ref, namaJenis);
+  if (!j) return { jenis: namaJenis, satuan: satuanSaatIni };
+  const tetap = satuanDiizinkan(j, satuanSaatIni);
+  return { jenis: j.nama, satuan: tetap ?? satuanDiizinkan(j, j.satuan_bawaan) ?? j.satuan[0] ?? "" };
+}
+
+// Pengaturan admin: satuan yang dicentang disusun menurut urutan daftar satuan, dan satuan bawaan dikoreksi bila tidak lagi
+// termasuk yang dicentang (jatuh ke yang pertama).
+export function susunSatuanJenis(semua: { nama: string }[], dicentang: string[], bawaan: string): { satuan: string[]; bawaan: string } {
+  const satuan = semua.filter((s) => dicentang.some((d) => samaNama(d, s.nama))).map((s) => s.nama);
+  const tetap = satuan.find((s) => samaNama(s, bawaan));
+  return { satuan, bawaan: tetap ?? satuan[0] ?? "" };
+}
+
+// Urutan tampil untuk entri baru: setelah yang terakhir.
+export function urutanBerikut(items: { urutan: number }[]): number {
+  return items.reduce((m, x) => Math.max(m, x.urutan), 0) + 1;
+}
+
+export interface PeriksaBMN {
+  jenis: SapaJenisBMN | null; // jenis yang dikenali (null bila kosong atau tidak ada di daftar)
+  satuanSah: string; // satuan yang diizinkan untuk jenis itu ("" bila belum diisi atau tidak sesuai)
+  pesanJenis: string | null;
+  pesanSatuan: string | null;
+}
+
+// Pemeriksaan isian terhadap daftar, untuk menampilkan masalah sebelum surat dibuat (data lama bisa memuat teks bebas dari versi
+// sebelumnya). Aturan yang berlaku tetap ditegakkan backend.
+export function periksaBMN(ref: SapaRefBMN | null, jenis: string, satuan: string): PeriksaBMN {
+  const hasil: PeriksaBMN = { jenis: null, satuanSah: "", pesanJenis: null, pesanSatuan: null };
+  if (!ref) return hasil;
+  const j = cariJenisBMN(ref, jenis);
+  if (jenis.trim() !== "" && !j) {
+    hasil.pesanJenis = `Jenis BMN "${jenis.trim()}" tidak ada di daftar; pilih salah satu jenis di bawah.`;
+    return hasil;
+  }
+  hasil.jenis = j;
+  if (!j || satuan.trim() === "") return hasil;
+  const sah = satuanDiizinkan(j, satuan);
+  if (sah) hasil.satuanSah = sah;
+  else hasil.pesanSatuan = `Satuan "${satuan.trim()}" tidak sesuai untuk ${j.nama}; pilih salah satu: ${j.satuan.join(", ")}.`;
+  return hasil;
 }

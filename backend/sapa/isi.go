@@ -335,7 +335,7 @@ func IsiSKTim(tpl []byte, k Kasus, d DataTim) (*Hasil, error) {
 	var daftar []string
 	for i, a := range d.Anggota {
 		items[i] = map[string]string{
-			"no": strconv.Itoa(i + 1), "nama anggota": a.Nama, "jabatan anggota": a.Jabatan, "kedudukan": a.Kedudukan,
+			"no": strconv.Itoa(i + 1), "nama anggota": a.Nama, "jabatan anggota": a.Jabatan, "kedudukan": a.Kedudukan, "nip anggota": a.NIP,
 		}
 		daftar = append(daftar, fmt.Sprintf("%d. %s – %s – %s", i+1, a.Nama, a.Jabatan, a.Kedudukan))
 	}

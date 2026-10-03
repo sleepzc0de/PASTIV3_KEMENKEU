@@ -7,8 +7,8 @@ export default async function SapaPenjualanDetailPage({ params }: { params: Prom
   const nomor = /^\d{1,15}$/.test(id) ? Number(id) : 0;
 
   return (
-    <div className="w-full space-y-6">
-      <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+    <div className="w-full">
+      <div className="card p-4 sm:p-6">
         <SapaGate>
           {nomor > 0 ? (
             <PenjualanDetail id={nomor} />

@@ -52,19 +52,20 @@ export function StatusBadge({ status }: { status: SapaStatusTahap }) {
   );
 }
 
-// Lingkaran nomor pada linimasa tahap.
-export function StepCircle({ no, status, aktif }: { no: number; status: SapaStatusTahap; aktif: boolean }) {
-  const base = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold";
+// Lingkaran nomor pada linimasa tahap. `sm` untuk ringkasan alur.
+export function StepCircle({ no, status, aktif, size = "md" }: { no: number; status: SapaStatusTahap; aktif: boolean; size?: "sm" | "md" }) {
+  const base = size === "sm" ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold" : "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold";
+  const icon = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
   if (status === "selesai")
     return (
       <span className={`${base} bg-emerald-600 text-white`}>
-        <Check className="h-4 w-4" aria-hidden="true" />
+        <Check className={icon} aria-hidden="true" />
       </span>
     );
   if (status === "dilewati")
     return (
       <span className={`${base} bg-slate-400 text-white`}>
-        <Minus className="h-4 w-4" aria-hidden="true" />
+        <Minus className={icon} aria-hidden="true" />
       </span>
     );
   if (status === "draft") return <span className={`${base} bg-amber-500 text-white`}>{no}</span>;

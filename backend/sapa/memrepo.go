@@ -23,6 +23,7 @@ type MemRepo struct {
 	dokumen                     map[int64]*memDok
 	template                    map[string][]*memTpl
 	refUE1                      map[string]RefUE1
+	bmn                         *RefBMN // diisi DefaultRefBMN() saat pertama dipakai
 	urut                        map[int]int
 	nextKasus, nextDok, nextTpl int64
 }
@@ -299,6 +300,95 @@ func (m *MemRepo) HapusRefUE1(_ context.Context, kode string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.refUE1, kode)
+	return nil
+}
+
+// ---------------------------------------------------------------- jenis BMN dan satuan
+
+func (m *MemRepo) bmnLocked() *RefBMN {
+	if m.bmn == nil {
+		d := DefaultRefBMN()
+		m.bmn = &d
+	}
+	return m.bmn
+}
+
+func (m *MemRepo) AmbilRefBMN(_ context.Context) (RefBMN, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.bmnLocked()
+	out := RefBMN{Jenis: make([]JenisBMN, len(r.Jenis)), Satuan: append([]SatuanBMN{}, r.Satuan...)}
+	for i, j := range r.Jenis {
+		j.Satuan = append([]string{}, j.Satuan...)
+		out.Jenis[i] = j
+	}
+	return out, nil
+}
+
+func (m *MemRepo) SimpanSatuanBMN(_ context.Context, s SatuanBMN, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.bmnLocked()
+	for i := range r.Satuan {
+		if samaNama(r.Satuan[i].Nama, s.Nama) {
+			r.Satuan[i] = SatuanBMN{Nama: r.Satuan[i].Nama, Aktif: s.Aktif, Urutan: s.Urutan}
+			return nil
+		}
+	}
+	r.Satuan = append(r.Satuan, s)
+	return nil
+}
+
+func (m *MemRepo) HapusSatuanBMN(_ context.Context, nama string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.bmnLocked()
+	var sat []SatuanBMN
+	for _, s := range r.Satuan {
+		if !samaNama(s.Nama, nama) {
+			sat = append(sat, s)
+		}
+	}
+	r.Satuan = sat
+	for i := range r.Jenis {
+		var ks []string
+		for _, s := range r.Jenis[i].Satuan {
+			if !samaNama(s, nama) {
+				ks = append(ks, s)
+			}
+		}
+		r.Jenis[i].Satuan = ks
+	}
+	return nil
+}
+
+func (m *MemRepo) SimpanJenisBMN(_ context.Context, j JenisBMN, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.bmnLocked()
+	j.Satuan = append([]string{}, j.Satuan...)
+	for i := range r.Jenis {
+		if samaNama(r.Jenis[i].Nama, j.Nama) {
+			j.Nama = r.Jenis[i].Nama
+			r.Jenis[i] = j
+			return nil
+		}
+	}
+	r.Jenis = append(r.Jenis, j)
+	return nil
+}
+
+func (m *MemRepo) HapusJenisBMN(_ context.Context, nama string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.bmnLocked()
+	var out []JenisBMN
+	for _, j := range r.Jenis {
+		if !samaNama(j.Nama, nama) {
+			out = append(out, j)
+		}
+	}
+	r.Jenis = out
 	return nil
 }
 

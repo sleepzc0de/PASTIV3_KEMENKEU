@@ -1,24 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Lock, RotateCcw, SkipForward, Hourglass } from "lucide-react";
 import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
+import { Segmented } from "../digitalisasi/controls";
 import { formatDateTime } from "../sldk/overview";
+import { AlurRingkas } from "./AlurRingkas";
 import { KanalBadge, PeranBadge, StatusBadge, StepCircle } from "./badges";
 import { DokumenList } from "./DokumenList";
 import { EksternalPanel } from "./EksternalPanel";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton, TextAreaField } from "./fields";
 import { NDSatkerForm, NDUE1Form } from "./NDForms";
 import { useSapa } from "./SapaGate";
-import { ErrorInfo, errorInfo, errorStatus, formatTanggal, peranLabel } from "./sapa";
+import { ErrorInfo, Lihat, errorInfo, errorStatus, formatTanggal, giliranSaatIni, lihatAwal, peranLabel, tahapDilihat } from "./sapa";
 import { BAForm, TimForm } from "./TimForm";
 
-// Halaman satu usulan penjualan: linimasa 10 tahap. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir,
-// panel pencatatan (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
+// Halaman satu usulan penjualan: linimasa 10 tahap. Tampilan mengikuti peran: pengguna Satker/Kanwil/UE1 langsung melihat
+// formulir tahap miliknya (ringkasan alur tetap menunjukkan posisi usulan di seluruh alur), sedangkan admin melihat semua
+// tahap dan bisa menyaring per peran. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir, panel pencatatan
+// (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
 export function PenjualanDetail({ id }: { id: number }) {
   const saya = useSapa();
+  const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin));
   const [detail, setDetail] = useState<SapaDetail | null>(null);
   const [error, setError] = useState<{ message: string; hilang: boolean } | null>(null);
   const aktif = useRef(true);
@@ -69,26 +74,123 @@ export function PenjualanDetail({ id }: { id: number }) {
   if (!detail) return <div role="status" aria-label="Memuat usulan" className="h-64 animate-pulse rounded-xl bg-slate-100" />;
 
   const selesai = detail.tahap.filter((t) => t.status === "selesai" || t.status === "dilewati").length;
+  const tampil = tahapDilihat(detail.tahap, lihat, saya.peran);
+  const giliran = giliranSaatIni(detail.tahap, detail.tahap_saat_ini, saya.peran, saya.admin);
+
+  // Dari ringkasan alur: tahap milik peran lain dibuka dengan beralih ke tampilan semua tahap, lalu digulir ke kartunya.
+  const pilihTahap = (t: SapaTahapDetail) => {
+    if (!tampil.some((x) => x.kunci === t.kunci)) setLihat("semua");
+    setTimeout(() => document.getElementById(`kartu-${t.kunci}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
 
   return (
     <div className="space-y-5">
       {kembali}
       <Ringkasan usulan={detail.usulan} selesai={selesai} total={detail.tahap.length} sudahSelesai={detail.selesai} />
       {error && <Alert message={error.message} />}
+
+      <AlurRingkas tahap={detail.tahap} aktifKunci={detail.tahap_saat_ini} peranSaya={saya.admin ? "" : saya.peran} onPilih={pilihTahap} />
+
+      <GiliranBanner
+        giliran={giliran}
+        admin={saya.admin}
+        onLihatSemua={() => setLihat("semua")}
+        lihat={lihat}
+        tahapSayaTuntas={detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
+      />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PilihTampilan lihat={lihat} onChange={setLihat} saya={saya} />
+        <p className="text-xs text-slate-500">
+          Menampilkan {tampil.length} dari {detail.tahap.length} tahap
+        </p>
+      </div>
+
       <ol className="space-y-3">
-        {detail.tahap.map((t, i) => (
+        {tampil.map((t, i) => (
           <TahapCard
             key={t.kunci}
             t={t}
             usulan={detail.usulan}
             saya={saya}
             aktif={t.kunci === detail.tahap_saat_ini}
-            terakhir={i === detail.tahap.length - 1}
+            terakhir={i === tampil.length - 1}
             onChanged={muat}
           />
         ))}
       </ol>
     </div>
+  );
+}
+
+// Pemilih sudut pandang. Pengguna biasa: tahap peran sendiri atau semua; admin: semua atau per peran.
+function PilihTampilan({ lihat, onChange, saya }: { lihat: Lihat; onChange: (l: Lihat) => void; saya: SapaSaya }) {
+  if (saya.admin) {
+    return (
+      <Segmented<Lihat>
+        label="Tahap yang ditampilkan"
+        value={lihat}
+        onChange={onChange}
+        options={[
+          { value: "semua", label: "Semua tahap" },
+          { value: "satker", label: "Satuan Kerja" },
+          { value: "kanwil", label: "Kantor Wilayah" },
+          { value: "ue1", label: "Unit Eselon I" },
+        ]}
+      />
+    );
+  }
+  return (
+    <Segmented<Lihat>
+      label="Tahap yang ditampilkan"
+      value={lihat}
+      onChange={onChange}
+      options={[
+        { value: "saya", label: `Tahap ${peranLabel(saya.peran)}` },
+        { value: "semua", label: "Semua tahap" },
+      ]}
+    />
+  );
+}
+
+// Pesan singkat tentang siapa yang sedang ditunggu, supaya pengguna tahu apa yang harus dikerjakan tanpa membaca seluruh alur.
+function GiliranBanner({
+  giliran,
+  admin,
+  lihat,
+  onLihatSemua,
+  tahapSayaTuntas,
+}: {
+  giliran: ReturnType<typeof giliranSaatIni>;
+  admin: boolean;
+  lihat: Lihat;
+  onLihatSemua: () => void;
+  tahapSayaTuntas: boolean; // semua tahap milik peran pengguna sudah selesai/dilewati
+}) {
+  if (giliran.jenis === "selesai") {
+    return <NoticeBox tone="ok">Seluruh tahap usulan ini sudah selesai.</NoticeBox>;
+  }
+  if (giliran.jenis === "saya") {
+    return (
+      <NoticeBox tone="info">
+        {admin ? "Tahap berjalan: " : "Giliran Anda: "}
+        <span className="font-semibold">{giliran.label}</span>
+        {admin && <span className="text-xs"> (dikerjakan oleh {peranLabel(giliran.peran ?? "")})</span>}
+      </NoticeBox>
+    );
+  }
+  return (
+    <NoticeBox tone="warn">
+      <span>
+        {tahapSayaTuntas ? "Tahap Anda sudah selesai. " : ""}Saat ini giliran <span className="font-semibold">{peranLabel(giliran.peran ?? "")}</span>: {giliran.label}.
+        {tahapSayaTuntas ? "" : " Tahap Anda terbuka setelah tahap-tahap sebelumnya selesai."}
+      </span>
+      {lihat !== "semua" && (
+        <button type="button" onClick={onLihatSemua} className="ml-2 font-medium underline underline-offset-2 hover:no-underline">
+          Lihat semua tahap
+        </button>
+      )}
+    </NoticeBox>
   );
 }
 
@@ -153,7 +255,7 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
 
   const panelId = `tahap-${t.kunci}`;
   return (
-    <li className="relative">
+    <li id={`kartu-${t.kunci}`} className="relative scroll-mt-20">
       {!terakhir && <span aria-hidden="true" className="absolute left-4 top-9 -bottom-3 w-px bg-slate-200" />}
       <div className={`rounded-xl border bg-white ${aktif ? "border-blue-300 shadow-sm" : "border-slate-200"}`}>
         <button
@@ -189,7 +291,11 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
 
 function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan: SapaUsulan; saya: SapaSaya; onChanged: () => void }) {
   const [mengubah, setMengubah] = useState(false);
+  // Tahap yang boleh dikerjakan di luar aplikasi (SK Tim, Berita Acara): kotak centang menggantikan formulir dengan isian
+  // keterangan dokumen. Formulir tetap terpasang (hanya disembunyikan) supaya isiannya tidak hilang bila centang dibatalkan.
+  const [luar, setLuar] = useState(false);
   const tuntas = t.status === "selesai" || t.status === "dilewati";
+  const bisaLewati = t.boleh_dilewati && !tuntas;
   // Boleh dikerjakan: peran sesuai, tahap sebelumnya sudah beres, dan (bila sudah selesai) belum ada tahap sesudahnya yang selesai.
   const bisaMengubah = t.boleh_aksi && t.dapat_dikerjakan && (!tuntas || t.dapat_diubah);
   const tampilkanPanel = bisaMengubah && (!tuntas || mengubah);
@@ -253,12 +359,15 @@ function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
 
       {tampilkanPanel && (
         <div className="space-y-4">
-          {t.jenis === "eksternal" ? (
-            <EksternalPanel usulanId={usulan.id} tahap={t} sudahSelesai={t.status === "selesai"} onChanged={onChanged} />
-          ) : (
-            <FormTahap t={t} usulan={usulan} saya={saya} onChanged={onChanged} />
-          )}
-          {t.boleh_dilewati && !tuntas && <LewatiTahap usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
+          {bisaLewati && <KotakLuarAplikasi tahap={t} checked={luar} onChange={setLuar} />}
+          {bisaLewati && luar && <LewatiTahap usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
+          <div className={bisaLewati && luar ? "hidden" : "space-y-4"}>
+            {t.jenis === "eksternal" ? (
+              <EksternalPanel usulanId={usulan.id} tahap={t} sudahSelesai={t.status === "selesai"} onChanged={onChanged} />
+            ) : (
+              <FormTahap t={t} usulan={usulan} saya={saya} onChanged={onChanged} />
+            )}
+          </div>
           {mengubah && (
             <div className="flex justify-end">
               <button type="button" onClick={() => setMengubah(false)} className="text-sm font-medium text-slate-500 hover:text-slate-700">
@@ -298,9 +407,34 @@ function FormTahap({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
   return <Alert message="Formulir untuk tahap ini belum tersedia." />;
 }
 
-// Tahap SK Tim dan Berita Acara boleh dikerjakan di luar aplikasi; alasan (mis. nomor dan tanggal dokumennya) wajib dicatat.
+// Kotak centang untuk tahap yang boleh dikerjakan di luar aplikasi (SK Tim, Berita Acara).
+function KotakLuarAplikasi({ tahap, checked, onChange }: { tahap: SapaTahapDetail; checked: boolean; onChange: (v: boolean) => void }) {
+  const id = useId();
+  const nama = tahap.label.replace(/^Penyusunan\s+/i, ""); // "Pembentukan Tim", "Berita Acara Penelitian"
+  return (
+    <label
+      htmlFor={id}
+      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${checked ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white hover:border-slate-300"}`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-900">{nama} sudah dibuat di luar aplikasi</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+          Centang bila dokumennya sudah dibuat dan ditetapkan di luar aplikasi. Tahap ini dilewati dan Anda dapat langsung melanjutkan ke tahap berikutnya.
+        </span>
+      </span>
+    </label>
+  );
+}
+
+// Keterangan dokumen yang dibuat di luar aplikasi (mis. nomor dan tanggalnya) wajib dicatat, lalu tahap dilewati.
 function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
-  const [buka, setBuka] = useState(false);
   const [catatan, setCatatan] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -318,37 +452,28 @@ function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: 
     }
   };
 
-  if (!buka) {
-    return (
-      <button type="button" onClick={() => setBuka(true)} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700">
-        <SkipForward className="h-4 w-4" aria-hidden="true" />
-        Sudah dibuat di luar aplikasi? Lewati tahap ini
-      </button>
-    );
-  }
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
       <TextAreaField
-        label="Alasan dan keterangan dokumen"
+        label="Keterangan dokumen"
         required
         value={catatan}
         onChange={setCatatan}
         maxLength={1000}
         rows={2}
-        placeholder="mis. SK Tim Nomor KEP-12/2026 tanggal 2 Januari 2026, dibuat manual"
-        hint="Minimal 5 karakter. Catat nomor dan tanggal dokumen agar tercatat di usulan."
+        placeholder="mis. SK Tim Nomor KEP-12/2026 tanggal 2 Januari 2026"
+        hint="Minimal 5 karakter. Catat nomor dan tanggal dokumennya agar tercatat di usulan."
       />
       <ErrorBox error={error} />
-      <div className="flex justify-end gap-2">
-        <SecondaryButton onClick={() => setBuka(false)}>Batal</SecondaryButton>
+      <div className="flex justify-end">
         <PrimaryButton onClick={kirim} busy={busy} disabled={catatan.trim().length < 5}>
-          Lewati tahap
+          <SkipForward className="h-4 w-4" aria-hidden="true" />
+          Simpan dan lewati tahap
         </PrimaryButton>
       </div>
     </div>
   );
 }
-
 function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [busy, setBusy] = useState(false);

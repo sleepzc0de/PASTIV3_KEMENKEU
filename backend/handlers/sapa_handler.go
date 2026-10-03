@@ -352,14 +352,19 @@ func ReopenSapaTahap(c *gin.Context) {
 
 // sapaKirimBerkas mengirim berkas Word sebagai unduhan. Nama berkas dikodekan agar aman (termasuk huruf non-ASCII).
 func sapaKirimBerkas(c *gin.Context, nama string, berkas []byte) {
+	sapaKirimUnduhan(c, nama, sapaDocxType, "dokumen.docx", berkas)
+}
+
+// sapaKirimUnduhan: kirim berkas apa pun sebagai unduhan; cadangan dipakai bila nama berkas tak bisa dikodekan.
+func sapaKirimUnduhan(c *gin.Context, nama, tipe, cadangan string, berkas []byte) {
 	cd := mime.FormatMediaType("attachment", map[string]string{"filename": nama})
 	if cd == "" {
-		cd = `attachment; filename="dokumen.docx"`
+		cd = `attachment; filename="` + cadangan + `"`
 	}
 	c.Header("Content-Disposition", cd)
 	c.Header("Cache-Control", "no-store")
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(http.StatusOK, sapaDocxType, berkas)
+	c.Data(http.StatusOK, tipe, berkas)
 }
 
 func DownloadSapaDokumen(c *gin.Context) {

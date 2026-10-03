@@ -2,15 +2,19 @@
 
 import { useDashboard } from "@/lib/dashboard-context";
 import { PegawaiSearchTable } from "@/components/hris2/PegawaiSearchTable";
-import { ShieldAlert, KeyRound, Loader2 } from "lucide-react";
+import { PageShell } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { ShieldAlert, KeyRound, Users2 } from "lucide-react";
 
 export default function PegawaiPage() {
   const { profile, isLoadingProfile } = useDashboard();
 
   if (isLoadingProfile) {
     return (
-      <div className="flex h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      <div role="status" aria-label="Memuat" className="w-full space-y-5">
+        <Skeleton className="h-12 w-80 max-w-full" />
+        <Skeleton className="h-64 rounded-2xl" />
       </div>
     );
   }
@@ -19,12 +23,8 @@ export default function PegawaiPage() {
 
   if (!isAllowed) {
     return (
-      <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center">
-        <ShieldAlert className="h-10 w-10 text-red-400" />
-        <p className="text-sm font-medium text-slate-700">Akses Ditolak</p>
-        <p className="max-w-sm text-sm text-slate-500">
-          Fitur pencarian data pegawai (HRIS2) hanya tersedia untuk admin atau superadmin.
-        </p>
+      <div className="mx-auto mt-10 max-w-lg">
+        <EmptyState icon={ShieldAlert} title="Akses ditolak" description="Fitur pencarian data pegawai (HRIS2) hanya tersedia untuk admin atau superadmin." />
       </div>
     );
   }
@@ -36,29 +36,23 @@ export default function PegawaiPage() {
 
   if (isLocalAccount) {
     return (
-      <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center">
-        <KeyRound className="h-10 w-10 text-amber-400" />
-        <p className="text-sm font-medium text-slate-700">Perlu login lewat SSO Kemenkeu</p>
-        <p className="max-w-sm text-sm text-slate-500">
-          Data pegawai diambil dari HRIS2 memakai sesi SSO Kemenkeu Anda. Akun lokal tidak dapat memakai fitur ini; logout
-          lalu login kembali melalui SSO Kemenkeu.
-        </p>
+      <div className="mx-auto mt-10 max-w-lg">
+        <EmptyState
+          icon={KeyRound}
+          title="Perlu login lewat SSO Kemenkeu"
+          description="Data pegawai diambil dari HRIS2 memakai sesi SSO Kemenkeu Anda. Akun lokal tidak dapat memakai fitur ini; logout lalu login kembali melalui SSO Kemenkeu."
+        />
       </div>
     );
   }
 
   return (
-    <div className="w-full space-y-6">
-      <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
-        <h1 className="text-xl font-bold text-slate-900">Pencarian Data Pegawai (HRIS2)</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Data diambil langsung dari API HRIS2 Kemenkeu memakai sesi SSO Anda. Pilih salah satu hasil untuk melihat profil
-          lengkapnya.
-        </p>
-      </div>
-      <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
-        <PegawaiSearchTable />
-      </div>
-    </div>
+    <PageShell
+      title="Pencarian Data Pegawai (HRIS2)"
+      icon={Users2}
+      description="Data diambil langsung dari API HRIS2 Kemenkeu memakai sesi SSO Anda. Pilih salah satu hasil untuk melihat profil lengkapnya."
+    >
+      <PegawaiSearchTable />
+    </PageShell>
   );
 }
