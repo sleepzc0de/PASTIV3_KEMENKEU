@@ -19,6 +19,9 @@ import {
   ScrollText,
   Megaphone,
   MapPinned,
+  Landmark,
+  HandCoins,
+  Settings2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -27,6 +30,12 @@ export interface NavItem {
   icon: React.ElementType;
   description?: string;
   roles?: string[];
+  // Menu tetap aktif di halaman di bawahnya (mis. detail usulan). Tanpa ini, hanya alamat yang persis sama yang aktif.
+  matchPrefix?: boolean;
+}
+
+export function isNavActive(pathname: string, item: Pick<NavItem, "href" | "matchPrefix">): boolean {
+  return pathname === item.href || (item.matchPrefix === true && pathname.startsWith(item.href + "/"));
 }
 
 export interface NavGroup {
@@ -57,6 +66,27 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/digitalisasi",
     icon: MapPinned,
     description: "Peta, analitik, dan sinkronisasi data aset KL 015 dari SLDK",
+  },
+  {
+    type: "group",
+    label: "SAPA",
+    icon: Landmark,
+    children: [
+      {
+        label: "Penjualan",
+        href: "/dashboard/sapa/penjualan",
+        icon: HandCoins,
+        description: "Usulan penjualan BMN: pembentukan tim, berita acara, dan nota dinas dari satker hingga UE1",
+        matchPrefix: true,
+      },
+      {
+        label: "Pengaturan SAPA",
+        href: "/dashboard/sapa/pengaturan",
+        icon: Settings2,
+        description: "Template dokumen Word, peran pengguna SAPA, dan referensi Unit Eselon I",
+        roles: ["admin", "superadmin"],
+      },
+    ],
   },
   {
     type: "group",
