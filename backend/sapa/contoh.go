@@ -10,7 +10,7 @@ func ContohKasus() Kasus {
 func ContohTim() DataTim {
 	return DataTim{
 		JabatanPimpinan: "Kepala Kantor", JenisTim: "Tim Internal Penjualan", MasaAwal: "2026-01-02", MasaAkhir: "2026-12-31", Kota: "Jakarta",
-		Anggota: []Anggota{{"Budi", "Kepala Seksi A", "Ketua"}, {"Siti", "Kepala Seksi B", "Sekretaris"}, {"Andi", "Pelaksana", "Anggota"}},
+		Anggota: []Anggota{{Nama: "Budi", Jabatan: "Kepala Seksi A", Kedudukan: "Ketua", NIP: "198001012005011001"}, {Nama: "Siti", Jabatan: "Kepala Seksi B", Kedudukan: "Sekretaris"}, {Nama: "Andi", Jabatan: "Pelaksana", Kedudukan: "Anggota"}},
 	}
 }
 

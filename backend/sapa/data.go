@@ -62,6 +62,7 @@ type Anggota struct {
 	Nama      string `json:"nama"`
 	Jabatan   string `json:"jabatan"`
 	Kedudukan string `json:"kedudukan"`
+	NIP       string `json:"nip"` // opsional; terisi otomatis saat anggota dipilih dari HRIS2
 }
 
 // DataTim: isian formulir Pembentukan Tim.
@@ -82,6 +83,7 @@ func (d *DataTim) Rapikan() {
 		rapikan(&d.Anggota[i].Nama)
 		rapikan(&d.Anggota[i].Jabatan)
 		rapikan(&d.Anggota[i].Kedudukan)
+		d.Anggota[i].NIP = strings.Join(strings.Fields(d.Anggota[i].NIP), "")
 	}
 }
 
@@ -107,6 +109,9 @@ func (d DataTim) Validasi() []string {
 		g.wajib(fmt.Sprintf("Nama anggota %d", i+1), a.Nama, 150)
 		g.wajib(fmt.Sprintf("Jabatan anggota %d", i+1), a.Jabatan, 200)
 		g.wajib(fmt.Sprintf("Kedudukan anggota %d", i+1), a.Kedudukan, 100)
+		if a.NIP != "" && (len(a.NIP) < 8 || len(a.NIP) > 18 || strings.Trim(a.NIP, "0123456789") != "") {
+			g.add("NIP anggota %d harus 8 sampai 18 digit angka", i+1)
+		}
 	}
 	return g
 }

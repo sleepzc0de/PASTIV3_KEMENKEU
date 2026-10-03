@@ -211,3 +211,30 @@ test("kelompok peran berurutan", () => {
   assert.equal(H.kelompokPeran([{ peran: "a" }, { peran: "b" }, { peran: "a" }]).length, 3);
   assert.deepEqual(H.kelompokPeran([]), []);
 });
+
+test("anggota tim: NIP ikut dinormalisasi dan baris kosong dibuang", () => {
+  const tim = H.normTim({ anggota: [{ nama: "Budi", jabatan: "Kasi", kedudukan: "Ketua", nip: "198001012005011001" }, { nama: "Siti" }] });
+  assert.equal(tim.anggota[0].nip, "198001012005011001");
+  assert.equal(tim.anggota[1].nip, "");
+  assert.deepEqual(H.kosongAnggota(), { nama: "", jabatan: "", kedudukan: "", nip: "" });
+  const m = H.muatanTim({ ...tim, anggota: [...tim.anggota, H.kosongAnggota()] });
+  assert.equal(m.anggota.length, 2); // baris kosong tidak ikut terkirim
+  assert.equal(m.anggota[0].nip, "198001012005011001");
+});
+
+test("kata kunci pencarian pegawai", () => {
+  assert.equal(H.kataKunciPegawai("ab"), null);
+  assert.equal(H.kataKunciPegawai("  a   b "), null);
+  assert.equal(H.kataKunciPegawai("  Budi   Santoso "), "Budi Santoso");
+  assert.equal(H.kataKunciPegawai("abc"), "abc");
+  assert.equal(H.kataKunciPegawai("Évr"), "Évr"); // huruf bertanda dihitung satu
+  assert.equal(H.kataKunciPegawai(""), null);
+});
+
+test("NIP terpakai dan ganda", () => {
+  const a = (nip) => ({ nama: "x", jabatan: "y", kedudukan: "z", nip });
+  const daftar = [a("1980 0101"), a(""), a("19800101"), a("199001012015022002")];
+  assert.deepEqual([...H.nipTerpakai(daftar)].sort(), ["19800101", "199001012015022002"]);
+  assert.deepEqual([...H.nipGanda(daftar)], ["19800101"]);
+  assert.equal(H.nipGanda([a(""), a("")]).size, 0);
+});

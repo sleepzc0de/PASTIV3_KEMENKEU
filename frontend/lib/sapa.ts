@@ -84,6 +84,7 @@ export interface SapaAnggota {
   nama: string;
   jabatan: string;
   kedudukan: string;
+  nip: string; // opsional; terisi saat anggota dipilih dari HRIS2
 }
 
 export interface SapaDataTim {
@@ -340,5 +341,24 @@ export async function saveSapaRefUE1(r: SapaRefUE1) {
 
 export async function deleteSapaRefUE1(kode: string) {
   const res = await api.delete<SapaRes<null>>(`/sapa/ref-ue1/${kode}`);
+  return res.data;
+}
+
+// Pegawai dari HRIS2 (hanya bidang yang dibutuhkan formulir; data pribadi tidak diteruskan backend).
+export interface SapaPegawai {
+  nip: string;
+  nama: string;
+  nama_lengkap: string; // dengan gelar, untuk dokumen resmi
+  jabatan: string; // bisa kosong pada hasil pencarian; selalu dicoba pada detail
+  satker: string;
+}
+
+export async function cariSapaPegawai(q: string, signal?: AbortSignal) {
+  const res = await api.get<SapaRes<{ pegawai: SapaPegawai[]; batas: number }>>("/sapa/pegawai", { params: { q }, signal });
+  return res.data;
+}
+
+export async function getSapaPegawai(nip: string) {
+  const res = await api.get<SapaRes<SapaPegawai>>(`/sapa/pegawai/${encodeURIComponent(nip)}`);
   return res.data;
 }

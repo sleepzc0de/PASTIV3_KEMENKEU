@@ -25,7 +25,10 @@ Aturan tahap:
 - Tahap hanya bisa dikerjakan setelah **semua tahap sebelumnya selesai atau dilewati**.
 - Tahap yang sudah selesai boleh diubah/dibuat ulang selama **belum ada tahap sesudahnya yang selesai** (agar dokumen tahap
   berikutnya tidak berselisih dengan data baru). Dokumen lama tetap tersimpan sebagai riwayat. Admin dapat **membuka ulang** tahap.
-- Hanya tahap 1 dan 2 yang boleh dilewati, dan alasan (mis. nomor dan tanggal dokumen buatan luar aplikasi) wajib dicatat.
+- Hanya tahap 1 dan 2 yang boleh dilewati. Di kartu tahapnya ada kotak centang **"... sudah dibuat di luar aplikasi"**; bila dicentang,
+  formulir diganti isian keterangan dokumen (mis. nomor dan tanggal SK, minimal 5 karakter) lalu tombol *Simpan dan lewati tahap*.
+  Membatalkan centang mengembalikan formulir dengan isiannya utuh. Tahap yang sudah dilewati masih bisa dibuat di aplikasi lewat
+  tombol *Buat dokumen di aplikasi*.
 - Usulan punya **Noreg** (`PJ-<tahun>-<5 digit>`, mis. `PJ-2026-00001`). Noreg inilah "nomor tiket"/"Noreg aplikasi" pada
   dokumen; "Nomor tiket SIMAN" adalah isian terpisah di formulir ND Satker.
 
@@ -45,6 +48,22 @@ Peran SAPA **terpisah** dari peran aplikasi (user/admin/superadmin) dan ditetapk
 - Usulan yang tidak boleh dilihat dijawab **404** (bukan 403) supaya keberadaannya tidak bocor.
 - Kode UE1 usulan = 5 digit pertama kode satker. Kode satker di data aset berakhiran `KP`; aplikasi memakai 18 digit pertamanya.
 
+## Anggota tim dari HRIS2
+
+Pada tahap Pembentukan Tim, setiap anggota punya kotak **Cari pegawai di HRIS2** (nama atau NIP, minimal 3 huruf/angka tanpa
+menghitung spasi). Memilih hasilnya mengisi **nama (dengan gelar), jabatan aktif, dan NIP** otomatis; kedudukan diisi pengguna
+(saran: Ketua, Sekretaris, Anggota) dan semua bidang tetap bisa diubah.
+
+- Memakai **sesi SSO pengguna** (sama dengan fitur HRIS2 di halaman admin). Akun lokal atau sesi SSO yang berakhir mendapat
+  penjelasan di kotak pencarian dan tetap bisa mengisi manual.
+- Backend (`GET /sapa/pegawai?q=` dan `GET /sapa/pegawai/:nip`, khusus pengguna yang sudah punya akses SAPA) **hanya meneruskan NIP,
+  nama, jabatan, dan satuan kerja**. Tanggal lahir, kontak, dan data pribadi lain tidak pernah diteruskan.
+- Kata kunci dibersihkan di backend (karakter khusus filter HRIS2 seperti koma, `|`, kurung, dan `\` dibuang) dan hasil dibatasi 15.
+- Jabatan aktif hanya pasti ada pada detail pegawai, jadi setelah memilih hasil, aplikasi mengambil detailnya; bila jabatan tidak
+  ada, kolom jabatan dibiarkan untuk diisi manual.
+- Pegawai yang sudah ada di daftar ditandai "Sudah ditambahkan" dan tidak bisa dipilih dua kali.
+- NIP anggota disimpan bersama draf (opsional) dan tersedia pada template lewat penanda `<<nip anggota>>` (baris tabel anggota).
+  Anggota tanpa NIP mencetak sel kosong.
 ## Template Word
 
 Template **diunggah admin** (Pengaturan SAPA → Template dokumen) dan disimpan di database dengan versi; versi terbaru

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Lock, RotateCcw, SkipForward, Hourglass } from "lucide-react";
 import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
@@ -291,7 +291,11 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
 
 function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan: SapaUsulan; saya: SapaSaya; onChanged: () => void }) {
   const [mengubah, setMengubah] = useState(false);
+  // Tahap yang boleh dikerjakan di luar aplikasi (SK Tim, Berita Acara): kotak centang menggantikan formulir dengan isian
+  // keterangan dokumen. Formulir tetap terpasang (hanya disembunyikan) supaya isiannya tidak hilang bila centang dibatalkan.
+  const [luar, setLuar] = useState(false);
   const tuntas = t.status === "selesai" || t.status === "dilewati";
+  const bisaLewati = t.boleh_dilewati && !tuntas;
   // Boleh dikerjakan: peran sesuai, tahap sebelumnya sudah beres, dan (bila sudah selesai) belum ada tahap sesudahnya yang selesai.
   const bisaMengubah = t.boleh_aksi && t.dapat_dikerjakan && (!tuntas || t.dapat_diubah);
   const tampilkanPanel = bisaMengubah && (!tuntas || mengubah);
@@ -355,12 +359,15 @@ function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
 
       {tampilkanPanel && (
         <div className="space-y-4">
-          {t.jenis === "eksternal" ? (
-            <EksternalPanel usulanId={usulan.id} tahap={t} sudahSelesai={t.status === "selesai"} onChanged={onChanged} />
-          ) : (
-            <FormTahap t={t} usulan={usulan} saya={saya} onChanged={onChanged} />
-          )}
-          {t.boleh_dilewati && !tuntas && <LewatiTahap usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
+          {bisaLewati && <KotakLuarAplikasi tahap={t} checked={luar} onChange={setLuar} />}
+          {bisaLewati && luar && <LewatiTahap usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
+          <div className={bisaLewati && luar ? "hidden" : "space-y-4"}>
+            {t.jenis === "eksternal" ? (
+              <EksternalPanel usulanId={usulan.id} tahap={t} sudahSelesai={t.status === "selesai"} onChanged={onChanged} />
+            ) : (
+              <FormTahap t={t} usulan={usulan} saya={saya} onChanged={onChanged} />
+            )}
+          </div>
           {mengubah && (
             <div className="flex justify-end">
               <button type="button" onClick={() => setMengubah(false)} className="text-sm font-medium text-slate-500 hover:text-slate-700">
@@ -400,9 +407,34 @@ function FormTahap({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
   return <Alert message="Formulir untuk tahap ini belum tersedia." />;
 }
 
-// Tahap SK Tim dan Berita Acara boleh dikerjakan di luar aplikasi; alasan (mis. nomor dan tanggal dokumennya) wajib dicatat.
+// Kotak centang untuk tahap yang boleh dikerjakan di luar aplikasi (SK Tim, Berita Acara).
+function KotakLuarAplikasi({ tahap, checked, onChange }: { tahap: SapaTahapDetail; checked: boolean; onChange: (v: boolean) => void }) {
+  const id = useId();
+  const nama = tahap.label.replace(/^Penyusunan\s+/i, ""); // "Pembentukan Tim", "Berita Acara Penelitian"
+  return (
+    <label
+      htmlFor={id}
+      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${checked ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white hover:border-slate-300"}`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-900">{nama} sudah dibuat di luar aplikasi</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+          Centang bila dokumennya sudah dibuat dan ditetapkan di luar aplikasi. Tahap ini dilewati dan Anda dapat langsung melanjutkan ke tahap berikutnya.
+        </span>
+      </span>
+    </label>
+  );
+}
+
+// Keterangan dokumen yang dibuat di luar aplikasi (mis. nomor dan tanggalnya) wajib dicatat, lalu tahap dilewati.
 function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
-  const [buka, setBuka] = useState(false);
   const [catatan, setCatatan] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ErrorInfo | null>(null);
@@ -420,37 +452,28 @@ function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: number; tahap: 
     }
   };
 
-  if (!buka) {
-    return (
-      <button type="button" onClick={() => setBuka(true)} className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700">
-        <SkipForward className="h-4 w-4" aria-hidden="true" />
-        Sudah dibuat di luar aplikasi? Lewati tahap ini
-      </button>
-    );
-  }
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
       <TextAreaField
-        label="Alasan dan keterangan dokumen"
+        label="Keterangan dokumen"
         required
         value={catatan}
         onChange={setCatatan}
         maxLength={1000}
         rows={2}
-        placeholder="mis. SK Tim Nomor KEP-12/2026 tanggal 2 Januari 2026, dibuat manual"
-        hint="Minimal 5 karakter. Catat nomor dan tanggal dokumen agar tercatat di usulan."
+        placeholder="mis. SK Tim Nomor KEP-12/2026 tanggal 2 Januari 2026"
+        hint="Minimal 5 karakter. Catat nomor dan tanggal dokumennya agar tercatat di usulan."
       />
       <ErrorBox error={error} />
-      <div className="flex justify-end gap-2">
-        <SecondaryButton onClick={() => setBuka(false)}>Batal</SecondaryButton>
+      <div className="flex justify-end">
         <PrimaryButton onClick={kirim} busy={busy} disabled={catatan.trim().length < 5}>
-          Lewati tahap
+          <SkipForward className="h-4 w-4" aria-hidden="true" />
+          Simpan dan lewati tahap
         </PrimaryButton>
       </div>
     </div>
   );
 }
-
 function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: number; tahap: SapaTahapDetail; onChanged: () => void }) {
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [busy, setBusy] = useState(false);

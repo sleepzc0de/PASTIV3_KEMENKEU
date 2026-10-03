@@ -81,6 +81,7 @@ var DaftarJenis = []JenisDokumen{
 			Penanda{Nama: "daftar anggota", Keterangan: "Alternatif tanpa tabel: seluruh anggota sebagai teks bernomor, satu per baris"},
 			Penanda{Nama: "no", Keterangan: "Nomor urut anggota", Ulang: true},
 			Penanda{Nama: "nama anggota", Keterangan: "Nama anggota", Ulang: true},
+			Penanda{Nama: "nip anggota", Keterangan: "NIP anggota (terisi bila anggota dipilih dari HRIS2 atau NIP diketik; kosong bila tidak ada)", Ulang: true},
 			Penanda{Nama: "jabatan anggota", Keterangan: "Jabatan anggota", Ulang: true},
 			Penanda{Nama: "kedudukan", Keterangan: "Kedudukan dalam tim (Ketua, Sekretaris, Anggota)", Ulang: true},
 		),

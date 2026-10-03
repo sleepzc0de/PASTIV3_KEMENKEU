@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { BadgeCheck, Plus, Trash2 } from "lucide-react";
 import { SapaAnggota, SapaDataBA, SapaDataTim, SapaSaya, SapaTahapDetail, SapaUsulan } from "@/lib/sapa";
 import { Section, SecondaryButton, SelectInput, TextField } from "./fields";
-import { kosongAnggota, muatanTim, normBA, normTim } from "./sapa";
+import { PegawaiPicker, PegawaiTerpilih } from "./PegawaiPicker";
+import { kosongAnggota, muatanTim, nipGanda, nipTerpakai, normBA, normTim } from "./sapa";
 import { FormFooter, useTahapAksi } from "./useTahapAksi";
 
 interface Props {
@@ -22,6 +23,27 @@ export function TimForm({ usulan, tahap, saya, onChanged }: Props) {
   const setAnggota = (i: number, k: keyof SapaAnggota, val: string) =>
     setV((p) => ({ ...p, anggota: p.anggota.map((a, j) => (j === i ? { ...a, [k]: val } : a)) }));
 
+  // Kunci tetap per baris anggota: pencarian HRIS2 di tiap baris menyimpan keadaannya sendiri, jadi baris yang dihapus di tengah
+  // tidak boleh mewariskan keadaannya ke baris sesudahnya.
+  const nextKey = useRef(v.anggota.length);
+  const [kunci, setKunci] = useState<number[]>(() => v.anggota.map((_, i) => i));
+  const [fokus, setFokus] = useState<number | null>(null);
+  const tambah = () => {
+    const k = nextKey.current++;
+    setV((p) => ({ ...p, anggota: [...p.anggota, kosongAnggota()] }));
+    setKunci((ks) => [...ks, k]);
+    setFokus(k); // kotak pencarian baris baru langsung aktif
+  };
+  const hapus = (i: number) => {
+    setV((p) => ({ ...p, anggota: p.anggota.filter((_, j) => j !== i) }));
+    setKunci((ks) => ks.filter((_, j) => j !== i));
+  };
+  // Hasil pencarian HRIS2 mengisi nama (dengan gelar), jabatan, dan NIP; kedudukan tetap diisi pengguna. Semua bidang masih bisa diubah.
+  const isiDariHRIS = (i: number, p: PegawaiTerpilih) =>
+    setV((cur) => ({ ...cur, anggota: cur.anggota.map((a, j) => (j === i ? { ...a, nama: p.nama, jabatan: p.jabatan || a.jabatan, nip: p.nip } : a)) }));
+  const ganda = nipGanda(v.anggota);
+  const terpakai = nipTerpakai(v.anggota);
+
   return (
     <div className="space-y-5">
       <Section title="Data Surat Keputusan">
@@ -36,36 +58,57 @@ export function TimForm({ usulan, tahap, saya, onChanged }: Props) {
 
       <Section
         title="Anggota tim"
-        description="Isi nama, jabatan, dan kedudukan dalam tim (mis. Ketua, Sekretaris, Anggota). Baris yang kosong diabaikan."
+        description="Cari pegawai di HRIS2 agar nama dan jabatannya terisi otomatis, atau isi manual. Lengkapi kedudukan dalam tim (mis. Ketua, Sekretaris, Anggota). Baris yang kosong diabaikan."
         action={
-          <SecondaryButton onClick={() => setV((p) => ({ ...p, anggota: [...p.anggota, kosongAnggota()] }))} disabled={v.anggota.length >= 60}>
+          <SecondaryButton onClick={tambah} disabled={v.anggota.length >= 60}>
             <Plus className="h-4 w-4" aria-hidden="true" />
             Tambah anggota
           </SecondaryButton>
         }
       >
         <ol className="space-y-3">
-          {v.anggota.map((a, i) => (
-            <li key={i} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-600">Anggota {i + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => setV((p) => ({ ...p, anggota: p.anggota.filter((_, j) => j !== i) }))}
-                  aria-label={`Hapus anggota ${i + 1}`}
-                  className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <TextField label="Nama" value={a.nama} onChange={(x) => setAnggota(i, "nama", x)} maxLength={150} />
-                <TextField label="Jabatan" value={a.jabatan} onChange={(x) => setAnggota(i, "jabatan", x)} maxLength={200} />
-                <TextField label="Kedudukan dalam tim" value={a.kedudukan} onChange={(x) => setAnggota(i, "kedudukan", x)} maxLength={100} />
-              </div>
-            </li>
-          ))}
+          {v.anggota.map((a, i) => {
+            const nipRapi = a.nip.replace(/\s+/g, "");
+            return (
+              <li key={kunci[i] ?? i} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                    Anggota {i + 1}
+                    {nipRapi && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        <BadgeCheck className="h-3 w-3" aria-hidden="true" />
+                        NIP tercatat
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => hapus(i)}
+                    aria-label={`Hapus anggota ${i + 1}`}
+                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+
+                <PegawaiPicker onPilih={(p) => isiDariHRIS(i, p)} terpakai={terpakai} autoFocus={kunci[i] === fokus} />
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <TextField label="Nama" value={a.nama} onChange={(x) => setAnggota(i, "nama", x)} maxLength={150} />
+                  <TextField label="Jabatan" value={a.jabatan} onChange={(x) => setAnggota(i, "jabatan", x)} maxLength={200} />
+                  <TextField label="Kedudukan dalam tim" value={a.kedudukan} onChange={(x) => setAnggota(i, "kedudukan", x)} maxLength={100} list="sapa-kedudukan-tim" placeholder="mis. Ketua" />
+                  <TextField label="NIP (opsional)" value={a.nip} onChange={(x) => setAnggota(i, "nip", x.replace(/[^\d\s]/g, ""))} inputMode="numeric" maxLength={24} hint="Terisi otomatis dari HRIS2; boleh diketik manual." />
+                </div>
+                {nipRapi && ganda.has(nipRapi) && <p className="mt-2 text-xs text-amber-700">NIP ini dipakai lebih dari satu anggota. Periksa kembali daftar anggota.</p>}
+              </li>
+            );
+          })}
         </ol>
+        <datalist id="sapa-kedudukan-tim">
+          <option value="Ketua" />
+          <option value="Sekretaris" />
+          <option value="Anggota" />
+        </datalist>
       </Section>
 
       <FormFooter

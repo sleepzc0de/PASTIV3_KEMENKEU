@@ -238,7 +238,7 @@ const s = (v: unknown): string => (typeof v === "string" ? v : "");
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
-export const kosongAnggota = (): SapaAnggota => ({ nama: "", jabatan: "", kedudukan: "" });
+export const kosongAnggota = (): SapaAnggota => ({ nama: "", jabatan: "", kedudukan: "", nip: "" });
 
 export const kosongBarang = (): SapaBarang => ({
   nama: "",
@@ -271,7 +271,7 @@ export function normTim(v: unknown): SapaDataTim {
   const o = rec(v);
   const anggota = arr(o.anggota).map((a) => {
     const x = rec(a);
-    return { nama: s(x.nama), jabatan: s(x.jabatan), kedudukan: s(x.kedudukan) };
+    return { nama: s(x.nama), jabatan: s(x.jabatan), kedudukan: s(x.kedudukan), nip: s(x.nip) };
   });
   return {
     jabatan_pimpinan: s(o.jabatan_pimpinan),
@@ -352,6 +352,34 @@ export function muatanNDSatker(d: SapaDataNDSatker, items: SapaItemDokumen[]): S
   return { ...d, barang: d.barang.filter((b) => !barangKosong(b)), dokumen };
 }
 
+// ---------------------------------------------------------------- pencarian pegawai (HRIS2)
+
+export const MIN_CARI_PEGAWAI = 3;
+
+// Kata kunci pencarian pegawai yang layak dikirim: dirapikan spasinya, dan baru dicari setelah cukup panjang (backend menolak
+// yang lebih pendek agar tidak menarik daftar besar). Karakter khusus dibuang di backend; di sini cukup memeriksa panjang.
+export function kataKunciPegawai(q: string): string | null {
+  const t = q.trim().replace(/\s+/g, " ");
+  return Array.from(t.replace(/ /g, "")).length >= MIN_CARI_PEGAWAI ? t : null; // spasi tidak dihitung
+}
+
+// NIP yang sudah ada di daftar anggota (untuk menandai hasil pencarian yang sudah ditambahkan).
+export function nipTerpakai(anggota: SapaAnggota[]): Set<string> {
+  return new Set(anggota.map((a) => a.nip.replace(/\s+/g, "")).filter((n) => n !== ""));
+}
+
+// NIP yang muncul lebih dari sekali dalam daftar anggota.
+export function nipGanda(anggota: SapaAnggota[]): Set<string> {
+  const seen = new Set<string>();
+  const ganda = new Set<string>();
+  for (const a of anggota) {
+    const n = a.nip.replace(/\s+/g, "");
+    if (!n) continue;
+    if (seen.has(n)) ganda.add(n);
+    seen.add(n);
+  }
+  return ganda;
+}
 export function muatanTim(d: SapaDataTim): SapaDataTim {
   return { ...d, anggota: d.anggota.filter((a) => a.nama.trim() !== "" || a.jabatan.trim() !== "" || a.kedudukan.trim() !== "") };
 }

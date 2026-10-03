@@ -14,6 +14,10 @@ func RegisterSapa(g *gin.RouterGroup) {
 	g.GET("/saya", handlers.GetSapaSaya)
 	g.GET("/referensi/satker", handlers.GetSapaSatker)
 
+	// Pencarian pegawai HRIS2 untuk mengisi anggota tim (sesi SSO pengguna; hanya NIP, nama, jabatan, satker yang diteruskan).
+	g.GET("/pegawai", handlers.SearchSapaPegawai)
+	g.GET("/pegawai/:nip", handlers.GetSapaPegawai)
+
 	g.GET("/penjualan", handlers.ListSapaPenjualan)
 	g.POST("/penjualan", handlers.CreateSapaPenjualan)
 	g.GET("/penjualan/:id", handlers.GetSapaPenjualan)

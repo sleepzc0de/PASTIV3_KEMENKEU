@@ -448,3 +448,45 @@ func TestPenandaTemplateBawaanTercakupDiDaftar(t *testing.T) {
 		}
 	}
 }
+
+func TestNIPAnggotaOpsionalDanDivalidasi(t *testing.T) {
+	d := timContoh()
+	d.Anggota[0].NIP = " 1980 0101 2005 0110 01 "
+	d.Rapikan()
+	if d.Anggota[0].NIP != "198001012005011001" {
+		t.Errorf("spasi pada NIP harus dibuang: %q", d.Anggota[0].NIP)
+	}
+	if v := d.Validasi(); len(v) != 0 {
+		t.Errorf("NIP sah + anggota tanpa NIP harus lolos: %v", v)
+	}
+	for _, bad := range []string{"123", "19800101200501100112345", "19800101A005011001", "1980-01-01"} {
+		d := timContoh()
+		d.Anggota[1].NIP = bad
+		v := d.Validasi()
+		if len(v) != 1 || !strings.Contains(v[0], "NIP anggota 2") {
+			t.Errorf("NIP %q harus ditolak: %v", bad, v)
+		}
+	}
+}
+
+func TestIsiSKTimMengisiNIPAnggota(t *testing.T) {
+	body := `<w:tbl><w:tr><w:tc>` + para("Nama") + `</w:tc><w:tc>` + para("NIP") + `</w:tc></w:tr><w:tr><w:tc>` + para("&lt;&lt;nama anggota&gt;&gt;") + `</w:tc><w:tc>` + para("&lt;&lt;nip anggota&gt;&gt;") + `</w:tc></w:tr></w:tbl>`
+	h, err := IsiSKTim(buatDocx(t, body), kasusContoh(), timContoh())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Peringatan) != 0 {
+		t.Errorf("peringatan: %v", h.Peringatan)
+	}
+	rows := bukaHasil(t, h).Tables()[0].Rows()
+	if len(rows) != 4 {
+		t.Fatalf("%d baris, want 4", len(rows))
+	}
+	// Anggota pertama punya NIP; yang lain kosong (sel dikosongkan, penanda tidak tersisa).
+	if got := rows[1].Cells()[1].Text(); got != "198001012005011001" {
+		t.Errorf("NIP anggota 1 = %q", got)
+	}
+	if got := rows[2].Cells()[1].Text(); got != "" {
+		t.Errorf("anggota tanpa NIP harus kosong, bukan penanda: %q", got)
+	}
+}
