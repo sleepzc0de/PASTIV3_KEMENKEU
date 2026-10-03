@@ -24,6 +24,8 @@ ENV NEXT_PUBLIC_MAP_TILE_ATTRIBUTION=$NEXT_PUBLIC_MAP_TILE_ATTRIBUTION
 # bundel klien dan tidak perlu ada di image runtime.
 ARG LOGIN_PATH
 ENV LOGIN_PATH=$LOGIN_PATH
+# Build image (server) menolak LOGIN_PATH kosong supaya /login tidak terbuka tanpa disengaja; build lokal tidak diwajibkan.
+ENV LOGIN_PATH_WAJIB=1
 
 RUN npm run build
 

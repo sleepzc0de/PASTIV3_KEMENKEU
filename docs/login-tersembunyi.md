@@ -30,8 +30,9 @@ Tujuannya mengurangi serangan otomatis (pemindai dan *credential stuffing* yang 
   memperingatkan bahwa alamat lama tidak berlaku lagi. Cek kesehatan frontend memakai alamat ini.
 - **Mengganti alamat:** hapus baris `LOGIN_PATH` di `deploy.env` lalu `./deploy.sh` (dibuat ulang), atau isi sendiri (`/` + 32-64 heksadesimal
   huruf kecil). Alamat lama langsung 404 dan semua pengguna perlu diberi tahu alamat barunya.
-- **Pengembangan lokal:** tanpa `LOGIN_PATH` di `frontend/.env.local`, halaman login tetap di `/login`. Build produksi (`next build`) menolak
-  `LOGIN_PATH` kosong agar `/login` tidak terbuka tanpa disengaja.
+- **Lokal:** tanpa `LOGIN_PATH` di `frontend/.env.local`, halaman login tetap di `/login`; `npm run dev` dan `npm run build` berjalan biasa
+  (build produksi lokal hanya mencetak peringatan). **Build Docker (server)** menolak `LOGIN_PATH` kosong (`LOGIN_PATH_WAJIB=1` di
+  `frontend/Dockerfile`) agar `/login` tidak terbuka tanpa disengaja; `deploy.sh` selalu mengisinya.
 - Membuat nilai manual: `node -e "console.log('/'+require('crypto').randomBytes(16).toString('hex'))"`
 
 ## Yang perlu diketahui pengguna dan admin
