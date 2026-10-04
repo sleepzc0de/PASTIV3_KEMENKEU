@@ -20,12 +20,11 @@ ARG NEXT_PUBLIC_MAP_TILE_URL
 ARG NEXT_PUBLIC_MAP_TILE_ATTRIBUTION
 ENV NEXT_PUBLIC_MAP_TILE_URL=$NEXT_PUBLIC_MAP_TILE_URL
 ENV NEXT_PUBLIC_MAP_TILE_ATTRIBUTION=$NEXT_PUBLIC_MAP_TILE_ATTRIBUTION
-# Alamat halaman login yang tidak bisa ditebak. Hanya dibaca saat build (next.config.ts) dan disisipkan ke middleware; tidak masuk
-# bundel klien dan tidak perlu ada di image runtime.
+# Alamat halaman login yang tidak bisa ditebak. Bawaannya ada di login-path.txt (ikut tersalin lewat COPY . .); LOGIN_PATH (opsional,
+# dari deploy.env) menimpanya. Hanya dibaca saat build (next.config.ts) dan disisipkan ke middleware; tidak masuk bundel klien
+# dan tidak perlu ada di image runtime.
 ARG LOGIN_PATH
 ENV LOGIN_PATH=$LOGIN_PATH
-# Build image (server) menolak LOGIN_PATH kosong supaya /login tidak terbuka tanpa disengaja; build lokal tidak diwajibkan.
-ENV LOGIN_PATH_WAJIB=1
 
 RUN npm run build
 

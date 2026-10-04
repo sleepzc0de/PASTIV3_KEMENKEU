@@ -71,8 +71,8 @@ func SSOCallback(c *gin.Context) {
 	cfg := config.Cfg
 
 	redirectError := func(reason string) {
-		// Halaman login frontend disembunyikan di alamat acak, jadi galat dikirim ke /kembali-masuk; frontend yang meneruskannya
-		// ke halaman login (hanya untuk peramban yang pernah membukanya, yaitu pengguna yang baru menekan tombol SSO).
+		// Halaman login frontend tidak di /login (alamatnya diatur frontend), jadi galat dikirim ke /kembali-masuk; frontend yang
+		// meneruskannya ke halaman login beserta pesan galatnya.
 		errURL := cfg.FrontendURL + "/kembali-masuk?error=sso_failed&reason=" + url.QueryEscape(reason)
 		c.Redirect(http.StatusFound, errURL)
 	}

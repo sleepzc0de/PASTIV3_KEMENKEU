@@ -26,8 +26,8 @@ services:
         # Opsional: server ubin peta (kosong = OpenStreetMap). Isi di deploy.env bila jaringan memblokir OpenStreetMap.
         NEXT_PUBLIC_MAP_TILE_URL: ${NEXT_PUBLIC_MAP_TILE_URL:-}
         NEXT_PUBLIC_MAP_TILE_ATTRIBUTION: ${NEXT_PUBLIC_MAP_TILE_ATTRIBUTION:-}
-        # Alamat halaman login yang tidak bisa ditebak (mis. /<heksadesimal acak>); deploy.sh membuatnya di deploy.env.
-        # Build image menolak nilai kosong (Dockerfile: LOGIN_PATH_WAJIB=1) supaya /login tidak terbuka tanpa disengaja.
+        # Alamat halaman login yang tidak bisa ditebak. Kosong = pakai bawaan repo (frontend/login-path.txt); deploy.sh mengisinya
+        # dengan alamat yang berlaku (bawaan repo atau LOGIN_PATH di deploy.env) agar sama dengan yang dipakai cek kesehatan.
         LOGIN_PATH: ${LOGIN_PATH:-}
     container_name: ${CONTAINER_PREFIX:-pasti}-frontend
     ports:
