@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -120,23 +121,31 @@ func extractInaprocErrorMessage(body []byte, statusCode int) string {
 	return fmt.Sprintf("status %d", statusCode)
 }
 
+// logInaprocSync mencatat satu sinkronisasi di inaproc_sync_log. adminUserID kosong (penarikan otomatis, tanpa pengguna) disimpan
+// sebagai NULL: kolom synced_by bertipe UNIQUEIDENTIFIER, jadi string kosong akan ditolak dan catatannya hilang diam-diam.
 func logInaprocSync(endpoint, kodeKLPD, tahun, jenisPaket, status string, totalSynced int, errMsg string, adminUserID string, startedAt time.Time) {
 	database.DB.Exec(`
 		INSERT INTO inaproc_sync_log (endpoint, kode_klpd, tahun, jenis_paket, total_rows_synced, status, error_message, synced_by, started_at)
 		VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)`,
 		endpoint, kodeKLPD, tahun, nullIfEmpty(jenisPaket), totalSynced, status,
-		nullIfEmpty(errMsg), adminUserID, startedAt,
+		nullIfEmpty(errMsg), nullIfEmpty(adminUserID), startedAt,
 	)
 }
 
 // callInaprocEndpoint melakukan GET generik ke API Inaproc dengan Bearer
 // token, dipakai oleh semua endpoint Inaproc yang kita integrasikan.
 func callInaprocEndpoint(path string, params url.Values) ([]byte, int, error) {
+	return callInaprocEndpointCtx(context.Background(), path, params)
+}
+
+// callInaprocEndpointCtx sama dengan callInaprocEndpoint, tetapi permintaan ikut dibatalkan bila ctx berakhir (dipakai
+// penarikan data terjadwal/antrean yang bisa dibatalkan).
+func callInaprocEndpointCtx(ctx context.Context, path string, params url.Values) ([]byte, int, error) {
 	cfg := config.Cfg
 	reqURL := fmt.Sprintf("%s%s?%s", cfg.InaprocBaseURL, path, params.Encode())
 
 	httpClient := utils.NewSSOHTTPClient()
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}

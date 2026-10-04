@@ -17,6 +17,7 @@ func main() {
 	database.Connect()
 	database.ConnectSLDK()
 	handlers.InitDigitalisasi()
+	handlers.InitInaprocPenarikan()
 
 	if config.Cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)

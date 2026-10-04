@@ -43,6 +43,8 @@ import {
   Landmark,
   HandCoins,
   Settings2,
+  ChartNoAxesCombined,
+  DatabaseBackup,
 } from "lucide-react";
 
 export interface NavItem {
@@ -106,6 +108,25 @@ export const NAV_ENTRIES: NavEntry[] = [
         icon: Settings2,
         description: "Template dokumen Word, peran pengguna SAPA, dan referensi Unit Eselon I",
         roles: ["admin", "superadmin"],
+      },
+    ],
+  },
+  {
+    type: "group",
+    label: "Pengadaan Terpadu",
+    icon: ChartNoAxesCombined,
+    children: [
+      {
+        label: "Dasbor Pengadaan",
+        href: "/dashboard/pengadaan-terpadu/dasbor",
+        icon: ChartNoAxesCombined,
+        description: "Dasbor analitik RUP, tender, kontrak, dan e-purchasing yang saling terhubung, dengan wawasan berbasis data",
+      },
+      {
+        label: "Penarikan Data",
+        href: "/dashboard/pengadaan-terpadu/penarikan",
+        icon: DatabaseBackup,
+        description: "Tarik data Pengadaan, Tender, dan E-Katalog dari Inaproc secara manual atau otomatis, lalu ekspor ke Excel, CSV, atau PDF",
       },
     ],
   },
