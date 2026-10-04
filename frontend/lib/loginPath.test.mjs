@@ -15,10 +15,41 @@ test("jalurMasukDari: kosong = bawaan, bentuk salah = galat", () => {
   assert.equal(L.jalurMasukDari("   "), "/login");
   assert.equal(L.jalurMasukDari(JALUR), JALUR);
   assert.equal(L.jalurMasukDari(" " + JALUR + " "), JALUR);
-  for (const salah of ["/login", "login", JALUR.slice(1), "/dashboard", "/ABCDEF0123456789ABCDEF0123456789", "/3f9a1c07d2b84e65", "/3f9a1c07d2b84e65a0c1f7e93b2d4a68/x", "/zz9a1c07d2b84e65a0c1f7e93b2d4a68", "/" + "a".repeat(65)]) {
+  for (const salah of [
+    "/login", "login", JALUR.slice(1), "/dashboard", "/abc", "/3f9a1c07d2b84e6", // pendek (15)
+    "/3f9a1c07d2b84e65a0c1f7e93b2d4a68/x", // lebih dari satu segmen
+    "/c2FtcGxlLnBhdGg.contohpanjang", // titik: dianggap berkas statis
+    "/ada spasi di sini 12345678", "/aneh!?karakter1234567890", "/" + "a".repeat(129),
+    "/halaman-tidak-ada", "/HALAMAN-TIDAK-ADA", // nama rute aplikasi
+  ]) {
     assert.throws(() => L.jalurMasukDari(salah), /LOGIN_PATH/, salah);
   }
-  assert.equal(L.jalurMasukDari("/" + "a".repeat(64)), "/" + "a".repeat(64));
+  // Bentuk yang diterima: heksadesimal acak dari deploy.sh, atau nilai buatan sendiri (mis. base64) dengan huruf besar dan "=".
+  for (const sah of ["/" + "a".repeat(64), "/" + "a".repeat(128), "/3f9a1c07d2b84e65", "/ABCDEF0123456789ABCDEF0123456789", "/c2FtcGxlLXBhdGgtY29udG9o", "/Q29udG9oUGF0aEJhc2U2NA==", "/contoh-jalur_masuk-2026"]) {
+    assert.equal(L.jalurMasukDari(sah), sah, sah);
+  }
+});
+
+test("samakanJalur: = yang disandikan menjadi %3D tetap dikenali sebagai jalur masuk", () => {
+  const b64 = "/Q29udG9oUGF0aEJhc2U2NA==";
+  assert.equal(L.samakanJalur(b64, b64), b64);
+  assert.equal(L.samakanJalur("/Q29udG9oUGF0aEJhc2U2NA%3D%3D", b64), b64);
+  assert.equal(L.samakanJalur("/Q29udG9oUGF0aEJhc2U2NA%3d%3d", b64), b64);
+  // Pathname lain tidak disentuh, termasuk yang memuat sandi atau sandi rusak.
+  assert.equal(L.samakanJalur("/dashboard/a%20b", b64), "/dashboard/a%20b");
+  assert.equal(L.samakanJalur("/%E0%A4%A", b64), "/%E0%A4%A");
+  assert.equal(L.samakanJalur("/login", b64), "/login");
+  assert.equal(L.samakanJalur("/Q29udG9oUGF0aEJhc2U2NA%3D", b64), "/Q29udG9oUGF0aEJhc2U2NA%3D");
+});
+
+test("alamat login berbentuk base64 bekerja pada semua aturan", () => {
+  const b64 = "/Q29udG9oUGF0aEJhc2U2NA==";
+  const m = (pathname, o = {}) => ({ pathname, search: "", adaToken: false, adaPetunjuk: false, jalurMasuk: b64, ...o });
+  assert.deepEqual(L.tentukanAksi(m(b64)), { jenis: "tulis-ulang", ke: "/login", setPetunjuk: true });
+  assert.deepEqual(L.tentukanAksi(m("/login")), { jenis: "tidak-ada" });
+  assert.deepEqual(L.tentukanAksi(m("/kembali-masuk", { adaPetunjuk: true })), { jenis: "alihkan", ke: b64 });
+  assert.deepEqual(L.tentukanAksi(m("/dashboard", { adaPetunjuk: true })), { jenis: "alihkan", ke: b64 });
+  assert.deepEqual(L.tentukanAksi(m("/")), { jenis: "tidak-ada" });
 });
 
 test("nilai yang disisipkan ke build dibaca kembali middleware dengan hasil yang sama", () => {
