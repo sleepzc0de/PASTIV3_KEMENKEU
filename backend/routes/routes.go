@@ -119,6 +119,50 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/tender/non-tender-pengumuman/local", handlers.ListLocalNonTenderPengumuman)
 			inaproc.POST("/tender/non-tender-pengumuman/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderPengumuman)
 
+			inaproc.GET("/tender/non-tender-selesai", handlers.GetNonTenderSelesai)
+			inaproc.GET("/tender/non-tender-selesai/local", handlers.ListLocalNonTenderSelesai)
+			inaproc.POST("/tender/non-tender-selesai/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncNonTenderSelesai)
+
+			inaproc.GET("/tender/pencatatan-non-tender", handlers.GetPencatatanNonTender)
+			inaproc.GET("/tender/pencatatan-non-tender/local", handlers.ListLocalPencatatanNonTender)
+			inaproc.POST("/tender/pencatatan-non-tender/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPencatatanNonTender)
+
+			inaproc.GET("/tender/pencatatan-non-tender-realisasi", handlers.GetPencatatanNonTenderRealisasi)
+			inaproc.GET("/tender/pencatatan-non-tender-realisasi/local", handlers.ListLocalPencatatanNonTenderRealisasi)
+			inaproc.POST("/tender/pencatatan-non-tender-realisasi/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPencatatanNonTenderRealisasi)
+
+			inaproc.GET("/tender/pencatatan-swakelola", handlers.GetPencatatanSwakelola)
+			inaproc.GET("/tender/pencatatan-swakelola/local", handlers.ListLocalPencatatanSwakelola)
+			inaproc.POST("/tender/pencatatan-swakelola/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPencatatanSwakelola)
+
+			inaproc.GET("/tender/pencatatan-swakelola-realisasi", handlers.GetPencatatanSwakelolaRealisasi)
+			inaproc.GET("/tender/pencatatan-swakelola-realisasi/local", handlers.ListLocalPencatatanSwakelolaRealisasi)
+			inaproc.POST("/tender/pencatatan-swakelola-realisasi/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncPencatatanSwakelolaRealisasi)
+
+			inaproc.GET("/tender/pengumuman", handlers.GetTenderPengumuman)
+			inaproc.GET("/tender/pengumuman/local", handlers.ListLocalTenderPengumuman)
+			inaproc.POST("/tender/pengumuman/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderPengumuman)
+
+			inaproc.GET("/tender/peserta-tender", handlers.GetTenderPeserta)
+			inaproc.GET("/tender/peserta-tender/local", handlers.ListLocalTenderPeserta)
+			inaproc.POST("/tender/peserta-tender/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderPeserta)
+
+			inaproc.GET("/tender/tender-ekontrak", handlers.GetTenderEkontrak)
+			inaproc.GET("/tender/tender-ekontrak/local", handlers.ListLocalTenderEkontrak)
+			inaproc.POST("/tender/tender-ekontrak/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderEkontrak)
+
+			inaproc.GET("/tender/tender-ekontrak-kontrak", handlers.GetTenderEkontrakKontrak)
+			inaproc.GET("/tender/tender-ekontrak-kontrak/local", handlers.ListLocalTenderEkontrakKontrak)
+			inaproc.POST("/tender/tender-ekontrak-kontrak/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderEkontrakKontrak)
+
+			inaproc.GET("/tender/tender-selesai", handlers.GetTenderSelesai)
+			inaproc.GET("/tender/tender-selesai/local", handlers.ListLocalTenderSelesai)
+			inaproc.POST("/tender/tender-selesai/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderSelesai)
+
+			inaproc.GET("/tender/tender-selesai-nilai", handlers.GetTenderSelesaiNilai)
+			inaproc.GET("/tender/tender-selesai-nilai/local", handlers.ListLocalTenderSelesaiNilai)
+			inaproc.POST("/tender/tender-selesai-nilai/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncTenderSelesaiNilai)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

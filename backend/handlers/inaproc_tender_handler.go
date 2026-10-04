@@ -866,6 +866,8 @@ func getDecimalString(m map[string]interface{}, key string) interface{} {
 		return nil
 	}
 	switch val := v.(type) {
+	case json.Number:
+		return val.String()
 	case float64:
 		return strconv.FormatFloat(val, 'f', -1, 64)
 	case string:
