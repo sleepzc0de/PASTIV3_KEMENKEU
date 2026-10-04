@@ -5,18 +5,23 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/digitalisasi"
 	"pasti-v3-backend/utils"
 )
 
-// InitDigitalisasi menyiapkan pengelola sinkronisasi; dipanggil sekali saat server dimulai, setelah koneksi
-// database tersedia.
+// InitDigitalisasi menyiapkan pengelola sinkronisasi dan penjadwal sinkronisasi otomatis; dipanggil sekali saat server dimulai,
+// setelah koneksi database tersedia.
 func InitDigitalisasi() {
 	digitalisasi.Init(database.DB, database.SLDKDB)
+	c := config.Cfg
+	digitalisasi.Default.MulaiPenjadwal(context.Background(),
+		digitalisasi.NewJadwal(c.DigitalisasiAutoSync, c.DigitalisasiAutoIntervalHari, c.DigitalisasiAutoJamMulai, c.DigitalisasiAutoJamAkhir))
 }
 
 func dgReady(c *gin.Context) bool {
@@ -96,6 +101,7 @@ func GetDigitalisasiSinkronisasi(c *gin.Context) {
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil status sinkronisasi", gin.H{
 		"sldk_tersedia": database.SLDKDB != nil,
 		"aktif":         m.Active(),
+		"otomatis":      m.InfoOtomatis(time.Now(), latest, lastOK), // jadwal sinkronisasi otomatis dan perkiraan berikutnya
 		"datasets":      list,
 		"riwayat":       history,
 	})

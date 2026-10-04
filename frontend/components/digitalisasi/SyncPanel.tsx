@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { AlertTriangle, Ban, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
-import { DGDatasetKey, DGSyncLog, DGSyncOverview, cancelDGSync, startDGSync } from "@/lib/api";
+import { DGAutoInfo, DGDatasetKey, DGSyncLog, DGSyncOverview, cancelDGSync, startDGSync } from "@/lib/api";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { formatNumber } from "../sldk/asset";
@@ -161,6 +161,10 @@ export function SyncPanel({ sync, isAdmin }: Props) {
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Dataset</h3>
             <p className="text-xs text-slate-500">Tiap dataset adalah satu query ke SLDK; isi tabelnya diganti penuh setelah seluruh data terbaca.</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              <Clock className="mr-1 inline h-3 w-3 align-[-1px]" aria-hidden="true" />
+              {jadwalOtomatis(data.otomatis)}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -279,6 +283,16 @@ export function SyncPanel({ sync, isAdmin }: Props) {
   );
 }
 
+// Kalimat jadwal sinkronisasi otomatis. Sinkronisasi manual maupun otomatis berjalan tanpa batas waktu sampai selesai.
+function jadwalOtomatis(o: DGAutoInfo | undefined): string {
+  if (!o || !o.aktif) return "Sinkronisasi otomatis tidak aktif di server ini; sinkronkan secara manual.";
+  const jam = (n: number) => String(n).padStart(2, "0") + ".00";
+  const periode = o.interval_hari === 7 ? "setiap minggu" : `setiap ${o.interval_hari} hari`;
+  const jendela = o.jam_mulai === o.jam_akhir ? "" : `, dimulai antara pukul ${jam(o.jam_mulai)} dan ${jam(o.jam_akhir)} ${o.zona}`;
+  const next = o.berikutnya ? ` Berikutnya sekitar ${formatDateTime(o.berikutnya)}.` : "";
+  return `Otomatis ${periode}${jendela}, dihitung dari sinkronisasi sukses terakhir tiap dataset.${next}`;
+}
+
 function Notice({ tone, children }: { tone: "warning"; children: ReactNode }) {
   return (
     <div className={`flex items-start gap-2 rounded-lg px-3.5 py-2.5 text-xs ${tone === "warning" ? "bg-amber-50 text-amber-800" : ""}`}>
@@ -316,8 +330,9 @@ function ConfirmModal({
               Dataset: <span className="font-medium text-slate-900">{names.join(", ")}</span>
             </p>
             <Notice tone="warning">
-              Tiap dataset menjalankan query berat ke tabel aset SLDK (ratusan GB) dan dapat memakan waktu puluhan menit. Sebaiknya dijalankan di luar jam kerja.
-              Isi tabel dataset diganti penuh setelah seluruh data terbaca; bila gagal, data lama tetap utuh.
+              Tiap dataset menjalankan query berat ke tabel aset SLDK (ratusan GB) dan dapat memakan waktu lama. Tidak ada batas waktu: sinkronisasi berjalan
+              sampai selesai dan bisa dibatalkan kapan saja. Sebaiknya dijalankan di luar jam kerja. Isi tabel dataset diganti penuh setelah seluruh data
+              terbaca; bila gagal, data lama tetap utuh.
             </Notice>
           </>
         )}

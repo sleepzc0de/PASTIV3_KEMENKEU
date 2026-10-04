@@ -27,9 +27,6 @@ var (
 	ErrNothingToRun   = errors.New("tidak ada dataset yang dipilih")
 )
 
-// DefaultTimeout: batas waktu per dataset (query SLDK ke tabel aset berukuran ratusan GB bisa lama).
-const DefaultTimeout = 2 * time.Hour
-
 // syncFunc dipisah supaya pengelola antrean bisa diuji tanpa SLDK.
 type syncFunc func(ctx context.Context, sldkDB, pastiDB *sql.DB, ds Dataset, opt Options) (Result, error)
 
@@ -51,15 +48,18 @@ type activeRun struct {
 // antrean berjalan pada satu waktu, karena tiap query membebani server SLDK.
 type Manager struct {
 	pasti, sldk *sql.DB
-	Timeout     time.Duration
-	run         syncFunc
+	// Timeout: batas waktu per dataset. 0 (bawaan) = tanpa batas: query ke tabel aset SLDK (ratusan GB) boleh berjalan sampai
+	// selesai, baik dijalankan manual maupun otomatis. Sinkronisasi yang macet bisa dibatalkan lewat Cancel (tombol Batalkan).
+	Timeout time.Duration
+	run     syncFunc
 
 	mu     sync.Mutex
 	active *activeRun
+	jadwal Jadwal // sinkronisasi otomatis; diisi MulaiPenjadwal
 }
 
 func NewManager(pasti, sldk *sql.DB) *Manager {
-	return &Manager{pasti: pasti, sldk: sldk, Timeout: DefaultTimeout, run: Sync}
+	return &Manager{pasti: pasti, sldk: sldk, run: Sync}
 }
 
 // Default dipakai handler HTTP; diisi oleh Init saat server dimulai.
@@ -216,7 +216,11 @@ func (m *Manager) execute(ctx context.Context, run *activeRun, queue []Dataset) 
 		m.setCurrent(run, ds.Key)
 		m.markRunning(logID)
 
-		dctx, dcancel := context.WithTimeout(ctx, m.Timeout)
+		// Timeout 0 = tanpa batas waktu; hanya Cancel yang menghentikan.
+		dctx, dcancel := ctx, context.CancelFunc(func() {})
+		if m.Timeout > 0 {
+			dctx, dcancel = context.WithTimeout(ctx, m.Timeout)
+		}
 		lastWrite := time.Time{}
 		res, err := m.run(dctx, m.sldk, m.pasti, ds, Options{
 			RunID: logID,
