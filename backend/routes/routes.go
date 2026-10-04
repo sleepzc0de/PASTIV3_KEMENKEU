@@ -183,6 +183,26 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/ekatalog-archive/penyedia-distributor-detail/local", handlers.ListLocalEkatalogDistributor)
 			inaproc.POST("/ekatalog-archive/penyedia-distributor-detail/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalogDistributor)
 
+			inaproc.GET("/ekatalog/penyedia-detail", handlers.GetEkatalog6Penyedia)
+			inaproc.GET("/ekatalog/penyedia-detail/local", handlers.ListLocalEkatalog6Penyedia)
+			inaproc.POST("/ekatalog/penyedia-detail/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6Penyedia)
+
+			inaproc.GET("/ekatalog/list-kategori-produk", handlers.GetEkatalog6Kategori)
+			inaproc.GET("/ekatalog/list-kategori-produk/local", handlers.ListLocalEkatalog6Kategori)
+			inaproc.POST("/ekatalog/list-kategori-produk/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6Kategori)
+
+			inaproc.GET("/ekatalog/paket-e-purchasing", handlers.GetEkatalog6Paket)
+			inaproc.GET("/ekatalog/paket-e-purchasing/local", handlers.ListLocalEkatalog6Paket)
+			inaproc.POST("/ekatalog/paket-e-purchasing/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6Paket)
+
+			inaproc.GET("/ekatalog/list-produk-penyedia", handlers.GetEkatalog6ProdukPenyedia)
+			inaproc.GET("/ekatalog/list-produk-penyedia/local", handlers.ListLocalEkatalog6ProdukPenyedia)
+			inaproc.POST("/ekatalog/list-produk-penyedia/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6ProdukPenyedia)
+
+			inaproc.GET("/ekatalog/e-purchasing-by-produk", handlers.GetEkatalog6Transaksi)
+			inaproc.GET("/ekatalog/e-purchasing-by-produk/local", handlers.ListLocalEkatalog6Transaksi)
+			inaproc.POST("/ekatalog/e-purchasing-by-produk/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6Transaksi)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

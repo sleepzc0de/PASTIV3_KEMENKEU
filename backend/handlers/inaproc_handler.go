@@ -1090,6 +1090,11 @@ func getInt64FromAny(m map[string]interface{}, key string) interface{} {
 		return nil
 	}
 	switch val := v.(type) {
+	case bool: // penanda true/false disimpan sebagai 1/0
+		if val {
+			return int64(1)
+		}
+		return int64(0)
 	case json.Number:
 		if n, err := val.Int64(); err == nil {
 			return n

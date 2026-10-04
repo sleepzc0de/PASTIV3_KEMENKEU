@@ -515,6 +515,86 @@ const contohEkatalogDistributor = `{
   "npwp_distributor": "01.234.567.8-901.000"
 }`
 
+const contohEk6Penyedia = `{
+  "alamat_penyedia": "Jl. Contoh No.1, Jakarta",
+  "bentuk_usaha": "PERUSAHAAN_TERBATAS",
+  "email": "contact@contoh.co.id",
+  "jenis_perusahaan": "PUSAT",
+  "kbli_id": "12345,12346",
+  "kbli_name": "Perdagangan Besar Komputer,Perdagangan Besar Elektronik",
+  "kode_penyedia": "01ABCXYZ123",
+  "nama_penyedia": "PT Contoh Teknologi",
+  "nib": "1234567890123",
+  "npwp_penyedia": "012345678901000",
+  "rekan_id": 0,
+  "status_aktif": "active",
+  "status_umkk": 0,
+  "telepon": "6281234567890"
+}`
+
+const contohEk6Produk = `{
+  "kd_produk": "123456789",
+  "nama_produk": "Laptop 14 Inch",
+  "status_produk": "ACTIVE",
+  "status_produk_tayang": true
+}`
+
+const contohEk6Paket = `{
+  "count_product": 2,
+  "fiscal_year": 2024,
+  "funding_source": "APBN",
+  "is_swasta": false,
+  "kode_klpd": "K1",
+  "kode_penyedia": "01ABCXYZ123",
+  "kode_satker": "123456",
+  "last_update_date": "2024-10-01T10:00:00Z",
+  "mak": "AB.1234.DEF.567.890",
+  "nama_satker": "SATKER CONTOH 123456",
+  "order_date": "2024-09-15T00:00:00Z",
+  "order_id": "01ORDEREXAMPLE123",
+  "product_id": "1234abcd-efgh-ijkl-mnop-qrstuvwxyz12",
+  "rekan_id": 0,
+  "rup_code": "20240001",
+  "rup_desc": "Contoh deskripsi paket",
+  "rup_name": "Pengadaan Perangkat TIK",
+  "shipment_status": "COMPLETED",
+  "shipping_fee": 0,
+  "status": "ON_PROCESS",
+  "total": 100000000,
+  "total_qty": 5
+}`
+
+// API mengirim subset menurut tingkat (L1: datamart_id + kd_kategori_1 + nama_kategori_1, dst.); contoh ini menggabungkan ketiganya
+// supaya seluruh field terpetakan teruji sekaligus.
+const contohEk6Kategori = `{
+  "datamart_id": 1,
+  "kd_kategori_1": "10000001",
+  "nama_kategori_1": "Elektronik",
+  "kd_kategori_2": "KAT-002",
+  "nama_kategori_2": "Peralatan Hematologi dan Patologi",
+  "kd_kategori_3": "KAT-003",
+  "nama_kategori_3": "Paket dan Kit Hematologi"
+}`
+
+const contohEk6Transaksi = `{
+  "order_id": "01ORDEREXAMPLE123",
+  "kd_kategori_1": "40a4f9d2-efed-49ca-818c-4f60bccd011c",
+  "kategori_1": "Alat Kesehatan",
+  "kd_kategori_2": "KAT-002",
+  "kategori_2": "Peralatan Hematologi dan Patologi",
+  "kd_kategori_3": "KAT-003",
+  "kategori_3": "Paket dan Kit Hematologi",
+  "product_id": "ac657ed7-b03d-42b8-8b48-fd21b182b6a7",
+  "nama_produk": "actin fsl activated ptt reagent",
+  "kode_klpd": "K1",
+  "nama_group_klpd": "KEMENTERIAN",
+  "nama_klpd": "Kementerian Contoh",
+  "kode_satker": "123456",
+  "nama_satker": "Satuan Kerja Contoh",
+  "status": "COMPLETED",
+  "nilai_transaksi": 3978000
+}`
+
 type jenisUji struct {
 	nama      string
 	ep        *endpointDatar
@@ -523,7 +603,25 @@ type jenisUji struct {
 	jumlahFld int // jumlah field pada contoh dokumentasi
 	// nilai yang harus muncul pada kolom (setelah pemetaan) untuk contoh dengan kd_klpd = "K10" diminta
 	harap map[string]interface{}
+	// kustom: endpoint dengan aturan penyaring sendiri (GetDengan/SyncDengan); tes HTTP bersama dilewati, tes strukturalnya
+	// (kolom, pemetaan field, argumen INSERT) tetap berlaku. Aturannya diuji di inaproc_ekatalog6_test.go.
+	kustom bool
+	// wajib: kolom yang harus ada di tabel untuk endpoint kustom (bawaan: ditentukan bentuk saringannya).
+	wajib []string
 }
+
+func semuaJenisHTTP() []jenisUji {
+	var hasil []jenisUji
+	for _, j := range semuaJenisUji() {
+		if !j.kustom {
+			hasil = append(hasil, j)
+		}
+	}
+	return hasil
+}
+
+// jumlahKolom: kolom data tabel (field API + kolom konteks).
+func (j jenisUji) jumlahKolom() int { return len(j.ep.SemuaKolom()) }
 
 func semuaJenisUji() []jenisUji {
 	return []jenisUji{
@@ -649,6 +747,39 @@ func semuaJenisUji() []jenisUji {
 			nama: "penyedia-distributor-detail", ep: ekatalogDistributor, migrasi: "039_create_inaproc_ekatalog_distributor.sql", contoh: contohEkatalogDistributor, jumlahFld: 6,
 			harap: map[string]interface{}{"kd_penyedia_distributor": "8888", "npwp_distributor": "01.234.567.8-901.000", "no_telp_distributor": "081212345678"},
 		},
+		{
+			nama: "penyedia-detail", ep: ekatalog6Penyedia, migrasi: "040_create_inaproc_ekatalog6_penyedia.sql", contoh: contohEk6Penyedia, jumlahFld: 14,
+			harap: map[string]interface{}{
+				"kode_penyedia": "01ABCXYZ123", "nib": "1234567890123", "npwp_penyedia": "012345678901000", "rekan_id": "0", "status_aktif": "active",
+				"status_umkk": int64(0), "kbli_id": "12345,12346", "telepon": "6281234567890", "email": "contact@contoh.co.id",
+			},
+		},
+		{
+			nama: "list-produk-penyedia", ep: ekatalog6ProdukPenyedia, migrasi: "041_create_inaproc_ekatalog6_produk_penyedia.sql", contoh: contohEk6Produk, jumlahFld: 4,
+			harap: map[string]interface{}{"kd_produk": "123456789", "nama_produk": "Laptop 14 Inch", "status_produk": "ACTIVE", "status_produk_tayang": int64(1)},
+		},
+		{
+			nama: "paket-e-purchasing", ep: ekatalog6Paket, migrasi: "043_create_inaproc_ekatalog6_paket_epurchasing.sql", contoh: contohEk6Paket, jumlahFld: 22,
+			harap: map[string]interface{}{
+				"kode_klpd": "K1", "fiscal_year": "2024", "order_id": "01ORDEREXAMPLE123", "rekan_id": "0", "rup_code": "20240001",
+				"status": "ON_PROCESS", "shipment_status": "COMPLETED", "is_swasta": int64(0), "count_product": int64(2),
+				"shipping_fee": "0", "total": "100000000", "total_qty": "5",
+			},
+		},
+		{
+			// Gabungan tiga tingkat (API mengirim subset menurut tingkat); tingkat dan kode induk dari permintaan.
+			nama: "list-kategori-produk", ep: ekatalog6Kategori, migrasi: "042_create_inaproc_ekatalog6_kategori.sql", contoh: contohEk6Kategori, jumlahFld: 7,
+			harap:  map[string]interface{}{"datamart_id": "1", "kd_kategori_1": "10000001", "kd_kategori_2": "KAT-002", "kd_kategori_3": "KAT-003"},
+			kustom: true, wajib: []string{"tingkat", "kd_kategori_1", "kd_kategori_2"},
+		},
+		{
+			nama: "e-purchasing-by-produk", ep: ekatalog6Transaksi, migrasi: "044_create_inaproc_ekatalog6_epurchasing_produk.sql", contoh: contohEk6Transaksi, jumlahFld: 16,
+			harap: map[string]interface{}{
+				"order_id": "01ORDEREXAMPLE123", "kd_kategori_1": "40a4f9d2-efed-49ca-818c-4f60bccd011c", "product_id": "ac657ed7-b03d-42b8-8b48-fd21b182b6a7",
+				"kode_klpd": "K1", "status": "COMPLETED", "nilai_transaksi": "3978000",
+			},
+			kustom: true, wajib: []string{"tahun", "kode_klpd", "status"},
+		},
 	}
 }
 
@@ -656,7 +787,8 @@ func semuaJenisUji() []jenisUji {
 // sinkronisasi. Pembantu di bawah menjaga agar tes yang berlaku untuk semua endpoint tetap satu.
 const kodeUji = "KODE123"
 
-func (j jenisUji) modeBawaan() bool { return j.ep.Saring == (saringan{}) }
+// modeBawaan: kode_klpd + tahun (nama kolomnya boleh lain, mis. kode_klpd/fiscal_year di V6).
+func (j jenisUji) modeBawaan() bool { return j.ep.Saring.Param == "" && !j.ep.Saring.TanpaTahun }
 
 func (j jenisUji) jalur() string { return "/inaproc/" + j.ep.awalan() + "/" + j.nama }
 
@@ -714,28 +846,30 @@ func (j jenisUji) wajibAdaSyarat() bool { return j.ep.Saring.Param != "" || !j.e
 
 func (j jenisUji) kolomWajib() []string {
 	switch {
+	case j.wajib != nil:
+		return j.wajib
 	case j.ep.Saring.Param != "":
 		return []string{j.ep.Saring.Kolom}
 	case j.ep.Saring.TanpaTahun:
-		return []string{"kd_klpd"}
+		return []string{j.ep.kolomKLPD()}
 	}
-	return []string{"kd_klpd", "tahun_anggaran"}
+	return []string{j.ep.kolomKLPD(), j.ep.kolomTahun()}
 }
 
-// wherelokal: potongan SQL daftar lokal yang diharapkan untuk query() dengan limit.
+// whereLokal: potongan SQL daftar lokal (dan DELETE sinkronisasi) yang diharapkan untuk query() dengan limit.
 func (j jenisUji) whereLokal() string {
 	switch {
 	case j.ep.Saring.Param != "":
 		return "FROM " + j.ep.Tabel + " WHERE " + j.ep.Saring.Kolom + " = @p1"
 	case j.ep.Saring.TanpaTahun:
-		return "FROM " + j.ep.Tabel + " WHERE kd_klpd = @p1"
+		return "FROM " + j.ep.Tabel + " WHERE " + j.ep.kolomKLPD() + " = @p1"
 	}
-	return "FROM " + j.ep.Tabel + " WHERE kd_klpd = @p1 AND tahun_anggaran = @p2"
+	return "FROM " + j.ep.Tabel + " WHERE " + j.ep.kolomKLPD() + " = @p1 AND " + j.ep.kolomTahun() + " = @p2"
 }
 
 // varianBaris mengubah satu field teks pada contoh supaya baris yang dikirim tiap halaman berbeda (row_key berbeda).
 func varianBaris(contoh, label string) string {
-	for _, kunci := range []string{`"nama_paket": "`, `"no_realisasi": "`, `"nama_penyedia": "`, `"nama_satker": "`, `"nama_komoditas": "`, `"nama_distributor": "`} {
+	for _, kunci := range []string{`"nama_paket": "`, `"no_realisasi": "`, `"nama_penyedia": "`, `"nama_satker": "`, `"nama_komoditas": "`, `"nama_distributor": "`, `"nama_produk": "`} {
 		if strings.Contains(contoh, kunci) {
 			return strings.Replace(contoh, kunci, kunci+label+" ", 1)
 		}
@@ -775,7 +909,7 @@ func TestEndpointDatarKolomSamaDenganMigrasi(t *testing.T) {
 				}
 				kolom = append(kolom, m[1])
 			}
-			handler := j.ep.KnownFields()
+			handler := j.ep.SemuaKolom() // field API ditambah kolom konteks (yang diisi dari permintaan)
 			sort.Strings(kolom)
 			sort.Strings(handler)
 			if strings.Join(kolom, ",") != strings.Join(handler, ",") {
@@ -843,7 +977,7 @@ func TestEndpointDatarInsertSQLDanArgumen(t *testing.T) {
 			if len(nama) != len(args) || strings.Count(j.ep.insertSQL, "@p") != len(args) {
 				t.Fatalf("kolom = %d, placeholder = %d, argumen = %d", len(nama), strings.Count(j.ep.insertSQL, "@p"), len(args))
 			}
-			if nama[0] != "row_key" || nama[len(nama)-1] != "extra_json" || len(nama) != j.jumlahFld+2 {
+			if nama[0] != "row_key" || nama[len(nama)-1] != "extra_json" || len(nama) != j.jumlahKolom()+2 {
 				t.Errorf("kolom = %v", nama)
 			}
 			nilai := map[string]interface{}{}
@@ -1031,7 +1165,7 @@ func routerDatar() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	g := r.Group("/inaproc", func(c *gin.Context) { c.Set("user_id", "admin-uji"); c.Next() })
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		dasar := "/" + j.ep.awalan() + "/" + j.nama
 		g.GET(dasar, j.ep.Get)
 		g.GET(dasar+"/local", j.ep.ListLocal)
@@ -1051,7 +1185,7 @@ func panggil(r *gin.Engine, method, path, body string) (int, map[string]interfac
 }
 
 func TestEndpointDatarGetMeneruskanParameterDanBatasLimit(t *testing.T) {
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		t.Run(j.nama, func(t *testing.T) {
 			p := newInaprocPalsu(t, func(r *http.Request) (int, string) {
 				return 200, `{"success":true,"data":[` + j.contoh + `],"meta":{"limit":1000,"has_more":true,"cursor":"abc"}}`
@@ -1089,7 +1223,7 @@ func TestEndpointDatarGetValidasiDanGalatHulu(t *testing.T) {
 	pasangKonfigInaproc(t, p.URL, "token-uji")
 	r := routerDatar()
 
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		sebelum := len(p.diminta)
 		if j.wajibAdaSyarat() {
 			if code, _ := panggil(r, "GET", j.jalur(), ""); code != 400 {
@@ -1167,7 +1301,7 @@ func TestEndpointDatarGetKdTenderMenggantikanTahunDanKlpd(t *testing.T) {
 	}
 
 	// Endpoint lain tidak mengenal skenario kd_tender: tahun tetap wajib dan kd_tender tidak diteruskan.
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		if j.ep.MenerimaKdTender || !j.modeBawaan() {
 			continue // saringan lain (hanya KLPD, atau kode tunggal) tidak mewajibkan tahun
 		}
@@ -1328,7 +1462,7 @@ func TestEndpointDatarNamaLog(t *testing.T) {
 }
 
 func TestEndpointDatarSyncMenelusuriHalamanDanMenyimpan(t *testing.T) {
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		t.Run(j.nama, func(t *testing.T) {
 			halaman2 := varianBaris(j.contoh, "Halaman2")
 			halaman1b := varianBaris(j.contoh, "Lain")
@@ -1381,8 +1515,8 @@ func TestEndpointDatarSyncMenelusuriHalamanDanMenyimpan(t *testing.T) {
 					}
 				case strings.HasPrefix(ex.Query, "INSERT INTO "+j.ep.Tabel+" "):
 					sisip++
-					if len(ex.Args) != j.jumlahFld+2 {
-						t.Errorf("INSERT memakai %d argumen, want %d", len(ex.Args), j.jumlahFld+2)
+					if len(ex.Args) != j.jumlahKolom()+2 {
+						t.Errorf("INSERT memakai %d argumen, want %d", len(ex.Args), j.jumlahKolom()+2)
 					}
 				case strings.Contains(ex.Query, "INTO inaproc_sync_log"):
 					catat++
@@ -1561,7 +1695,7 @@ func TestEndpointDatarSyncGalatHuluDicatatDanTidakMenyimpan(t *testing.T) {
 }
 
 func TestEndpointDatarListLocal(t *testing.T) {
-	for _, j := range semuaJenisUji() {
+	for _, j := range semuaJenisHTTP() {
 		t.Run(j.nama, func(t *testing.T) {
 			f := pasangDBPalsu(t)
 			var query string
