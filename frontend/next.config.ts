@@ -1,27 +1,31 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { NextConfig } from "next";
-import { jalurMasukDari, nilaiUntukBuild } from "./lib/loginPath";
+import { jalurMasukDari } from "./lib/loginPath";
 
-// Alamat halaman login yang tidak bisa ditebak (lihat lib/loginPath.ts). Dibaca saat build dan disisipkan ke middleware
-// sebagai konstanta; tidak dipakai komponen klien, jadi tidak ikut ke bundel JavaScript yang diunduh pengunjung.
-// Build Docker (frontend/Dockerfile, LOGIN_PATH_WAJIB=1) menolak nilai kosong supaya /login tidak terbuka di server tanpa disengaja;
-// deploy.sh selalu mengisinya. Build/jalankan lokal tanpa nilai tetap memakai /login (dengan peringatan saat build produksi).
-const loginPath = jalurMasukDari(process.env.LOGIN_PATH);
-if (loginPath === "/login") {
-  const cara = "isi LOGIN_PATH (deploy.sh membuatnya di deploy.env), atau buat manual: node -e \"console.log('/'+require('crypto').randomBytes(16).toString('hex'))\"";
-  if (process.env.LOGIN_PATH_WAJIB === "1") {
-    throw new Error("LOGIN_PATH belum diisi. Build ini menyembunyikan halaman login di alamat acak; " + cara);
+// Alamat halaman login yang tidak bisa ditebak (lihat lib/loginPath.ts). Bawaannya ada di login-path.txt, satu sumber untuk
+// `npm run dev`/`build` lokal, build Docker, dan deploy.sh, jadi tidak perlu mengisi apa pun. LOGIN_PATH di lingkungan (deploy.env
+// atau .env.local) menimpanya; LOGIN_PATH=/login menampilkan halaman login di /login seperti semula.
+// Hasilnya dibaca saat build dan disisipkan ke middleware sebagai konstanta; tidak dipakai komponen klien, jadi tidak ikut ke bundel
+// JavaScript yang diunduh pengunjung.
+function alamatBawaan(): string {
+  try {
+    return readFileSync(resolve(process.cwd(), "login-path.txt"), "utf8").trim();
+  } catch {
+    return "";
   }
-  if (process.env.NODE_ENV === "production") {
-    console.warn("[PERINGATAN] LOGIN_PATH kosong: halaman login tetap di /login (tidak disembunyikan). Untuk menyembunyikannya, " + cara);
-  }
+}
+
+const loginPath = jalurMasukDari(process.env.LOGIN_PATH?.trim() || alamatBawaan());
+if (loginPath === "/login" && process.env.NODE_ENV === "production") {
+  console.warn("[PERINGATAN] Halaman login tidak disembunyikan (LOGIN_PATH=/login atau login-path.txt tidak ada): alamatnya tetap /login.");
 }
 
 const nextConfig: NextConfig = {
   output: "standalone",
 
   env: {
-    // Kosong = tidak disembunyikan (pengembangan lokal); middleware membaca kosong sebagai /login.
-    LOGIN_PATH: nilaiUntukBuild(loginPath),
+    LOGIN_PATH: loginPath,
   },
 
   async headers() {

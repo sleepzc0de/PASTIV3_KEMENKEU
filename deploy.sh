@@ -100,7 +100,7 @@ Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
                     BIND_ADDRESS=127.0.0.1     # hanya lewat Nginx/reverse proxy di server ini
                     BACKEND_PORT=8686
                     FRONTEND_PORT=3000
-                    LOGIN_PATH=/3f9a1c07d2b84e65a0c1f7e93b2d4a68   # alamat halaman login (acak; dibuat otomatis)
+                    # LOGIN_PATH=/...   (opsional) menimpa alamat halaman login bawaan repo (frontend/login-path.txt)
   backend/.env    rahasia aplikasi, koneksi database, SSO, token Inaproc (dibuat dari
                   backend/.env.example; Anda yang mengisi nilai database & SSO).
 
@@ -482,24 +482,6 @@ load_deploy_config() {
     if [ "$ENVIRONMENT" = "prod" ]; then CONTAINER_PREFIX="pasti-prod"; else CONTAINER_PREFIX="pasti"; fi
   fi
 
-  # Alamat halaman login yang tidak bisa ditebak: /login biasa dijawab 404 dan halaman login dilayani di sini. Dibuat sekali lalu
-  # dipertahankan (mengubahnya memutus alamat yang sudah dibagikan ke pengguna). Ditanam ke frontend saat build lewat docker compose.
-  LOGIN_PATH=$(env_get "$DEPLOY_ENV" LOGIN_PATH)
-  if [ -z "$LOGIN_PATH" ]; then
-    LOGIN_PATH="/$(gen_hex 16)"
-    {
-      printf '# Alamat halaman login (acak, tidak bisa ditebak); /login biasa dijawab 404. Dibuat otomatis oleh deploy.sh.\n'
-      printf '# Jangan dibagikan di tempat umum. Mengubahnya memutus alamat lama: beri tahu pengguna alamat barunya.\n'
-    } >> "$DEPLOY_ENV"
-    env_set "$DEPLOY_ENV" LOGIN_PATH "$LOGIN_PATH"
-    own_file "$DEPLOY_ENV"
-    LOGIN_PATH_BARU=1
-  fi
-  # Bentuk yang diterima sama dengan frontend/lib/loginPath.ts: satu segmen 16-128 karakter [A-Za-z0-9_=-], bukan nama rute aplikasi.
-  if ! [[ $LOGIN_PATH =~ ^/[A-Za-z0-9_=-]{16,128}$ ]] || [[ ${LOGIN_PATH,,} =~ ^/(login|dashboard|kembali-masuk|halaman-tidak-ada|sso|api)$ ]]; then
-    die "LOGIN_PATH di deploy.env tidak valid: '$LOGIN_PATH' (harus satu segmen 16-128 karakter huruf/angka/_/-/= tanpa titik dan bukan nama rute aplikasi; hapus barisnya agar dibuat acak otomatis)."
-  fi
-
   valid_url "$API_ROOT_URL" || die "NEXT_PUBLIC_API_ROOT_URL di deploy.env tidak valid: '$API_ROOT_URL'"
   valid_api_url "$API_URL"  || die "NEXT_PUBLIC_API_URL di deploy.env tidak valid: '$API_URL'"
   valid_port "$BACKEND_PORT"  || die "BACKEND_PORT di deploy.env tidak valid: '$BACKEND_PORT'"
@@ -802,6 +784,54 @@ snapshot_images() {
   fi
 }
 
+# Alamat halaman login yang berlaku. Bawaannya ada di frontend/login-path.txt (satu sumber dengan next.config.ts untuk lokal dan
+# build Docker); LOGIN_PATH di deploy.env (bila ada) menimpanya. Dibaca SETELAH sync_code supaya yang dipakai berasal dari kode
+# yang akan dibangun. Diekspor agar docker compose menanamkan nilai yang sama dengan yang dipakai cek kesehatan dan ringkasan.
+# "/login" berarti tidak disembunyikan. Bentuk lain harus sama dengan frontend/lib/loginPath.ts: satu segmen 16-128 karakter
+# [A-Za-z0-9_=-], bukan nama rute aplikasi.
+resolve_login_path() {
+  step "Alamat halaman login"
+  local berkas="$APP_DIR/frontend/login-path.txt" bawaan="" khusus
+  # Versi deploy.sh sebelumnya membuat alamat acak sendiri di deploy.env (diberi tanda komentar di bawah). Nilai itu dibuang supaya
+  # bawaan repo yang berlaku; alamat yang Anda tulis sendiri (tanpa tanda itu) tidak disentuh.
+  local tanda='# Alamat halaman login (acak, tidak bisa ditebak); /login biasa dijawab 404. Dibuat otomatis oleh deploy.sh.' tmp
+  if [ -f "$DEPLOY_ENV" ] && grep -qxF "$tanda" "$DEPLOY_ENV"; then
+    tmp=$(mktemp)
+    TANDA="$tanda" awk '
+      BEGIN { skip = 0 }
+      $0 == ENVIRON["TANDA"] { skip = 1; next }
+      skip == 1 && index($0, "# Jangan dibagikan di tempat umum.") == 1 { next }
+      skip == 1 && index($0, "LOGIN_PATH=") == 1 { skip = 0; next }
+      { skip = 0; print }
+    ' "$DEPLOY_ENV" > "$tmp"
+    cat "$tmp" > "$DEPLOY_ENV"   # menimpa isi, mempertahankan izin & pemilik file
+    rm -f "$tmp"
+    log "Alamat login acak buatan deploy.sh versi sebelumnya dihapus dari deploy.env; memakai alamat bawaan repo."
+  fi
+  if [ -f "$berkas" ]; then bawaan=$(tr -d '[:space:]' < "$berkas"); fi
+  khusus=$(env_get "$DEPLOY_ENV" LOGIN_PATH)
+  khusus=${khusus//[[:space:]]/}
+  if [ -n "$khusus" ]; then
+    LOGIN_PATH=$khusus
+    if [ -n "$bawaan" ] && [ "$khusus" != "$bawaan" ]; then
+      warn "deploy.env memakai LOGIN_PATH sendiri ($khusus), bukan bawaan repo ($bawaan). Hapus baris LOGIN_PATH di deploy.env bila ingin memakai bawaan repo."
+    fi
+  else
+    LOGIN_PATH=$bawaan
+  fi
+  if [ -z "$LOGIN_PATH" ]; then
+    warn "frontend/login-path.txt tidak ditemukan dan LOGIN_PATH kosong: halaman login tetap di /login (tidak disembunyikan)."
+    LOGIN_PATH="/login"
+  fi
+  if [ "$LOGIN_PATH" != "/login" ]; then
+    if ! [[ $LOGIN_PATH =~ ^/[A-Za-z0-9_=-]{16,128}$ ]] || [[ ${LOGIN_PATH,,} =~ ^/(login|dashboard|kembali-masuk|halaman-tidak-ada|sso|api)$ ]]; then
+      die "Alamat halaman login tidak valid: '$LOGIN_PATH' (harus satu segmen 16-128 karakter huruf/angka/_/-/= tanpa titik dan bukan nama rute aplikasi; periksa frontend/login-path.txt atau LOGIN_PATH di deploy.env)."
+    fi
+  fi
+  export LOGIN_PATH
+  ok "Halaman login: $LOGIN_PATH"
+}
+
 build_images() {
   step "Build image (bisa beberapa menit)"
   local args=()
@@ -917,8 +947,8 @@ health_checks() {
   local host="127.0.0.1"
   case "$BIND_ADDRESS" in 0.0.0.0|127.0.0.1) ;; *) host="$BIND_ADDRESS" ;; esac
   wait_http "Backend"  "${CONTAINER_PREFIX}-backend"  "http://${host}:${BACKEND_PORT}/health" || return 1
-  # Halaman login ada di LOGIN_PATH (/login biasa dijawab 404). /login tetap diterima sebagai tanda sehat agar rollback ke image
-  # lama (sebelum alamat login tersembunyi) tidak dianggap gagal.
+  # Halaman login ada di LOGIN_PATH (/login biasa dijawab 404, lihat resolve_login_path). /login tetap diterima sebagai tanda sehat
+  # agar rollback ke image lama (sebelum alamat login tersembunyi) tidak dianggap gagal.
   wait_http "Frontend" "${CONTAINER_PREFIX}-frontend" "http://${host}:${FRONTEND_PORT}${LOGIN_PATH}" "http://${host}:${FRONTEND_PORT}/login" || return 1
 }
 
@@ -969,13 +999,12 @@ summary() {
     Kode      : $(g rev-parse --abbrev-ref HEAD) @ $(g rev-parse --short HEAD)
     Aplikasi  : ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}
     Halaman login: ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}${LOGIN_PATH}
-                (alamat /login biasa dijawab 404; bagikan alamat di atas hanya kepada pengguna yang berhak)
     API       : ${API_URL}
     Log       : docker compose logs -f   (atau: tail -f $LOG_FILE)
     Berikutnya: cukup jalankan ./deploy.sh setiap kali ada pembaruan (kode ditarik otomatis).
 EOF
-  if [ -n "${LOGIN_PATH_BARU:-}" ]; then
-    warn "Alamat login BARU dibuat. Alamat lama (/login) tidak berlaku lagi: beri tahu semua pengguna alamat login di atas."
+  if [ "$LOGIN_PATH" != "/login" ]; then
+    log "Alamat /login biasa dijawab 404; bagikan alamat halaman login di atas hanya kepada pengguna yang berhak."
   fi
 }
 
@@ -1005,6 +1034,7 @@ main() {
   load_deploy_config
   check_ports          # container & port, sebelum mengubah apa pun di server
   sync_code            # setelah ini kode di disk sudah terbaru
+  resolve_login_path   # alamat halaman login (bawaan repo atau deploy.env), dari kode yang baru ditarik
   prepare_backend_env  # membuat/validasi backend/.env (bisa berhenti dengan instruksi)
   check_db_reachable   # server database terjangkau? (gagal cepat, sebelum build)
   confirm_production   # hanya untuk prod

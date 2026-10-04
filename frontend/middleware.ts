@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { COOKIE_PETUNJUK, COOKIE_TOKEN, UMUR_PETUNJUK_DETIK, jalurMasukDari, samakanJalur, tentukanAksi } from "@/lib/loginPath";
+import { COOKIE_TOKEN, jalurMasukDari, samakanJalur, tentukanAksi } from "@/lib/loginPath";
 
-// Alamat halaman login: LOGIN_PATH (tidak bisa ditebak) disisipkan saat build lewat next.config.ts; tanpa itu /login seperti
-// semula. Aturan lengkapnya ada di lib/loginPath.ts.
+// Alamat halaman login: LOGIN_PATH disisipkan saat build lewat next.config.ts (bawaan: frontend/login-path.txt); /login biasa
+// dijawab 404. Aturan lengkapnya ada di lib/loginPath.ts.
 const JALUR_MASUK = jalurMasukDari(process.env.LOGIN_PATH);
 
 // Rute yang tidak ada: jawabannya halaman 404 bawaan aplikasi.
@@ -14,7 +14,6 @@ export function middleware(request: NextRequest) {
     pathname: samakanJalur(request.nextUrl.pathname, JALUR_MASUK),
     search: request.nextUrl.search,
     adaToken: Boolean(request.cookies.get(COOKIE_TOKEN)?.value),
-    adaPetunjuk: Boolean(request.cookies.get(COOKIE_PETUNJUK)?.value),
     jalurMasuk: JALUR_MASUK,
   });
 
@@ -40,16 +39,6 @@ export function middleware(request: NextRequest) {
     case "tulis-ulang": {
       const res = NextResponse.rewrite(tujuan(aksi.ke));
       res.headers.set("Cache-Control", "no-store");
-      if (aksi.setPetunjuk) {
-        // Peramban yang pernah membuka halaman login boleh diarahkan kembali ke sana (logout, sesi habis, galat SSO).
-        res.cookies.set(COOKIE_PETUNJUK, "1", {
-          httpOnly: true,
-          sameSite: "lax",
-          secure: request.headers.get("x-forwarded-proto") === "https" || request.nextUrl.protocol === "https:",
-          path: "/",
-          maxAge: UMUR_PETUNJUK_DETIK,
-        });
-      }
       return res;
     }
 
