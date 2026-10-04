@@ -435,9 +435,20 @@ export interface DGActiveRun {
   oleh: string;
 }
 
+// Sinkronisasi otomatis berkala: dimulai server sendiri (tanpa batas waktu) pada jam malam bila sudah lewat interval sejak sukses terakhir.
+export interface DGAutoInfo {
+  aktif: boolean;
+  interval_hari: number;
+  jam_mulai: number; // jam (zona) paling awal sinkronisasi otomatis boleh dimulai
+  jam_akhir: number;
+  zona: string; // "WIB"
+  berikutnya: string | null; // perkiraan mulai berikutnya
+}
+
 export interface DGSyncOverview {
   sldk_tersedia: boolean;
   aktif: DGActiveRun | null;
+  otomatis: DGAutoInfo;
   datasets: DGDatasetStatus[];
   riwayat: DGSyncLog[];
 }

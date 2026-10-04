@@ -413,6 +413,9 @@ func TestRingkasanShape(t *testing.T) {
 
 func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 	p, _ := setupDG(t)
+	ctx, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop) // menghentikan penjadwal yang dinyalakan di bawah
+	digitalisasi.Default.MulaiPenjadwal(ctx, digitalisasi.NewJadwal(true, 7, 1, 5))
 	secret := "mssql: Login failed for user 'sa' (host 10.1.2.3)"
 	failed := []driver.Value{int64(5), "tanah", "gagal", time.Now(), nil, time.Now(), nil, nil, secret, "admin1"}
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
@@ -442,6 +445,34 @@ func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 	d := dataOf(t, body)
 	if d["sldk_tersedia"] != true || len(d["datasets"].([]interface{})) != len(digitalisasi.Datasets) {
 		t.Errorf("status = %v", d)
+	}
+
+	// Jadwal sinkronisasi otomatis ikut dikirim (terlihat oleh semua pengguna) beserta perkiraan berikutnya.
+	for _, peran := range []string{"user", "admin"} {
+		_, b := call(dgRouter(peran), "GET", "/dg/sinkronisasi", "")
+		oto, _ := dataOf(t, b)["otomatis"].(map[string]interface{})
+		if oto["aktif"] != true || oto["interval_hari"] != float64(7) || oto["jam_mulai"] != float64(1) || oto["jam_akhir"] != float64(5) || oto["zona"] != "WIB" || oto["berikutnya"] == nil {
+			t.Errorf("%s: otomatis = %v", peran, oto)
+		}
+	}
+}
+
+func TestStatusOtomatisNonaktif(t *testing.T) {
+	p, _ := setupDG(t)
+	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		switch {
+		case strings.HasPrefix(q, "SELECT 'satker', COUNT(*) FROM"):
+			return []string{"k", "n"}, nil, nil
+		case strings.Contains(q, "PARTITION BY dataset"), strings.HasPrefix(q, "SELECT TOP"):
+			return make([]string, 10), nil, nil
+		}
+		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
+	}
+	digitalisasi.Default.MulaiPenjadwal(context.Background(), digitalisasi.NewJadwal(false, 7, 1, 5))
+	_, body := call(dgRouter("admin"), "GET", "/dg/sinkronisasi", "")
+	oto, _ := dataOf(t, body)["otomatis"].(map[string]interface{})
+	if oto["aktif"] != false || oto["berikutnya"] != nil {
+		t.Errorf("dimatikan: otomatis = %v", oto)
 	}
 }
 

@@ -47,8 +47,9 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 1. Admin memilih dataset (atau "Sinkronkan semua") dan mengonfirmasi. Permintaan langsung dijawab; pekerjaan berjalan di server,
    jadi halaman boleh ditinggalkan. Hanya **satu antrean** berjalan pada satu waktu; dataset dijalankan berurutan.
 2. Per dataset: query dijalankan di SLDK pada satu koneksi (query memakai tabel `#sementara`), seluruh hasil dibaca ke memori
-   (maks. 500.000 baris, batas waktu 2 jam), lalu **dalam satu transaksi singkat** isi tabel tujuan dikosongkan dan diisi ulang.
-   Pembaca tidak terkunci selama query SLDK berjalan; bila ada yang gagal, tabel tidak berubah.
+   (maks. 500.000 baris, **tanpa batas waktu**: berjalan sampai selesai atau sampai admin menekan Batalkan), lalu **dalam satu
+   transaksi singkat** isi tabel tujuan dikosongkan dan diisi ulang. Pembaca tidak terkunci selama query SLDK berjalan; bila ada
+   yang gagal, tabel tidak berubah.
 3. Perlindungan: hasil **0 baris tidak menimpa** tabel yang sudah berisi; kolom hasil yang hilang dari query menghentikan
    sinkronisasi dengan pesan yang jelas; nilai teks yang melebihi panjang kolom dipotong dan dicatat; koordinat di luar rentang bumi,
    tidak berpasangan, atau (0, 0) dibuang (NULL).
@@ -59,6 +60,33 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 
 > Tiap query membaca tabel aset SLDK (±206 GB). Jalankan di luar jam kerja dan jangan bersamaan dengan
 > `pasti-sldk-sync ringkasan` (lihat [sldk-sync.md](sldk-sync.md)).
+
+### Sinkronisasi otomatis mingguan
+
+Server menyinkronkan dataset sendiri tanpa perlu ditekan manual. Penjadwalnya berjalan di dalam proses backend (tanpa cron di luar) dan
+membaca riwayat `digitalisasi_sync_log`, jadi keadaannya bertahan saat server dimulai ulang dan sinkronisasi **manual ikut dihitung**.
+
+- Sebuah dataset **jatuh tempo** bila sinkronisasi suksesnya yang terakhir sudah lebih tua dari 7 hari (atau belum pernah ada). Yang
+  jatuh tempo diantrekan bersama, berurutan, sebagai satu antrean (dicatat `dijalankan_oleh = otomatis (mingguan)`).
+- Hanya **dimulai** di jendela jam malam, bawaan **01.00-05.00 WIB**, supaya query berat ke SLDK tidak berjalan di jam kerja. Yang sudah
+  berjalan boleh melewati jendela itu sampai selesai. Penjadwal memeriksa tiap 15 menit.
+- Percobaan yang **gagal** (atau terhenti karena server dimulai ulang) tidak diulang langsung: dataset yang sama baru dicoba lagi
+  paling cepat 20 jam kemudian, yaitu pada malam berikutnya, supaya SLDK tidak dibebani berulang saat ada masalah.
+- Tidak pernah bersamaan dengan sinkronisasi lain: bila admin sedang menyinkronkan manual, penjadwal menunggu putaran berikutnya.
+- **Tanpa batas waktu**, baik manual maupun otomatis; sinkronisasi yang macet dihentikan lewat tombol *Batalkan*.
+- Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila `SLDK_DB_*` terisi (koneksi SLDK ada).
+- Dataset yang belum pernah disinkronkan ikut diantrekan pada malam pertama setelah deploy; sebelum itu, coba satu dataset kecil dulu
+  secara manual (lihat *Menjalankan pertama kali*), atau matikan otomatis dulu.
+
+Pengaturan opsional di `backend/.env` (tanpa mengisinya: aktif, 7 hari, 01-05 WIB):
+
+| Variabel | Arti | Bawaan |
+|---|---|---|
+| `DIGITALISASI_AUTO_SYNC` | `false` untuk mematikan sinkronisasi otomatis | `true` |
+| `DIGITALISASI_AUTO_INTERVAL_HARI` | jarak minimal antar sinkronisasi sukses sebuah dataset (1-365) | `7` |
+| `DIGITALISASI_AUTO_JAM_MULAI` / `DIGITALISASI_AUTO_JAM_AKHIR` | jendela jam (WIB, 0-23) sinkronisasi boleh dimulai; sama = sepanjang hari | `1` / `5` |
+
+Nilai di luar rentang diganti bawaannya. Restart backend setelah mengubahnya.
 
 ## Peta
 
@@ -90,5 +118,6 @@ Seluruh pengujian memakai database palsu; belum ada yang dijalankan ke SLDK:
 
 - kolom `gps_latitude`/`gps_longitude` pada `SIMAN2_M_ASET` dan tipenya (dibaca longgar: angka, atau teks dengan koma desimal);
 - arti nilai `SIMAN2_PENGELOLAAN.is_asuransi` (grafik asuransi memetakan `1/Y/YA/TRUE` dan `0/T/N/TIDAK/FALSE`, selain itu ditampilkan apa adanya);
-- jumlah baris tiap dataset terhadap batas 500.000 dan lama query terhadap batas 2 jam;
+- jumlah baris tiap dataset terhadap batas 500.000 dan berapa lama query berjalan (kini tanpa batas waktu; sinkronisasi otomatis
+  mingguan belum pernah berjalan terhadap SLDK asli, hanya diuji dengan database palsu dan jam yang disimulasikan);
 - nama UE1: hanya empat yang diketahui dari komentar query (01504 DJP, 01505 DJBC, 01508 DJPb, 01515 BATII); sisanya tampil "UE1 <kode>".

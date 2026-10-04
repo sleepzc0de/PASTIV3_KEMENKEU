@@ -50,6 +50,13 @@ type Config struct {
 	// SLDKKLKode membatasi data aset ke satu K/L menurut kodenya (mis. 015 = Kementerian Keuangan). Kosong = seluruh K/L.
 	SLDKKLKode string
 
+	// ============ Sinkronisasi otomatis Digitalisasi Aset ============
+	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Hanya berjalan bila SLDK tersambung.
+	DigitalisasiAutoSync         bool
+	DigitalisasiAutoIntervalHari int
+	DigitalisasiAutoJamMulai     int
+	DigitalisasiAutoJamAkhir     int
+
 	TokenEncryptionKey string
 	InaprocBaseURL     string
 	InaprocToken       string
@@ -105,6 +112,11 @@ func LoadConfig() {
 		SLDKAssetSearchCols: parseCommaList(getEnv("SLDK_ASSET_SEARCH_COLUMNS", "")),
 		SLDKKLKode:          strings.TrimSpace(getEnv("SLDK_KL_KODE", "")),
 
+		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
+		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),
+		DigitalisasiAutoJamMulai:     getEnvInt("DIGITALISASI_AUTO_JAM_MULAI", 1),
+		DigitalisasiAutoJamAkhir:     getEnvInt("DIGITALISASI_AUTO_JAM_AKHIR", 5),
+
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),
 		InaprocToken:       getEnv("INAPROC_TOKEN", ""),
@@ -130,6 +142,26 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvBool membaca nilai ya/tidak: false, 0, off, no, tidak = mati; true, 1, on, yes, ya = hidup; selain itu (atau kosong) = fallback.
+func getEnvBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "false", "0", "off", "no", "tidak":
+		return false
+	case "true", "1", "on", "yes", "ya":
+		return true
+	}
+	return fallback
+}
+
+// getEnvInt membaca bilangan bulat; kosong atau tidak terbaca = fallback.
+func getEnvInt(key string, fallback int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 type SSOEndpoints struct {
