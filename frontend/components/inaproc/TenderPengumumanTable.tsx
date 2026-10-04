@@ -5,7 +5,7 @@ import { getTenderPengumuman, syncTenderPengumuman, TenderPengumumanItem } from 
 import { formatDate, formatCurrency } from "@/lib/format";
 import { TenderPengumumanDetailModal } from "@/components/inaproc/TenderPengumumanDetailModal";
 import { StatusBadge } from "@/components/inaproc/StatusBadge";
-import { KolomTender, TenderCursorTable } from "@/components/inaproc/TenderCursorTable";
+import { IsianKode, KolomTender, TenderCursorTable } from "@/components/inaproc/TenderCursorTable";
 
 const KOLOM: KolomTender<TenderPengumumanItem>[] = [
   { judul: "Kode Tender", kelas: "whitespace-nowrap font-mono text-xs text-slate-600", render: (r) => r.kd_tender || "-" },
@@ -18,13 +18,16 @@ const KOLOM: KolomTender<TenderPengumumanItem>[] = [
   { judul: "Tgl. Pengumuman", kelas: "whitespace-nowrap text-xs text-slate-500", render: (r) => formatDate(r.tgl_pengumuman_tender) },
 ];
 
+// Dua skenario di Inaproc: (tahun + kode_klpd) atau kd_tender saja; bila Kode Tender diisi, tahun diabaikan.
+const KODE_TENDER: IsianKode = { label: "Kode Tender (opsional)", nama: "Kode Tender", placeholder: "Bila diisi, tahun diabaikan", numerik: true };
+
 export function TenderPengumumanTable() {
   return (
     <TenderCursorTable<TenderPengumumanItem>
       ikon={Newspaper}
       petunjukAwal="Isi Tahun (atau Kode Tender) untuk melihat pengumuman tender Kementerian Keuangan"
-      cariKodeTender
-      ambil={getTenderPengumuman}
+      kodeCari={KODE_TENDER}
+      ambil={(p) => getTenderPengumuman({ kode_klpd: p.kode_klpd, tahun: p.tahun, kd_tender: p.kode, limit: p.limit, cursor: p.cursor })}
       sinkron={syncTenderPengumuman}
       kolom={KOLOM}
       kunciBaris={(r, i) => `${r.kd_tender}-${r.versi_tender ?? ""}-${i}`}

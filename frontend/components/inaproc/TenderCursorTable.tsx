@@ -20,27 +20,56 @@ export interface KolomTender<T> {
   tooltip?: (row: T) => string | null | undefined;
 }
 
+// Satu isian kode di form pencarian, di samping (atau pengganti) Tahun.
+//  - opsional (bawaan): bila diisi, kode menggantikan Tahun sebagai penyaring (mis. kd_tender di Pengumuman Tender).
+//  - wajib: pencarian rujukan per satu kode (komoditas, penyedia, distributor E-Katalog); kode itu satu-satunya penyaring dan juga
+//    dikirim saat sinkronisasi.
+export interface IsianKode {
+  label: string; // teks label di atas isian
+  nama: string; // nama dalam pesan galat, mis. "Kode Penyedia"
+  placeholder?: string;
+  wajib?: boolean;
+  numerik?: boolean; // hanya angka
+}
+
 interface Props<T> {
   ikon: LucideIcon;
   petunjukAwal: string; // teks sebelum pencarian pertama
-  // Tampilkan kolom "Kode Tender" (opsional). Bila diisi, pencarian memakai kd_tender saja dan tahun diabaikan; hanya untuk
-  // endpoint yang punya skenario itu (tender/pengumuman). `ambil` menerima kd_tender dan harus meneruskannya sendirian.
-  cariKodeTender?: boolean;
-  ambil: (p: { kode_klpd: string; tahun: number; kd_tender?: string; limit: number; cursor?: string }) => Promise<{ data: T[] | null; meta?: InaprocMeta }>;
-  sinkron: (p: { kode_klpd: string; tahun: string }) => Promise<{ data: { total_synced: number; total_failed?: number } }>;
+  kodeCari?: IsianKode;
+  tanpaTahun?: boolean; // sembunyikan isian Tahun (endpoint tanpa tahun)
+  // Pengganti teks "Menampilkan data untuk Kementerian Keuangan (Kode KLPD: K10)", mis. untuk pencarian per kode yang tidak
+  // berkaitan dengan KLPD.
+  keterangan?: string;
+  ambil: (p: { kode_klpd: string; tahun: number; kode?: string; limit: number; cursor?: string }) => Promise<{ data: T[] | null; meta?: InaprocMeta }>;
+  sinkron: (p: { kode_klpd: string; tahun: string; kode?: string }) => Promise<{ data: { total_synced: number; total_failed?: number } }>;
   kolom: KolomTender<T>[];
   kunciBaris: (row: T, idx: number) => string;
   detail: (row: T, tutup: () => void) => ReactNode;
 }
 
-// Tabel data Inaproc berhalaman dengan cursor: cari per tahun, "Muat Lebih Banyak", detail per baris, dan (admin) sinkronisasi ke
-// database. Dipakai halaman Tender yang bentuknya sama; tiap halaman hanya menyediakan kolom dan modal detailnya.
-export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender = false, ambil, sinkron, kolom, kunciBaris, detail }: Props<T>) {
+const KELAS_ISIAN =
+  "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow";
+
+// Tabel data Inaproc berhalaman dengan cursor: cari per tahun (atau per kode), "Muat Lebih Banyak", detail per baris, dan (admin)
+// sinkronisasi ke database. Dipakai halaman Tender dan E-Katalog yang bentuknya sama; tiap halaman hanya menyediakan kolom dan
+// modal detailnya.
+export function TenderCursorTable<T>({
+  ikon: Ikon,
+  petunjukAwal,
+  kodeCari,
+  tanpaTahun = false,
+  keterangan,
+  ambil,
+  sinkron,
+  kolom,
+  kunciBaris,
+  detail,
+}: Props<T>) {
   const { profile } = useDashboard();
   const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
 
   const [tahun, setTahun] = useState(new Date().getFullYear().toString());
-  const [kodeTender, setKodeTender] = useState("");
+  const [kode, setKode] = useState("");
 
   const [rows, setRows] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
@@ -59,13 +88,18 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
 
   const runSearch = useCallback(
     async (useCursor?: string) => {
-      const kd = cariKodeTender ? kodeTender.trim() : "";
-      if (kd && !/^\d+$/.test(kd)) {
-        setError("Kode Tender harus berupa angka");
+      const kd = kodeCari ? kode.trim() : "";
+      if (kodeCari?.wajib && !kd) {
+        setError(`${kodeCari.nama} wajib diisi`);
         return;
       }
-      if (!kd && !tahun.trim()) {
-        setError(cariKodeTender ? "Isi Tahun atau Kode Tender" : "Tahun wajib diisi");
+      if (kodeCari && kd && kodeCari.numerik && !/^\d+$/.test(kd)) {
+        setError(`${kodeCari.nama} harus berupa angka`);
+        return;
+      }
+      // Tahun dibutuhkan kecuali endpoint-nya tanpa tahun, atau kode opsional yang terisi menggantikannya.
+      if (!tanpaTahun && !(kodeCari && !kodeCari.wajib && kd) && !tahun.trim()) {
+        setError(kodeCari && !kodeCari.wajib ? `Isi Tahun atau ${kodeCari.nama}` : "Tahun wajib diisi");
         return;
       }
       if (useCursor) {
@@ -80,7 +114,7 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
         const res = await ambil({
           kode_klpd: KODE_KLPD_KEMENKEU,
           tahun: parseInt(tahun, 10),
-          kd_tender: kd || undefined,
+          kode: kd || undefined,
           limit: 50,
           cursor: useCursor,
         });
@@ -103,11 +137,21 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
         setIsLoadingMore(false);
       }
     },
-    [tahun, kodeTender, cariKodeTender, ambil]
+    [tahun, kode, kodeCari, tanpaTahun, ambil]
   );
 
   const handleSync = useCallback(async () => {
-    if (!tahun.trim()) {
+    // Kode ikut disinkronkan hanya bila wajib (pencarian rujukan per kode); kode opsional hanya untuk pencarian.
+    const kd = kodeCari?.wajib ? kode.trim() : "";
+    if (kodeCari?.wajib && !kd) {
+      setSyncError(`Isi ${kodeCari.nama} terlebih dahulu sebelum sinkronisasi`);
+      return;
+    }
+    if (kodeCari?.wajib && kodeCari.numerik && !/^\d+$/.test(kd)) {
+      setSyncError(`${kodeCari.nama} harus berupa angka`);
+      return;
+    }
+    if (!tanpaTahun && !tahun.trim()) {
       setSyncError("Isi Tahun terlebih dahulu sebelum sinkronisasi");
       return;
     }
@@ -115,7 +159,7 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
     setSyncError(null);
     setSyncMessage(null);
     try {
-      const res = await sinkron({ kode_klpd: KODE_KLPD_KEMENKEU, tahun });
+      const res = await sinkron({ kode_klpd: KODE_KLPD_KEMENKEU, tahun, ...(kd ? { kode: kd } : {}) });
       const gagal = res.data.total_failed ?? 0;
       setSyncMessage(
         `Berhasil menyinkronkan ${res.data.total_synced} baris data ke database.` + (gagal > 0 ? ` ${gagal} baris gagal disimpan (lihat log server).` : "")
@@ -129,42 +173,58 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
     } finally {
       setIsSyncing(false);
     }
-  }, [tahun, sinkron]);
+  }, [tahun, kode, kodeCari, tanpaTahun, sinkron]);
+
+  // Tombol Cari mengisi sisa baris dari grid 3 kolom.
+  const jumlahIsian = (tanpaTahun ? 0 : 1) + (kodeCari ? 1 : 0);
+  const lebarCari = jumlahIsian === 0 ? "sm:col-span-3" : jumlahIsian === 1 ? "sm:col-span-2" : "";
+  const cariBilaEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !isLoading) runSearch();
+  };
 
   return (
     <div className="w-full space-y-4">
       <div className="flex items-center gap-2.5 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-800">
         <Ikon className="h-4 w-4 shrink-0" />
-        <span>
-          Menampilkan data untuk <span className="font-semibold">Kementerian Keuangan (Kode KLPD: {KODE_KLPD_KEMENKEU})</span>
-        </span>
+        {keterangan ? (
+          <span>{keterangan}</span>
+        ) : (
+          <span>
+            Menampilkan data untuk <span className="font-semibold">Kementerian Keuangan (Kode KLPD: {KODE_KLPD_KEMENKEU})</span>
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-slate-600">{cariKodeTender ? "Tahun" : "Tahun *"}</label>
-          <input
-            type="number"
-            value={tahun}
-            onChange={(e) => setTahun(e.target.value)}
-            placeholder="2025"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
-          />
-        </div>
-        {cariKodeTender && (
+        {!tanpaTahun && (
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-600">Kode Tender (opsional)</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600">{kodeCari && !kodeCari.wajib ? "Tahun" : "Tahun *"}</label>
             <input
-              type="text"
-              inputMode="numeric"
-              value={kodeTender}
-              onChange={(e) => setKodeTender(e.target.value)}
-              placeholder="Bila diisi, tahun diabaikan"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
+              type="number"
+              value={tahun}
+              onChange={(e) => setTahun(e.target.value)}
+              onKeyDown={cariBilaEnter}
+              placeholder="2025"
+              className={KELAS_ISIAN}
             />
           </div>
         )}
-        <div className={`flex items-end ${cariKodeTender ? "" : "sm:col-span-2"}`}>
+        {kodeCari && (
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600">{kodeCari.label}</label>
+            <input
+              type="text"
+              inputMode={kodeCari.numerik ? "numeric" : "text"}
+              maxLength={100}
+              value={kode}
+              onChange={(e) => setKode(e.target.value)}
+              onKeyDown={cariBilaEnter}
+              placeholder={kodeCari.placeholder}
+              className={KELAS_ISIAN}
+            />
+          </div>
+        )}
+        <div className={`flex items-end ${lebarCari}`}>
           <button
             onClick={() => runSearch()}
             disabled={isLoading}
@@ -180,7 +240,11 @@ export function TenderCursorTable<T>({ ikon: Ikon, petunjukAwal, cariKodeTender 
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
           <div className="flex-1">
             <p className="text-sm font-medium text-slate-700">Sinkronkan ke Database PASTI V3</p>
-            <p className="text-xs text-slate-500">Menarik seluruh data (semua halaman) dari Inaproc dan menyimpannya secara lokal.</p>
+            <p className="text-xs text-slate-500">
+              {kodeCari?.wajib
+                ? `Menarik data untuk ${kodeCari.nama} yang diisi dari Inaproc dan menyimpannya secara lokal; data lama untuk kode itu diganti.`
+                : "Menarik seluruh data (semua halaman) dari Inaproc dan menyimpannya secara lokal."}
+            </p>
           </div>
           <button
             onClick={handleSync}

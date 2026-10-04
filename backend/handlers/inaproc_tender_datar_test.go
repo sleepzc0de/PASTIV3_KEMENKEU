@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -436,6 +437,84 @@ const contohTenderSelesaiNilai = `{
   "tgl_pengumuman_tender": "2024-01-10 13:30:00.000000Z"
 }`
 
+const contohEkatalogInstansiSatker = `{
+  "jenis_klpd": "KEMENTERIAN",
+  "kd_klpd": "KX",
+  "kd_satker": 12345,
+  "kd_satker_str": "12345",
+  "nama_klpd": "Kementerian Contoh",
+  "nama_satker": "SATKER CONTOH 01"
+}`
+
+const contohEkatalogKomoditas = `{
+  "Jenis_Katalog": "KATALOG NASIONAL",
+  "kd_instansi_katalog": null,
+  "kd_komoditas": 999,
+  "nama_instansi_katalog": null,
+  "nama_komoditas": "Layanan Internet Contoh"
+}`
+
+const contohEkatalogPaket = `{
+  "alamat_satker": "Jl. Contoh No. 123",
+  "catatan_produk": "catatan produk contoh",
+  "deskripsi": "deskripsi paket contoh",
+  "email_user_pokja": "pokja@example.com",
+  "harga_satuan": 5000000,
+  "jabatan_ppk": "PPK",
+  "jml_jenis_produk": 2,
+  "kd_kabupaten_wilayah_harga": 10,
+  "kd_klpd": "KX",
+  "kd_komoditas": 100,
+  "kd_paket": 1234567,
+  "kd_paket_produk": 7654321,
+  "kd_penyedia": 111111,
+  "kd_penyedia_distributor": 222222,
+  "kd_produk": 333333,
+  "kd_provinsi_wilayah_harga": 5,
+  "kd_rup": 9876543,
+  "kd_user_pokja": 12345,
+  "kd_user_ppk": 54321,
+  "kode_anggaran": "ANGGARAN.CONTOH.001",
+  "kuantitas": 4,
+  "nama_paket": "Pengadaan Perangkat Contoh",
+  "nama_satker": "Satker Contoh",
+  "nama_sumber_dana": "APBN",
+  "no_paket": "PKT-2024-0001",
+  "no_telp_user_pokja": "62081234567890",
+  "npwp_satker": "001234567890000",
+  "ongkos_kirim": 0,
+  "paket_status_str": "Paket Selesai",
+  "ppk_nip": "198201012000010001",
+  "satker_id": 9999,
+  "status_paket": "paket_selesai",
+  "tahun_anggaran": 2024,
+  "tanggal_buat_paket": "2024-01-02",
+  "tanggal_edit_paket": "2024-01-03",
+  "total_harga": 20000000
+}`
+
+const contohEkatalogPenyedia = `{
+  "alamat_penyedia": "Jl. Raya Contoh No. 9",
+  "email_penyedia": "info@penyediacontoh.id",
+  "kbli2020_penyedia": "C12345;G67890",
+  "kd_penyedia": 42,
+  "kode_penyedia_sikap": 555001,
+  "nama_penyedia": "PT Penyedia Contoh",
+  "no_telp_penyedia": "0211234567",
+  "npwp_16": null,
+  "npwp_penyedia": "001234567890000",
+  "penyedia_ukm": "Usaha Kecil"
+}`
+
+const contohEkatalogDistributor = `{
+  "alamat_distributor": "Kompleks Niaga Contoh Blok A1",
+  "email_distributor": "distributor@example.com",
+  "kd_penyedia_distributor": 8888,
+  "nama_distributor": "PT Distributor Contoh",
+  "no_telp_distributor": "081212345678",
+  "npwp_distributor": "01.234.567.8-901.000"
+}`
+
 type jenisUji struct {
 	nama      string
 	ep        *endpointDatar
@@ -539,12 +618,124 @@ func semuaJenisUji() []jenisUji {
 				"pagu": "12345", "hps": "1234567890", "nilai_penawaran": "1234567890", "nilai_kontrak": "1234567890",
 			},
 		},
+		{
+			nama: "instansi-satker", ep: ekatalogInstansiSatker, migrasi: "035_create_inaproc_ekatalog_instansi_satker.sql", contoh: contohEkatalogInstansiSatker, jumlahFld: 6,
+			harap: map[string]interface{}{"kd_klpd": "KX", "kd_satker": "12345", "kd_satker_str": "12345", "nama_satker": "SATKER CONTOH 01"},
+		},
+		{
+			nama: "komoditas-detail", ep: ekatalogKomoditas, migrasi: "036_create_inaproc_ekatalog_komoditas.sql", contoh: contohEkatalogKomoditas, jumlahFld: 5,
+			harap: map[string]interface{}{
+				"Jenis_Katalog": "KATALOG NASIONAL", "kd_komoditas": "999", "nama_komoditas": "Layanan Internet Contoh",
+				"kd_instansi_katalog": nil, "nama_instansi_katalog": nil,
+			},
+		},
+		{
+			nama: "paket-e-purchasing", ep: ekatalogPaket, migrasi: "037_create_inaproc_ekatalog_paket_epurchasing.sql", contoh: contohEkatalogPaket, jumlahFld: 36,
+			harap: map[string]interface{}{
+				"kd_paket": "1234567", "kd_paket_produk": "7654321", "kd_rup": "9876543", "kd_user_pokja": "12345", "satker_id": "9999",
+				"no_telp_user_pokja": "62081234567890", "ppk_nip": "198201012000010001", "tahun_anggaran": "2024", "kd_klpd": "KX",
+				"status_paket": "paket_selesai", "paket_status_str": "Paket Selesai", "jml_jenis_produk": int64(2),
+				"harga_satuan": "5000000", "kuantitas": "4", "ongkos_kirim": "0", "total_harga": "20000000",
+			},
+		},
+		{
+			nama: "penyedia-detail", ep: ekatalogPenyedia, migrasi: "038_create_inaproc_ekatalog_penyedia.sql", contoh: contohEkatalogPenyedia, jumlahFld: 10,
+			harap: map[string]interface{}{
+				"kd_penyedia": "42", "kode_penyedia_sikap": "555001", "npwp_16": nil, "npwp_penyedia": "001234567890000",
+				"kbli2020_penyedia": "C12345;G67890", "penyedia_ukm": "Usaha Kecil",
+			},
+		},
+		{
+			nama: "penyedia-distributor-detail", ep: ekatalogDistributor, migrasi: "039_create_inaproc_ekatalog_distributor.sql", contoh: contohEkatalogDistributor, jumlahFld: 6,
+			harap: map[string]interface{}{"kd_penyedia_distributor": "8888", "npwp_distributor": "01.234.567.8-901.000", "no_telp_distributor": "081212345678"},
+		},
 	}
+}
+
+// Bentuk saringan tiap endpoint (bawaan, hanya KLPD, atau satu kode) menentukan parameter yang sah dan kolom yang diganti
+// sinkronisasi. Pembantu di bawah menjaga agar tes yang berlaku untuk semua endpoint tetap satu.
+const kodeUji = "KODE123"
+
+func (j jenisUji) modeBawaan() bool { return j.ep.Saring == (saringan{}) }
+
+func (j jenisUji) jalur() string { return "/inaproc/" + j.ep.awalan() + "/" + j.nama }
+
+// query: GET yang sah untuk endpoint ini, ditambah pasangan lain (mis. limit).
+func (j jenisUji) query(tambahan ...string) string {
+	var p []string
+	switch {
+	case j.ep.Saring.Param != "":
+		p = []string{j.ep.Saring.Param + "=" + kodeUji}
+	case j.ep.Saring.TanpaTahun:
+	default:
+		p = []string{"tahun=2024"}
+	}
+	p = append(p, tambahan...)
+	if len(p) == 0 {
+		return ""
+	}
+	return "?" + strings.Join(p, "&")
+}
+
+// paramHulu: pasangan yang harus ada pada permintaan ke Inaproc untuk query() di atas.
+func (j jenisUji) paramHulu() []string {
+	switch {
+	case j.ep.Saring.Param != "":
+		return []string{j.ep.Saring.Param + "=" + kodeUji}
+	case j.ep.Saring.TanpaTahun:
+		return []string{"kode_klpd=K10"}
+	}
+	return []string{"kode_klpd=K10", "tahun=2024"}
+}
+
+func (j jenisUji) bodySync() string {
+	switch {
+	case j.ep.Saring.Param != "":
+		return `{"kode":"` + kodeUji + `"}`
+	case j.ep.Saring.TanpaTahun:
+		return `{}`
+	}
+	return `{"tahun":"2024"}`
+}
+
+// argHapus: argumen DELETE yang diharapkan pada sinkronisasi.
+func (j jenisUji) argHapus() []string {
+	switch {
+	case j.ep.Saring.Param != "":
+		return []string{kodeUji}
+	case j.ep.Saring.TanpaTahun:
+		return []string{"K10"}
+	}
+	return []string{"K10", "2024"}
+}
+
+// wajibAdaSyarat: GET tanpa parameter apa pun harus ditolak (saringan hanya-KLPD punya bawaan K10, jadi tidak).
+func (j jenisUji) wajibAdaSyarat() bool { return j.ep.Saring.Param != "" || !j.ep.Saring.TanpaTahun }
+
+func (j jenisUji) kolomWajib() []string {
+	switch {
+	case j.ep.Saring.Param != "":
+		return []string{j.ep.Saring.Kolom}
+	case j.ep.Saring.TanpaTahun:
+		return []string{"kd_klpd"}
+	}
+	return []string{"kd_klpd", "tahun_anggaran"}
+}
+
+// wherelokal: potongan SQL daftar lokal yang diharapkan untuk query() dengan limit.
+func (j jenisUji) whereLokal() string {
+	switch {
+	case j.ep.Saring.Param != "":
+		return "FROM " + j.ep.Tabel + " WHERE " + j.ep.Saring.Kolom + " = @p1"
+	case j.ep.Saring.TanpaTahun:
+		return "FROM " + j.ep.Tabel + " WHERE kd_klpd = @p1"
+	}
+	return "FROM " + j.ep.Tabel + " WHERE kd_klpd = @p1 AND tahun_anggaran = @p2"
 }
 
 // varianBaris mengubah satu field teks pada contoh supaya baris yang dikirim tiap halaman berbeda (row_key berbeda).
 func varianBaris(contoh, label string) string {
-	for _, kunci := range []string{`"nama_paket": "`, `"no_realisasi": "`, `"nama_penyedia": "`} {
+	for _, kunci := range []string{`"nama_paket": "`, `"no_realisasi": "`, `"nama_penyedia": "`, `"nama_satker": "`, `"nama_komoditas": "`, `"nama_distributor": "`} {
 		if strings.Contains(contoh, kunci) {
 			return strings.Replace(contoh, kunci, kunci+label+" ", 1)
 		}
@@ -561,7 +752,9 @@ func contohBaris(t *testing.T, js string) map[string]interface{} {
 	return row
 }
 
-var reKolomMigrasi = regexp.MustCompile(`(?m)^\s+([a-z0-9_]+)\s+(?:NVARCHAR|DECIMAL|DATETIME2|INT|BIGINT)\b`)
+// Huruf besar/kecil tidak dibedakan pada pencocokan, supaya nama seperti "Jenis_Katalog" (huruf besar di API) ikut terbaca;
+// perbandingan dengan daftar field tetap persis.
+var reKolomMigrasi = regexp.MustCompile(`(?mi)^\s+([a-z0-9_]+)\s+(?:NVARCHAR|DECIMAL|DATETIME2|INT|BIGINT)\b`)
 
 // Kolom di migrasi harus sama dengan daftar field di deklarasi: selisihnya baru ketahuan saat INSERT gagal di server.
 func TestEndpointDatarKolomSamaDenganMigrasi(t *testing.T) {
@@ -596,13 +789,23 @@ func TestEndpointDatarKolomSamaDenganMigrasi(t *testing.T) {
 				seen[f] = true
 			}
 			// Kolom penyaring sinkronisasi dan daftar lokal harus ada.
-			for _, wajib := range []string{"kd_klpd", "tahun_anggaran"} {
+			for _, wajib := range j.kolomWajib() {
 				if !seen[wajib] {
 					t.Errorf("kolom %q wajib ada (dipakai hapus-sebelum-tarik dan daftar lokal)", wajib)
 				}
 			}
 			if !strings.Contains(j.ep.KolomDaftar, "synced_at") {
 				t.Error("KolomDaftar harus memuat synced_at (dipakai untuk mengurutkan)")
+			}
+			// Salah ketik di KolomDaftar baru ketahuan saat daftar lokal dibuka di server sungguhan.
+			ada := map[string]bool{"row_key": true, "synced_at": true}
+			for _, f := range handler {
+				ada[f] = true
+			}
+			for _, k := range strings.Split(j.ep.KolomDaftar, ",") {
+				if k = strings.TrimSpace(k); !ada[k] {
+					t.Errorf("KolomDaftar memuat %q yang bukan kolom tabel", k)
+				}
 			}
 		})
 	}
@@ -829,9 +1032,10 @@ func routerDatar() *gin.Engine {
 	r := gin.New()
 	g := r.Group("/inaproc", func(c *gin.Context) { c.Set("user_id", "admin-uji"); c.Next() })
 	for _, j := range semuaJenisUji() {
-		g.GET("/tender/"+j.nama, j.ep.Get)
-		g.GET("/tender/"+j.nama+"/local", j.ep.ListLocal)
-		g.POST("/tender/"+j.nama+"/sync", j.ep.Sync)
+		dasar := "/" + j.ep.awalan() + "/" + j.nama
+		g.GET(dasar, j.ep.Get)
+		g.GET(dasar+"/local", j.ep.ListLocal)
+		g.POST(dasar+"/sync", j.ep.Sync)
 	}
 	return r
 }
@@ -854,17 +1058,22 @@ func TestEndpointDatarGetMeneruskanParameterDanBatasLimit(t *testing.T) {
 			})
 			pasangKonfigInaproc(t, p.URL, "token-uji")
 
-			code, body := panggil(routerDatar(), "GET", "/inaproc/tender/"+j.nama+"?tahun=2024&limit=5000&cursor=c0", "")
+			code, body := panggil(routerDatar(), "GET", j.jalur()+j.query("limit=5000", "cursor=c0"), "")
 			if code != 200 || len(body["data"].([]interface{})) != 1 || body["meta"].(map[string]interface{})["cursor"] != "abc" {
 				t.Fatalf("status = %d, body = %v", code, body)
 			}
 			if len(p.diminta) != 1 {
 				t.Fatalf("permintaan ke Inaproc = %v", p.diminta)
 			}
-			for _, want := range []string{"/api/v1/tender/" + j.nama + "?", "kode_klpd=K10", "tahun=2024", "limit=1000", "cursor=c0"} {
-				if !strings.Contains(p.diminta[0], want) {
-					t.Errorf("permintaan %q tidak memuat %q", p.diminta[0], want)
+			want := append([]string{"/api/v1/" + j.ep.awalan() + "/" + j.nama + "?", "limit=1000", "cursor=c0"}, j.paramHulu()...)
+			for _, w := range want {
+				if !strings.Contains(p.diminta[0], w) {
+					t.Errorf("permintaan %q tidak memuat %q", p.diminta[0], w)
 				}
+			}
+			// Pada saringan kode tunggal, kode_klpd/tahun tidak ikut dikirim (API-nya tidak mengenalnya).
+			if j.ep.Saring.Param != "" && (strings.Contains(p.diminta[0], "kode_klpd=") || strings.Contains(p.diminta[0], "tahun=")) {
+				t.Errorf("permintaan %q tidak boleh memuat kode_klpd/tahun", p.diminta[0])
 			}
 			if p.otorisasi[0] != "Bearer token-uji" {
 				t.Errorf("Authorization = %q", p.otorisasi[0])
@@ -881,16 +1090,17 @@ func TestEndpointDatarGetValidasiDanGalatHulu(t *testing.T) {
 	r := routerDatar()
 
 	for _, j := range semuaJenisUji() {
-		path := "/inaproc/tender/" + j.nama
 		sebelum := len(p.diminta)
-		if code, _ := panggil(r, "GET", path, ""); code != 400 {
-			t.Errorf("%s tanpa tahun: %d, want 400", j.nama, code)
-		}
-		if len(p.diminta) != sebelum {
-			t.Errorf("%s tanpa tahun tidak boleh menghubungi Inaproc: %v", j.nama, p.diminta[sebelum:])
+		if j.wajibAdaSyarat() {
+			if code, _ := panggil(r, "GET", j.jalur(), ""); code != 400 {
+				t.Errorf("%s tanpa parameter wajib: %d, want 400", j.nama, code)
+			}
+			if len(p.diminta) != sebelum {
+				t.Errorf("%s tanpa parameter wajib tidak boleh menghubungi Inaproc: %v", j.nama, p.diminta[sebelum:])
+			}
 		}
 		// Galat dari Inaproc diteruskan apa adanya (status dan badan).
-		code, body := panggil(r, "GET", path+"?tahun=2024", "")
+		code, body := panggil(r, "GET", j.jalur()+j.query(), "")
 		if code != 429 || body["error"].(map[string]interface{})["code"] != "Too Many Requests" {
 			t.Errorf("%s: 429 harus diteruskan: %d %v", j.nama, code, body)
 		}
@@ -958,20 +1168,161 @@ func TestEndpointDatarGetKdTenderMenggantikanTahunDanKlpd(t *testing.T) {
 
 	// Endpoint lain tidak mengenal skenario kd_tender: tahun tetap wajib dan kd_tender tidak diteruskan.
 	for _, j := range semuaJenisUji() {
-		if j.ep.MenerimaKdTender {
-			continue
+		if j.ep.MenerimaKdTender || !j.modeBawaan() {
+			continue // saringan lain (hanya KLPD, atau kode tunggal) tidak mewajibkan tahun
 		}
 		sebelum := len(p.diminta)
-		if code, _ := panggil(r, "GET", "/inaproc/tender/"+j.nama+"?kd_tender=12345", ""); code != 400 {
+		if code, _ := panggil(r, "GET", j.jalur()+"?kd_tender=12345", ""); code != 400 {
 			t.Errorf("%s dengan kd_tender saja: %d, want 400", j.nama, code)
 		}
-		if code, _ := panggil(r, "GET", "/inaproc/tender/"+j.nama+"?kd_tender=12345&tahun=2024", ""); code != 200 {
+		if code, _ := panggil(r, "GET", j.jalur()+"?kd_tender=12345&tahun=2024", ""); code != 200 {
 			t.Errorf("%s dengan tahun: %d, want 200", j.nama, code)
 		}
 		for _, d := range p.diminta[sebelum:] {
 			if strings.Contains(d, "kd_tender") {
 				t.Errorf("%s: kd_tender tidak boleh diteruskan: %q", j.nama, d)
 			}
+		}
+	}
+}
+
+// Endpoint pencarian rujukan per satu kode (komoditas, penyedia, distributor E-Katalog): kode wajib, panjangnya dibatasi, dan
+// nilainya hanya pernah menjadi nilai parameter/argumen, tidak pernah menyisipkan parameter lain atau teks SQL.
+func TestEndpointDatarSaringanKodeTunggal(t *testing.T) {
+	var diminta []string
+	p := newInaprocPalsu(t, func(r *http.Request) (int, string) {
+		diminta = append(diminta, r.URL.RawQuery)
+		return 200, `{"success":true,"data":[` + contohEkatalogPenyedia + `],"meta":{"limit":1000,"has_more":false,"cursor":""}}`
+	})
+	pasangKonfigInaproc(t, p.URL, "token-uji")
+	r := routerDatar()
+	jalur := "/inaproc/ekatalog-archive/penyedia-detail"
+
+	// Kode wajib, tidak boleh hanya spasi, dan tidak boleh terlalu panjang: ditolak tanpa menghubungi Inaproc.
+	for _, q := range []string{"", "?kode_penyedia=", "?kode_penyedia=%20%20", "?kode_klpd=K10&tahun=2024", "?kode_penyedia=" + strings.Repeat("9", panjangKodeMaks+1)} {
+		if code, _ := panggil(r, "GET", jalur+q, ""); code != 400 {
+			t.Errorf("GET %q: %d, want 400", q, code)
+		}
+	}
+	if len(diminta) != 0 {
+		t.Fatalf("masukan tidak sah tidak boleh menghubungi Inaproc: %v", diminta)
+	}
+
+	// Karakter khusus dikodekan sebagai nilai satu parameter; tidak ada parameter tambahan yang bisa diselipkan.
+	if code, body := panggil(r, "GET", jalur+"?kode_penyedia=%2042%20%26%20x%3D1%20", ""); code != 200 {
+		t.Fatalf("status = %d, body = %v", code, body)
+	}
+	hulu, err := url.ParseQuery(diminta[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hulu.Get("kode_penyedia") != "42 & x=1" || hulu.Has("x") || hulu.Has("kode_klpd") || hulu.Has("tahun") {
+		t.Errorf("parameter ke Inaproc = %v", hulu)
+	}
+
+	// Sinkronisasi: kode wajib; kode ngawur hanya menjadi argumen DELETE (tidak menyisipkan SQL) dan nilai parameter ke Inaproc.
+	f := pasangDBPalsu(t)
+	sebelum := len(diminta)
+	for _, b := range []string{`{}`, `{"kode":"  "}`, `{"kode":"` + strings.Repeat("9", panjangKodeMaks+1) + `"}`, `{"tahun":"2024"}`, `bukan json`} {
+		if code, _ := panggil(r, "POST", jalur+"/sync", b); code != 400 {
+			t.Errorf("sync %q: %d, want 400", b, code)
+		}
+	}
+	if len(diminta) != sebelum || len(f.Execs()) != 0 {
+		t.Fatalf("masukan tidak sah tidak boleh menyentuh Inaproc/database: %v, %v", diminta[sebelum:], f.Execs())
+	}
+	const nakal = `4' OR '1'='1`
+	if code, body := panggil(r, "POST", jalur+"/sync", `{"kode":" `+nakal+` "}`); code != 200 {
+		t.Fatalf("sync: %d %v", code, body)
+	}
+	hulu, _ = url.ParseQuery(diminta[len(diminta)-1])
+	if hulu.Get("kode_penyedia") != nakal {
+		t.Errorf("kode ke Inaproc = %q, want %q (dipangkas spasinya)", hulu.Get("kode_penyedia"), nakal)
+	}
+	for _, ex := range f.Execs() {
+		if strings.HasPrefix(ex.Query, "DELETE FROM inaproc_ekatalog_penyedia") {
+			if ex.Query != "DELETE FROM inaproc_ekatalog_penyedia WHERE kd_penyedia = @p1" || len(ex.Args) != 1 || ex.Args[0].Value != nakal {
+				t.Errorf("DELETE = %q %+v", ex.Query, ex.Args)
+			}
+		}
+	}
+
+	// Daftar lokal tanpa kode = semua baris tabel; dengan kode = disaring pada kolom kodenya.
+	g := pasangDBPalsu(t)
+	var query string
+	var args []driver.NamedValue
+	g.OnQuery = func(ctx context.Context, q string, a []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		query, args = q, a
+		return []string{"row_key"}, [][]driver.Value{{"k1"}}, nil
+	}
+	if code, _ := panggil(r, "GET", jalur+"/local", ""); code != 200 || strings.Contains(query, "WHERE") || len(args) != 0 {
+		t.Errorf("daftar lokal tanpa kode: %d %q %+v", code, query, args)
+	}
+	if code, _ := panggil(r, "GET", jalur+"/local?kode_penyedia=42", ""); code != 200 || !strings.Contains(query, "WHERE kd_penyedia = @p1") || len(args) != 1 || args[0].Value != "42" {
+		t.Errorf("daftar lokal dengan kode: %d %q %+v", code, query, args)
+	}
+}
+
+// Saringan hanya-KLPD (instansi-satker): tanpa tahun; tahun yang ikut dikirim diabaikan, dan badan sinkronisasi boleh kosong.
+func TestEndpointDatarSaringanHanyaKlpd(t *testing.T) {
+	var diminta []string
+	p := newInaprocPalsu(t, func(r *http.Request) (int, string) {
+		diminta = append(diminta, r.URL.Path+"?"+r.URL.RawQuery)
+		return 200, `{"success":true,"data":[` + contohEkatalogInstansiSatker + `],"meta":{"limit":1000,"has_more":false,"cursor":""}}`
+	})
+	pasangKonfigInaproc(t, p.URL, "token-uji")
+	r := routerDatar()
+	jalur := "/inaproc/ekatalog-archive/instansi-satker"
+
+	for _, q := range []string{"", "?tahun=2024", "?kode_klpd=X99&tahun=2024"} {
+		diminta = nil
+		if code, body := panggil(r, "GET", jalur+q, ""); code != 200 {
+			t.Fatalf("GET %q: %d %v", q, code, body)
+		}
+		want := "kode_klpd=K10"
+		if strings.Contains(q, "X99") {
+			want = "kode_klpd=X99"
+		}
+		if len(diminta) != 1 || !strings.HasPrefix(diminta[0], "/api/v1/ekatalog-archive/instansi-satker?") || !strings.Contains(diminta[0], want) || strings.Contains(diminta[0], "tahun") {
+			t.Errorf("GET %q: permintaan = %v, want %s tanpa tahun", q, diminta, want)
+		}
+	}
+
+	// Badan kosong, {} dan kode_klpd khusus semuanya sah; JSON rusak tidak.
+	f := pasangDBPalsu(t)
+	for _, b := range []string{"", `{}`, `{"kode_klpd":"X99"}`} {
+		if code, body := panggil(r, "POST", jalur+"/sync", b); code != 200 {
+			t.Errorf("sync %q: %d %v", b, code, body)
+		}
+	}
+	if code, _ := panggil(r, "POST", jalur+"/sync", `{rusak`); code != 400 {
+		t.Errorf("sync JSON rusak: %d, want 400", code)
+	}
+	var hapus []string
+	for _, ex := range f.Execs() {
+		if strings.HasPrefix(ex.Query, "DELETE FROM inaproc_ekatalog_instansi_satker") {
+			hapus = append(hapus, ex.Query+" "+ex.Args[0].Value.(string))
+		}
+	}
+	if strings.Join(hapus, "|") != strings.Repeat("DELETE FROM inaproc_ekatalog_instansi_satker WHERE kd_klpd = @p1 K10|", 2)+"DELETE FROM inaproc_ekatalog_instansi_satker WHERE kd_klpd = @p1 X99" {
+		t.Errorf("DELETE = %v", hapus)
+	}
+}
+
+// Nama yang dicatat di inaproc_sync_log hanya memakai tanda hubung (kartu aktivitas dashboard memecah nama pada "-"); endpoint
+// Tender tetap memakai nama lamanya.
+func TestEndpointDatarNamaLog(t *testing.T) {
+	for _, tc := range []struct {
+		ep   *endpointDatar
+		want string
+	}{
+		{ekatalogInstansiSatker, "ekatalog-archive-instansi-satker"},
+		{ekatalogDistributor, "ekatalog-archive-penyedia-distributor-detail"},
+		{tenderPengumuman, "pengumuman"},
+		{pencatatanNonTender, "pencatatan-non-tender"},
+	} {
+		if got := tc.ep.namaLog(); got != tc.want || len(got) > 100 || strings.Contains(got, "/") {
+			t.Errorf("namaLog = %q, want %q (maks. 100 karakter, tanpa '/')", got, tc.want)
 		}
 	}
 }
@@ -993,7 +1344,7 @@ func TestEndpointDatarSyncMenelusuriHalamanDanMenyimpan(t *testing.T) {
 			pasangKonfigInaproc(t, p.URL, "token-uji")
 			f := pasangDBPalsu(t)
 
-			code, body := panggil(routerDatar(), "POST", "/inaproc/tender/"+j.nama+"/sync", `{"tahun":"2024"}`)
+			code, body := panggil(routerDatar(), "POST", j.jalur()+"/sync", j.bodySync())
 			if code != 200 {
 				t.Fatalf("status = %d, body = %v", code, body)
 			}
@@ -1005,14 +1356,28 @@ func TestEndpointDatarSyncMenelusuriHalamanDanMenyimpan(t *testing.T) {
 			if len(p.diminta) != 2 || !strings.Contains(p.diminta[1], "cursor=c1") || !strings.Contains(p.diminta[0], "limit=1000") {
 				t.Errorf("permintaan = %v", p.diminta)
 			}
+			for _, w := range append([]string{"/api/v1/" + j.ep.awalan() + "/" + j.nama + "?"}, j.paramHulu()...) {
+				if !strings.Contains(p.diminta[0], w) {
+					t.Errorf("permintaan sinkronisasi %q tidak memuat %q", p.diminta[0], w)
+				}
+			}
 
 			var hapus, sisip, catat int
 			for _, ex := range f.Execs() {
 				switch {
 				case strings.HasPrefix(ex.Query, "DELETE FROM "+j.ep.Tabel+" "):
 					hapus++
-					if ex.Args[0].Value != "K10" || ex.Args[1].Value != "2024" {
-						t.Errorf("DELETE args = %+v", ex.Args)
+					if ex.Query != "DELETE "+j.whereLokal() {
+						t.Errorf("DELETE = %q, want %q", ex.Query, "DELETE "+j.whereLokal())
+					}
+					want := j.argHapus()
+					if len(ex.Args) != len(want) {
+						t.Fatalf("DELETE args = %+v, want %v", ex.Args, want)
+					}
+					for i, w := range want {
+						if ex.Args[i].Value != w {
+							t.Errorf("DELETE args = %+v, want %v", ex.Args, want)
+						}
 					}
 				case strings.HasPrefix(ex.Query, "INSERT INTO "+j.ep.Tabel+" "):
 					sisip++
@@ -1021,8 +1386,12 @@ func TestEndpointDatarSyncMenelusuriHalamanDanMenyimpan(t *testing.T) {
 					}
 				case strings.Contains(ex.Query, "INTO inaproc_sync_log"):
 					catat++
-					if ex.Args[0].Value != j.nama || ex.Args[5].Value != "success" || ex.Args[4].Value != int64(3) && ex.Args[4].Value != 3 {
+					if ex.Args[0].Value != j.ep.namaLog() || ex.Args[5].Value != "success" || ex.Args[4].Value != int64(3) && ex.Args[4].Value != 3 {
 						t.Errorf("sync_log args = %+v", ex.Args)
+					}
+					// Saringan kode: kodenya dicatat di kolom jenis_paket, klpd dan tahun kosong.
+					if j.ep.Saring.Param != "" && (ex.Args[3].Value != kodeUji || ex.Args[1].Value != "" || ex.Args[2].Value != "") {
+						t.Errorf("sync_log (saringan kode) args = %+v", ex.Args)
 					}
 				}
 			}
@@ -1201,21 +1570,28 @@ func TestEndpointDatarListLocal(t *testing.T) {
 				query, args = q, a
 				return []string{"row_key", "nama_paket"}, [][]driver.Value{{"k1", "Contoh Nama Paket"}}, nil
 			}
-			code, body := panggil(routerDatar(), "GET", "/inaproc/tender/"+j.nama+"/local?tahun=2024&limit=10", "")
+			code, body := panggil(routerDatar(), "GET", j.jalur()+"/local"+j.query("limit=10"), "")
 			if code != 200 {
 				t.Fatalf("status = %d, body = %v", code, body)
 			}
 			if body["data"].(map[string]interface{})["count"] != float64(1) {
 				t.Errorf("data = %v", body["data"])
 			}
-			if !strings.Contains(query, "FROM "+j.ep.Tabel+" WHERE kd_klpd = @p1 AND tahun_anggaran = @p2") || !strings.Contains(query, "SELECT TOP (10)") {
+			if !strings.Contains(query, j.whereLokal()) || !strings.Contains(query, "SELECT TOP (10)") {
 				t.Errorf("query = %s", query)
 			}
-			if len(args) != 2 || args[0].Value != "K10" || args[1].Value != "2024" {
-				t.Errorf("args = %+v", args)
+			want := j.argHapus() // sama dengan argumen penyaring daftar lokal
+			if len(args) != len(want) {
+				t.Fatalf("args = %+v, want %v", args, want)
 			}
-			if strings.Contains(query, "2024") {
-				t.Error("tahun tidak boleh masuk ke teks SQL")
+			for i, w := range want {
+				if args[i].Value != w {
+					t.Errorf("args = %+v, want %v", args, want)
+				}
+			}
+			// Nilai penyaring dikirim sebagai argumen, tidak pernah masuk ke teks SQL.
+			if strings.Contains(query, "2024") || strings.Contains(query, kodeUji) {
+				t.Error("nilai penyaring tidak boleh masuk ke teks SQL")
 			}
 		})
 	}

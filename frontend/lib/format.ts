@@ -21,6 +21,12 @@ export function formatDate(value?: string | null): string {
 
 // Rupiah ditampilkan tanpa desimal; kalau nilainya berpecahan, pecahannya tetap
 // ditampilkan (maks. 2 digit) supaya angka yang tampil tidak berbeda dari datanya.
+// Angka biasa (bukan rupiah) berpemisah ribuan; sampai 4 angka di belakang koma, mis. kuantitas yang berpecahan.
+export function formatNumber(n?: number | null): string {
+  if (n === undefined || n === null) return "-";
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 4 }).format(n);
+}
+
 export function formatCurrency(n?: number | null): string {
   if (n === undefined || n === null) return "-";
   return new Intl.NumberFormat("id-ID", {
