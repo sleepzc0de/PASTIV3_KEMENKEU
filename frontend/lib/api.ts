@@ -2075,3 +2075,172 @@ export async function syncTenderSelesaiNilai(payload: SyncTenderSelesaiNilaiPayl
   const res = await api.post("/inaproc/tender/tender-selesai-nilai/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - E-Katalog V5 (archive) ============
+//
+// Bentuk pencarian beda-beda: instansi-satker per kode_klpd (tanpa tahun), paket-e-purchasing per kode_klpd + tahun, dan
+// komoditas/penyedia/distributor per satu kode (pencarian rujukan; tidak ada daftar "semua"). Sinkronisasi pencarian per kode
+// menyimpan hasil untuk kode yang diberikan di badan sebagai `kode`.
+
+export interface EkatalogInstansiSatkerItem {
+  kd_klpd: string | null;
+  jenis_klpd: string | null;
+  nama_klpd: string | null;
+  kd_satker: number | null;
+  kd_satker_str: string | null;
+  nama_satker: string | null;
+}
+
+export interface EkatalogKomoditasItem {
+  Jenis_Katalog: string | null; // huruf besar mengikuti API
+  kd_instansi_katalog: number | null;
+  kd_komoditas: number;
+  nama_instansi_katalog: string | null;
+  nama_komoditas: string | null;
+}
+
+export interface EkatalogPaketItem {
+  // Paket
+  kd_klpd: string | null;
+  kd_rup: number | null;
+  tahun_anggaran: number;
+  kd_paket: number;
+  no_paket: string | null;
+  nama_paket: string | null;
+  deskripsi: string | null;
+  catatan_produk: string | null;
+  status_paket: string | null;
+  paket_status_str: string | null;
+  kode_anggaran: string | null;
+  nama_sumber_dana: string | null;
+
+  // Produk dan penyedia
+  kd_komoditas: number | null;
+  kd_produk: number | null;
+  kd_paket_produk: number | null;
+  kd_penyedia: number | null;
+  kd_penyedia_distributor: number | null;
+
+  // Satker
+  satker_id: number | null;
+  nama_satker: string | null;
+  alamat_satker: string | null;
+  npwp_satker: string | null;
+
+  // PPK dan Pokja
+  kd_user_ppk: number | null;
+  ppk_nip: string | null;
+  jabatan_ppk: string | null;
+  kd_user_pokja: number | null;
+  email_user_pokja: string | null;
+  no_telp_user_pokja: string | null;
+
+  // Wilayah harga
+  kd_provinsi_wilayah_harga: number | null;
+  kd_kabupaten_wilayah_harga: number | null;
+
+  // Harga
+  harga_satuan: number | null;
+  kuantitas: number | null;
+  ongkos_kirim: number | null;
+  total_harga: number | null;
+  jml_jenis_produk: number | null;
+
+  // Tanggal (tanpa jam)
+  tanggal_buat_paket: string | null;
+  tanggal_edit_paket: string | null;
+}
+
+export interface EkatalogPenyediaItem {
+  kd_penyedia: number;
+  kode_penyedia_sikap: number | null;
+  nama_penyedia: string | null;
+  npwp_penyedia: string | null;
+  npwp_16: string | null;
+  penyedia_ukm: string | null;
+  kbli2020_penyedia: string | null; // beberapa kode KBLI dipisah titik koma
+  alamat_penyedia: string | null;
+  email_penyedia: string | null;
+  no_telp_penyedia: string | null;
+}
+
+export interface EkatalogDistributorItem {
+  kd_penyedia_distributor: number;
+  nama_distributor: string | null;
+  npwp_distributor: string | null;
+  alamat_distributor: string | null;
+  email_distributor: string | null;
+  no_telp_distributor: string | null;
+}
+
+interface EkatalogResponse<T> {
+  success: boolean;
+  data: T[] | null;
+  meta: InaprocMeta;
+}
+
+export type EkatalogInstansiSatkerResponse = EkatalogResponse<EkatalogInstansiSatkerItem>;
+export type EkatalogKomoditasResponse = EkatalogResponse<EkatalogKomoditasItem>;
+export type EkatalogPaketResponse = EkatalogResponse<EkatalogPaketItem>;
+export type EkatalogPenyediaResponse = EkatalogResponse<EkatalogPenyediaItem>;
+export type EkatalogDistributorResponse = EkatalogResponse<EkatalogDistributorItem>;
+
+export interface EkatalogParamsKlpd {
+  kode_klpd?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface EkatalogParamsPaket extends EkatalogParamsKlpd {
+  tahun: number;
+}
+
+export async function getEkatalogInstansiSatker(params: EkatalogParamsKlpd) {
+  const res = await api.get<EkatalogInstansiSatkerResponse>("/inaproc/ekatalog-archive/instansi-satker", { params });
+  return res.data;
+}
+
+export async function getEkatalogKomoditas(params: { kode_komoditas: string; limit?: number; cursor?: string }) {
+  const res = await api.get<EkatalogKomoditasResponse>("/inaproc/ekatalog-archive/komoditas-detail", { params });
+  return res.data;
+}
+
+export async function getEkatalogPaket(params: EkatalogParamsPaket) {
+  const res = await api.get<EkatalogPaketResponse>("/inaproc/ekatalog-archive/paket-e-purchasing", { params });
+  return res.data;
+}
+
+export async function getEkatalogPenyedia(params: { kode_penyedia: string; limit?: number; cursor?: string }) {
+  const res = await api.get<EkatalogPenyediaResponse>("/inaproc/ekatalog-archive/penyedia-detail", { params });
+  return res.data;
+}
+
+export async function getEkatalogDistributor(params: { kd_distributor: string; limit?: number; cursor?: string }) {
+  const res = await api.get<EkatalogDistributorResponse>("/inaproc/ekatalog-archive/penyedia-distributor-detail", { params });
+  return res.data;
+}
+
+export async function syncEkatalogInstansiSatker(payload: { kode_klpd: string }) {
+  const res = await api.post("/inaproc/ekatalog-archive/instansi-satker/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalogKomoditas(payload: { kode: string }) {
+  const res = await api.post("/inaproc/ekatalog-archive/komoditas-detail/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalogPaket(payload: { kode_klpd: string; tahun: string }) {
+  const res = await api.post("/inaproc/ekatalog-archive/paket-e-purchasing/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalogPenyedia(payload: { kode: string }) {
+  const res = await api.post("/inaproc/ekatalog-archive/penyedia-detail/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalogDistributor(payload: { kode: string }) {
+  const res = await api.post("/inaproc/ekatalog-archive/penyedia-distributor-detail/sync", payload);
+  return res.data;
+}

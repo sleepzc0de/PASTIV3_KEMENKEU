@@ -3,7 +3,9 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,8 +20,8 @@ import (
 	"pasti-v3-backend/utils"
 )
 
-// Implementasi bersama untuk endpoint Tender Inaproc yang respons datarnya (satu objek per baris, tanpa array bersarang) dan
-// berhalaman dengan cursor: non-tender-selesai, pencatatan-non-tender, pencatatan-non-tender-realisasi, dan seterusnya.
+// Implementasi bersama untuk endpoint Inaproc (Tender dan E-Katalog archive) yang respons datarnya (satu objek per baris, tanpa
+// array bersarang) dan berhalaman dengan cursor: non-tender-selesai, pencatatan-non-tender, ekatalog-archive/penyedia-detail, dst.
 // Tiap endpoint cukup mendeklarasikan nama jalur API, nama tabel, dan daftar field menurut tipenya; proxy ke Inaproc, sinkronisasi
 // ke database, dan daftar lokal ditangani di sini.
 //
@@ -27,8 +29,14 @@ import (
 // (TestEndpointDatarKolomSamaDenganMigrasi) menjaganya. Field API yang belum dipetakan ke kolom disimpan di extra_json supaya
 // tidak hilang diam-diam.
 type endpointDatar struct {
-	Nama  string // jalur setelah /api/v1/tender/ (juga dicatat di inaproc_sync_log)
-	Tabel string
+	Nama string // jalur setelah /api/v1/<awalan>/
+	// Awalan: kelompok API setelah /api/v1/. Kosong = "tender". Untuk kelompok lain (mis. "ekatalog-archive"), nama yang dicatat
+	// di inaproc_sync_log menjadi "<awalan>-<nama>".
+	Awalan string
+	Tabel  string
+
+	// Saring: cara endpoint ini disaring. Nol = bawaan Tender: kode_klpd (bawaan "K10") + tahun.
+	Saring saringan
 
 	// Disimpan sebagai NVARCHAR; nilai kosong/null menjadi NULL. Objek/larik disimpan sebagai teks JSON.
 	Teks []string
@@ -46,6 +54,41 @@ type endpointDatar struct {
 	MenerimaKdTender bool
 
 	insertSQL string
+}
+
+// saringan menentukan parameter yang wajib pada GET dan sinkronisasi serta kolom penyaring di database. Tiga bentuk:
+//   - nol (bawaan): kode_klpd + tahun; kolom kd_klpd dan tahun_anggaran.
+//   - TanpaTahun: kode_klpd saja (data rujukan per KLPD); kolom kd_klpd.
+//   - Param terisi: satu kode tunggal (pencarian rujukan per kode, mis. kode_penyedia); kolom `Kolom`. Pada sinkronisasi kode
+//     dikirim di badan JSON sebagai "kode".
+type saringan struct {
+	Param      string // nama parameter kode tunggal di API Inaproc (mis. "kode_penyedia"); kosong = berdasarkan kode_klpd
+	Kolom      string // kolom tabel yang menyimpan kode itu (mis. "kd_penyedia"); wajib bila Param terisi
+	TanpaTahun bool   // hanya bila Param kosong: tidak ada parameter tahun
+}
+
+const (
+	awalanTender = "tender"
+	// Kode tunggal dikirim sebagai parameter query dan disimpan di kolom bertipe teks pendek; batas ini menolak masukan ngawur
+	// sebelum menghubungi Inaproc.
+	panjangKodeMaks = 100
+)
+
+func (e *endpointDatar) awalan() string {
+	if e.Awalan == "" {
+		return awalanTender
+	}
+	return e.Awalan
+}
+
+func (e *endpointDatar) jalurAPI() string { return "/api/v1/" + e.awalan() + "/" + e.Nama }
+
+// namaLog: nama yang dicatat di inaproc_sync_log. Hanya tanda hubung, karena kartu aktivitas di dashboard memecah nama pada "-".
+func (e *endpointDatar) namaLog() string {
+	if e.awalan() == awalanTender {
+		return e.Nama
+	}
+	return e.awalan() + "-" + e.Nama
 }
 
 func newEndpointDatar(e endpointDatar) *endpointDatar {
@@ -143,6 +186,19 @@ func (e *endpointDatar) Get(c *gin.Context) {
 			return
 		}
 		params.Set("kd_tender", kdTender)
+	case e.Saring.Param != "":
+		kode := strings.TrimSpace(c.Query(e.Saring.Param))
+		if kode == "" {
+			utils.ErrorResponse(c, http.StatusBadRequest, "Parameter '"+e.Saring.Param+"' wajib diisi")
+			return
+		}
+		if len(kode) > panjangKodeMaks {
+			utils.ErrorResponse(c, http.StatusBadRequest, "Parameter '"+e.Saring.Param+"' terlalu panjang")
+			return
+		}
+		params.Set(e.Saring.Param, kode)
+	case e.Saring.TanpaTahun:
+		params.Set("kode_klpd", kodeKLPD)
 	case tahun == "" && e.MenerimaKdTender:
 		utils.ErrorResponse(c, http.StatusBadRequest, "Isi 'tahun' atau 'kd_tender'")
 		return
@@ -158,40 +214,97 @@ func (e *endpointDatar) Get(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/"+e.Nama, params)
+	body, statusCode, err := callInaprocEndpoint(e.jalurAPI(), params)
 	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request "+e.Nama+":", err)
+		log.Println("[INAPROC ERROR] gagal request "+e.namaLog()+":", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
 		return
 	}
 	forwardInaprocResponse(c, body, statusCode)
 }
 
+// syncDatarRequest: tahun wajib pada saringan bawaan, kode wajib pada saringan kode tunggal; sisanya diabaikan.
 type syncDatarRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
-	Tahun    string `json:"tahun" binding:"required"`
+	Tahun    string `json:"tahun"`
+	Kode     string `json:"kode"`
 }
 
-// Sync (admin) menarik seluruh halaman dari Inaproc ke tabel lokal. Data lama untuk klpd dan tahun yang sama dihapus lebih dulu
-// supaya tidak menumpuk. Baris yang gagal disimpan dilewati, dihitung, dan dilaporkan (tidak menggagalkan seluruh sinkronisasi).
+// paramDasar: parameter penyaring ke Inaproc (di luar limit dan cursor) menurut bentuk saringan endpoint ini.
+func (e *endpointDatar) paramDasar(req syncDatarRequest) url.Values {
+	p := url.Values{}
+	switch {
+	case e.Saring.Param != "":
+		p.Set(e.Saring.Param, req.Kode)
+	case e.Saring.TanpaTahun:
+		p.Set("kode_klpd", req.KodeKLPD)
+	default:
+		p.Set("kode_klpd", req.KodeKLPD)
+		p.Set("tahun", req.Tahun)
+	}
+	return p
+}
+
+// hapusLama: DELETE untuk data yang akan diganti sinkronisasi, menurut bentuk saringan endpoint ini.
+func (e *endpointDatar) hapusLama(req syncDatarRequest) (string, []interface{}) {
+	switch {
+	case e.Saring.Param != "":
+		return "DELETE FROM " + e.Tabel + " WHERE " + e.Saring.Kolom + " = @p1", []interface{}{req.Kode}
+	case e.Saring.TanpaTahun:
+		return "DELETE FROM " + e.Tabel + " WHERE kd_klpd = @p1", []interface{}{req.KodeKLPD}
+	default:
+		return "DELETE FROM " + e.Tabel + " WHERE kd_klpd = @p1 AND tahun_anggaran = @p2", []interface{}{req.KodeKLPD, req.Tahun}
+	}
+}
+
+// potong memotong teks ke n karakter (bukan byte), untuk kolom log yang sempit.
+func potong(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// Sync (admin) menarik seluruh halaman dari Inaproc ke tabel lokal. Data lama untuk penyaring yang sama (klpd dan tahun, klpd saja,
+// atau satu kode) dihapus lebih dulu supaya tidak menumpuk. Baris yang gagal disimpan dilewati, dihitung, dan dilaporkan (tidak
+// menggagalkan seluruh sinkronisasi).
 func (e *endpointDatar) Sync(c *gin.Context) {
 	var req syncDatarRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// Badan kosong dibolehkan (saringan klpd saja tidak butuh isian); JSON rusak ditolak.
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Permintaan tidak valid")
+		return
+	}
+	req.Tahun = strings.TrimSpace(req.Tahun)
+	req.Kode = strings.TrimSpace(req.Kode)
+	if req.KodeKLPD == "" {
+		req.KodeKLPD = kemenkeuKLPDCodeTender
+	}
+	switch {
+	case e.Saring.Param != "" && req.Kode == "":
+		utils.ErrorResponse(c, http.StatusBadRequest, "kode wajib diisi")
+		return
+	case e.Saring.Param != "" && len(req.Kode) > panjangKodeMaks:
+		utils.ErrorResponse(c, http.StatusBadRequest, "kode terlalu panjang")
+		return
+	case e.Saring.Param == "" && !e.Saring.TanpaTahun && req.Tahun == "":
 		utils.ErrorResponse(c, http.StatusBadRequest, "tahun wajib diisi")
 		return
 	}
-	if req.KodeKLPD == "" {
-		req.KodeKLPD = kemenkeuKLPDCodeTender
+
+	// Yang dicatat di inaproc_sync_log: klpd dan tahun, atau (untuk saringan kode) kode itu di kolom jenis_paket.
+	nama := e.namaLog()
+	logKLPD, logTahun, logJenis := req.KodeKLPD, req.Tahun, ""
+	if e.Saring.Param != "" {
+		logKLPD, logTahun, logJenis = "", "", potong(req.Kode, 50)
 	}
 
 	adminUserID := c.GetString("user_id")
 	startedAt := time.Now()
 
-	if _, err := database.DB.Exec(
-		"DELETE FROM "+e.Tabel+" WHERE kd_klpd = @p1 AND tahun_anggaran = @p2",
-		req.KodeKLPD, req.Tahun,
-	); err != nil {
-		log.Println("[INAPROC SYNC WARN] gagal hapus data lama "+e.Nama+":", err)
+	hapusSQL, hapusArgs := e.hapusLama(req)
+	if _, err := database.DB.Exec(hapusSQL, hapusArgs...); err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal hapus data lama "+nama+":", err)
 	}
 
 	totalSynced, totalFailed := 0, 0
@@ -202,30 +315,28 @@ func (e *endpointDatar) Sync(c *gin.Context) {
 	for {
 		pageCount++
 		if pageCount > maxPages {
-			logInaprocSync(e.Nama, req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
+			logInaprocSync(nama, logKLPD, logTahun, logJenis, "failed", totalSynced, "Melebihi batas maksimum halaman", adminUserID, startedAt)
 			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
 			return
 		}
 
-		params := url.Values{}
-		params.Set("kode_klpd", req.KodeKLPD)
-		params.Set("tahun", req.Tahun)
+		params := e.paramDasar(req)
 		params.Set("limit", "1000")
 		if cursor != "" {
 			params.Set("cursor", cursor)
 		}
 
-		body, statusCode, err := callInaprocEndpoint("/api/v1/tender/"+e.Nama, params)
+		body, statusCode, err := callInaprocEndpoint(e.jalurAPI(), params)
 		if err != nil {
-			log.Println("[INAPROC SYNC ERROR] gagal request "+e.Nama+":", err)
-			logInaprocSync(e.Nama, req.KodeKLPD, req.Tahun, "", "failed", totalSynced, err.Error(), adminUserID, startedAt)
+			log.Println("[INAPROC SYNC ERROR] gagal request "+nama+":", err)
+			logInaprocSync(nama, logKLPD, logTahun, logJenis, "failed", totalSynced, err.Error(), adminUserID, startedAt)
 			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
 			return
 		}
 
 		if statusCode != http.StatusOK {
 			errMsg := extractInaprocErrorMessage(body, statusCode)
-			logInaprocSync(e.Nama, req.KodeKLPD, req.Tahun, "", "failed", totalSynced, errMsg, adminUserID, startedAt)
+			logInaprocSync(nama, logKLPD, logTahun, logJenis, "failed", totalSynced, errMsg, adminUserID, startedAt)
 			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
 			return
 		}
@@ -242,19 +353,19 @@ func (e *endpointDatar) Sync(c *gin.Context) {
 		dec := json.NewDecoder(bytes.NewReader(body))
 		dec.UseNumber()
 		if err := dec.Decode(&envelope); err != nil {
-			log.Println("[INAPROC SYNC ERROR] gagal parse "+e.Nama+":", err, "| body:", string(body))
-			logInaprocSync(e.Nama, req.KodeKLPD, req.Tahun, "", "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
+			log.Println("[INAPROC SYNC ERROR] gagal parse "+nama+":", err, "| body:", string(body))
+			logInaprocSync(nama, logKLPD, logTahun, logJenis, "failed", totalSynced, "gagal parse: "+err.Error(), adminUserID, startedAt)
 			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
 			return
 		}
 
 		if pageCount == 1 && len(envelope.Data) > 0 {
-			log.Printf("[INAPROC SYNC DEBUG] Contoh baris %s: %+v", e.Nama, envelope.Data[0])
+			log.Printf("[INAPROC SYNC DEBUG] Contoh baris %s: %+v", nama, envelope.Data[0])
 		}
 
 		for _, row := range envelope.Data {
 			if err := e.insert(row, req.KodeKLPD); err != nil {
-				log.Println("[INAPROC SYNC WARN] gagal simpan baris "+e.Nama+":", err)
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris "+nama+":", err)
 				totalFailed++
 				continue
 			}
@@ -271,22 +382,30 @@ func (e *endpointDatar) Sync(c *gin.Context) {
 	if totalFailed > 0 {
 		catatan = fmt.Sprintf("%d baris gagal disimpan", totalFailed)
 	}
-	logInaprocSync(e.Nama, req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatan, adminUserID, startedAt)
+	logInaprocSync(nama, logKLPD, logTahun, logJenis, "success", totalSynced, catatan, adminUserID, startedAt)
 	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
-// ListLocal membaca data yang sudah disinkronkan dari database PASTI.
+// ListLocal membaca data yang sudah disinkronkan dari database PASTI. Penyaringnya mengikuti bentuk saringan endpoint:
+// kd_klpd (+ tahun_anggaran bila ada) atau, untuk saringan kode tunggal, kolom kodenya (tanpa kode = semua baris).
 func (e *endpointDatar) ListLocal(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
 	limit := clampLimit(c.DefaultQuery("limit", "50"))
 
-	query := "SELECT " + e.KolomDaftar + " FROM " + e.Tabel + " WHERE kd_klpd = @p1"
-	args := []interface{}{kodeKLPD}
+	query := "SELECT " + e.KolomDaftar + " FROM " + e.Tabel
+	var args []interface{}
 
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
+	if e.Saring.Param != "" {
+		if kode := strings.TrimSpace(c.Query(e.Saring.Param)); kode != "" {
+			query += " WHERE " + e.Saring.Kolom + " = @p1"
+			args = append(args, kode)
+		}
+	} else {
+		query += " WHERE kd_klpd = @p1"
+		args = append(args, c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender))
+		if tahun := c.Query("tahun"); tahun != "" && !e.Saring.TanpaTahun {
+			query += " AND tahun_anggaran = @p2"
+			args = append(args, tahun)
+		}
 	}
 
 	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
