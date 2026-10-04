@@ -21,11 +21,14 @@ export const COOKIE_TOKEN = "pasti_access_token";
 export const COOKIE_PETUNJUK = "pasti_jalur";
 export const UMUR_PETUNJUK_DETIK = 365 * 24 * 60 * 60;
 
-// Heksadesimal murni (huruf kecil), 32-64 karakter: tidak mungkin bertabrakan dengan rute aplikasi mana pun.
-const POLA_JALUR = /^\/[0-9a-f]{32,64}$/;
+// Satu segmen alamat: huruf, angka, "_", "-", dan "=" (mis. hasil base64), 16-128 karakter. Titik dilarang: alamat bertitik dianggap
+// berkas statis dan tidak melewati middleware. Nama rute aplikasi dilarang supaya tidak menimpanya. Deploy.sh membuat 32 heksadesimal
+// acak; nilai buatan sendiri juga diterima, tetapi makin mudah ditebak makin kecil gunanya.
+const POLA_JALUR = /^\/[A-Za-z0-9_=-]{16,128}$/;
+const NAMA_RUTE_DIPAKAI = new Set(["login", "dashboard", "kembali-masuk", "halaman-tidak-ada", "sso", "api"]);
 
 export function jalurMasukSah(s: string | undefined | null): s is string {
-  return typeof s === "string" && POLA_JALUR.test(s);
+  return typeof s === "string" && POLA_JALUR.test(s) && !NAMA_RUTE_DIPAKAI.has(s.slice(1).toLowerCase());
 }
 
 // Nilai LOGIN_PATH menjadi alamat yang dipakai. Kosong berarti tidak dipakai (/login bawaan); nilai yang bentuknya salah
@@ -34,9 +37,22 @@ export function jalurMasukDari(env: string | undefined | null): string {
   const nilai = (env ?? "").trim();
   if (nilai === "") return LOGIN_BAWAAN;
   if (!jalurMasukSah(nilai)) {
-    throw new Error("LOGIN_PATH harus berbentuk /<32-64 huruf heksadesimal kecil>, mis. /3f9a1c07d2b84e65a0c1f7e93b2d4a68");
+    throw new Error(
+      "LOGIN_PATH harus berbentuk /<16-128 karakter huruf, angka, _, - atau => tanpa titik dan bukan nama rute aplikasi, mis. /3f9a1c07d2b84e65a0c1f7e93b2d4a68"
+    );
   }
   return nilai;
+}
+
+// Peramban atau aplikasi pesan kadang menyandikan "=" menjadi %3D saat alamat disalin. Alamat yang setelah dibaca sandinya sama dengan
+// jalur masuk diperlakukan sebagai jalur masuk; selain itu pathname dibiarkan apa adanya (tidak ada pembacaan sandi umum).
+export function samakanJalur(pathname: string, jalurMasuk: string): string {
+  if (pathname === jalurMasuk || !pathname.includes("%")) return pathname;
+  try {
+    return decodeURIComponent(pathname) === jalurMasuk ? jalurMasuk : pathname;
+  } catch {
+    return pathname;
+  }
 }
 
 // Nilai yang disisipkan ke build (next.config.ts -> env): kosong untuk /login bawaan (tidak disembunyikan), selain itu alamatnya.

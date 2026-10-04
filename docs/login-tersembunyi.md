@@ -28,8 +28,14 @@ Tujuannya mengurangi serangan otomatis (pemindai dan *credential stuffing* yang 
 - **Server (deploy.sh):** `LOGIN_PATH` dibuat otomatis sekali di `deploy.env` (`/` + 32 karakter heksadesimal acak), ditanam ke frontend saat
   build lewat `docker-compose.yml` → `Dockerfile`, dan dicetak di akhir deploy (**Halaman login**). Deploy pertama sesudah fitur ini
   memperingatkan bahwa alamat lama tidak berlaku lagi. Cek kesehatan frontend memakai alamat ini.
-- **Mengganti alamat:** hapus baris `LOGIN_PATH` di `deploy.env` lalu `./deploy.sh` (dibuat ulang), atau isi sendiri (`/` + 32-64 heksadesimal
-  huruf kecil). Alamat lama langsung 404 dan semua pengguna perlu diberi tahu alamat barunya.
+- **Mengganti alamat:** hapus baris `LOGIN_PATH` di `deploy.env` lalu `./deploy.sh` (dibuat acak ulang), atau isi sendiri. Bentuk yang
+  diterima: satu segmen 16-128 karakter berisi huruf, angka, `_`, `-`, dan `=` (mis. hasil base64), tanpa titik dan bukan nama rute aplikasi
+  (`login`, `dashboard`, `kembali-masuk`, `halaman-tidak-ada`, `sso`, `api`). Alamat lama langsung 404 dan semua pengguna perlu diberi tahu
+  alamat barunya. Nilai buatan sendiri disimpan di `deploy.env` di server (bukan di repo). Makin mudah ditebak (kata/frasa yang
+  berhubungan dengan aplikasi, walau di-base64 atau ditulis leetspeak), makin kecil gunanya; yang acak dari `deploy.sh` paling aman.
+- **Deploy pertama sesudah fitur ini:** `deploy.sh` menarik kode baru di tengah jalan, jadi deploy yang menarik fitur ini masih berjalan dengan
+  skrip lama (tanpa `LOGIN_PATH`) dan build Docker gagal dengan "LOGIN_PATH belum diisi". Jalankan `./deploy.sh` sekali lagi (atau isi
+  `LOGIN_PATH` di `deploy.env` lebih dulu).
 - **Lokal:** tanpa `LOGIN_PATH` di `frontend/.env.local`, halaman login tetap di `/login`; `npm run dev` dan `npm run build` berjalan biasa
   (build produksi lokal hanya mencetak peringatan). **Build Docker (server)** menolak `LOGIN_PATH` kosong (`LOGIN_PATH_WAJIB=1` di
   `frontend/Dockerfile`) agar `/login` tidak terbuka tanpa disengaja; `deploy.sh` selalu mengisinya.

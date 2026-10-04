@@ -495,7 +495,10 @@ load_deploy_config() {
     own_file "$DEPLOY_ENV"
     LOGIN_PATH_BARU=1
   fi
-  [[ $LOGIN_PATH =~ ^/[0-9a-f]{32,64}$ ]] || die "LOGIN_PATH di deploy.env tidak valid: '$LOGIN_PATH' (harus /<32-64 huruf heksadesimal kecil>; hapus barisnya agar dibuat ulang)."
+  # Bentuk yang diterima sama dengan frontend/lib/loginPath.ts: satu segmen 16-128 karakter [A-Za-z0-9_=-], bukan nama rute aplikasi.
+  if ! [[ $LOGIN_PATH =~ ^/[A-Za-z0-9_=-]{16,128}$ ]] || [[ ${LOGIN_PATH,,} =~ ^/(login|dashboard|kembali-masuk|halaman-tidak-ada|sso|api)$ ]]; then
+    die "LOGIN_PATH di deploy.env tidak valid: '$LOGIN_PATH' (harus satu segmen 16-128 karakter huruf/angka/_/-/= tanpa titik dan bukan nama rute aplikasi; hapus barisnya agar dibuat acak otomatis)."
+  fi
 
   valid_url "$API_ROOT_URL" || die "NEXT_PUBLIC_API_ROOT_URL di deploy.env tidak valid: '$API_ROOT_URL'"
   valid_api_url "$API_URL"  || die "NEXT_PUBLIC_API_URL di deploy.env tidak valid: '$API_URL'"

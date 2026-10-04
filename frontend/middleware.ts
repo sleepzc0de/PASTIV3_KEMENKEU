@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { COOKIE_PETUNJUK, COOKIE_TOKEN, UMUR_PETUNJUK_DETIK, jalurMasukDari, tentukanAksi } from "@/lib/loginPath";
+import { COOKIE_PETUNJUK, COOKIE_TOKEN, UMUR_PETUNJUK_DETIK, jalurMasukDari, samakanJalur, tentukanAksi } from "@/lib/loginPath";
 
-// Alamat halaman login: LOGIN_PATH (acak, heksadesimal) disisipkan saat build lewat next.config.ts; tanpa itu /login seperti
+// Alamat halaman login: LOGIN_PATH (tidak bisa ditebak) disisipkan saat build lewat next.config.ts; tanpa itu /login seperti
 // semula. Aturan lengkapnya ada di lib/loginPath.ts.
 const JALUR_MASUK = jalurMasukDari(process.env.LOGIN_PATH);
 
@@ -11,7 +11,7 @@ const RUTE_TIDAK_ADA = "/halaman-tidak-ada";
 
 export function middleware(request: NextRequest) {
   const aksi = tentukanAksi({
-    pathname: request.nextUrl.pathname,
+    pathname: samakanJalur(request.nextUrl.pathname, JALUR_MASUK),
     search: request.nextUrl.search,
     adaToken: Boolean(request.cookies.get(COOKIE_TOKEN)?.value),
     adaPetunjuk: Boolean(request.cookies.get(COOKIE_PETUNJUK)?.value),
