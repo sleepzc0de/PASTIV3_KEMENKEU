@@ -48,6 +48,8 @@ DEPLOY_ENV="$APP_DIR/deploy.env"
 BACKEND_ENV="$APP_DIR/backend/.env"
 BACKEND_ENV_EXAMPLE="$APP_DIR/backend/.env.example"
 LOG_FILE="$APP_DIR/deploy.log"
+# Sidik deploy.sh saat skrip mulai berjalan; dibandingkan lagi setelah git pull (lihat pastikan_skrip_terbaru).
+SCRIPT_SHA_AWAL=$(sha256sum "$APP_DIR/$SCRIPT_NAME" 2>/dev/null | cut -d' ' -f1 || true)
 
 REPO_OWNER=""
 OWNER_HOME=""
@@ -741,6 +743,19 @@ sync_code() {
   fi
 }
 
+# git pull bisa ikut mengganti deploy.sh. Bash sudah membaca versi lama ke memori, jadi bagian skrip yang baru (mis. aturan alamat
+# login) tidak berlaku di deploy ini dan hasilnya membingungkan. Karena sync_code berjalan sebelum ada yang dibangun atau diubah
+# (hanya kode di disk yang berganti), skrip berhenti di sini dan meminta dijalankan ulang; container lama tidak tersentuh.
+pastikan_skrip_terbaru() {
+  [ -n "$SCRIPT_SHA_AWAL" ] || return 0
+  local sekarang
+  sekarang=$(sha256sum "$APP_DIR/$SCRIPT_NAME" 2>/dev/null | cut -d' ' -f1 || true)
+  [ -n "$sekarang" ] && [ "$sekarang" != "$SCRIPT_SHA_AWAL" ] || return 0
+  err "deploy.sh ikut diperbarui oleh git pull, sedangkan skrip yang sedang berjalan masih versi lama."
+  err "Kode di server sudah terbaru dan container lama TIDAK diubah. Jalankan sekali lagi:  ./deploy.sh"
+  exit 1
+}
+
 # ----------------------------------------------------------------------------
 # Tahap 4-6: build, migrasi, jalankan, cek kesehatan
 # ----------------------------------------------------------------------------
@@ -1034,7 +1049,8 @@ main() {
   load_deploy_config
   check_ports          # container & port, sebelum mengubah apa pun di server
   sync_code            # setelah ini kode di disk sudah terbaru
-  resolve_login_path   # alamat halaman login (bawaan repo atau deploy.env), dari kode yang baru ditarik
+  pastikan_skrip_terbaru  # deploy.sh ikut berubah oleh git pull? hentikan dan minta jalankan ulang (belum ada yang diubah)
+  resolve_login_path  # alamat halaman login (bawaan repo atau deploy.env), dari kode yang baru ditarik
   prepare_backend_env  # membuat/validasi backend/.env (bisa berhenti dengan instruksi)
   check_db_reachable   # server database terjangkau? (gagal cepat, sebelum build)
   confirm_production   # hanya untuk prod

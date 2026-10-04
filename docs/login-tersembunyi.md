@@ -49,5 +49,8 @@ berupa kata/frasa terkait aplikasi (walau di-base64 atau leetspeak) mudah diteba
 ## Yang perlu diketahui
 
 - Mengganti alamat memutus alamat lama (langsung 404): bookmark pengguna ke alamat lama perlu diperbarui, atau cukup buka alamat utama situs.
-- **Deploy pertama sesudah fitur ini** bisa berjalan dengan `deploy.sh` lama (skrip menarik kode baru di tengah jalan). Jalankan
-  `./deploy.sh` sekali lagi bila build gagal atau alamat login yang tercetak bukan yang diharapkan.
+- **Deploy pertama sesudah fitur ini** bisa berjalan dengan `deploy.sh` lama: skrip menarik kode baru di tengah jalan, tetapi yang
+  berjalan sudah terbaca ke memori. Gejalanya alamat login yang tercetak bukan yang di `frontend/login-path.txt` (ringkasan akhir masih
+  berformat lama). Jalankan `./deploy.sh` sekali lagi; skrip yang sekarang ada di disk sudah versi baru. Untuk perubahan berikutnya,
+  `deploy.sh` mendeteksi dirinya berubah oleh `git pull` dan berhenti sebelum membangun apa pun (container lama tidak tersentuh)
+  dengan pesan untuk menjalankannya ulang.
