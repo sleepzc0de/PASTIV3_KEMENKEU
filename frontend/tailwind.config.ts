@@ -103,6 +103,11 @@ const config: Config = {
           from: { transform: "scaleX(0)" },
           to: { transform: "scaleX(1)" },
         },
+        // Kolom grafik tumbuh dari dasar saat pertama tampil.
+        "grow-y": {
+          from: { transform: "scaleY(0)" },
+          to: { transform: "scaleY(1)" },
+        },
         "pop-in": {
           "0%": { opacity: "0", transform: "scale(0.9)" },
           "60%": { transform: "scale(1.03)" },
@@ -117,6 +122,7 @@ const config: Config = {
         "slide-in-right": "slide-in-right 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards",
         shimmer: "shimmer 1.6s infinite",
         "grow-x": "grow-x 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards",
+        "grow-y": "grow-y 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards",
         "pop-in": "pop-in 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards",
       },
       transitionTimingFunction: {

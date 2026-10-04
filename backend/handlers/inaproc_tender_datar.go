@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -212,8 +216,8 @@ func (e *endpointDatar) ArgsKonteks(row map[string]interface{}, konteks map[stri
 	return args
 }
 
-func (e *endpointDatar) insert(row map[string]interface{}, konteks map[string]string) error {
-	_, err := database.DB.Exec(e.insertSQL, e.ArgsKonteks(row, konteks)...)
+func (e *endpointDatar) insert(ex pelaksanaSQL, row map[string]interface{}, konteks map[string]string) error {
+	_, err := ex.Exec(e.insertSQL, e.ArgsKonteks(row, konteks)...)
 	return err
 }
 
@@ -301,6 +305,8 @@ type rencanaSync struct {
 	Konteks map[string]string
 	// Yang dicatat di inaproc_sync_log: kode_klpd, tahun, dan jenis_paket (dipakai untuk menandai penyaring lain, mis. kode).
 	LogKLPD, LogTahun, LogJenis string
+	// Kemajuan (opsional): dipanggil dengan pesan singkat tiap halaman terambil dan tiap sekian baris tersimpan.
+	Kemajuan func(pesan string)
 }
 
 // potong memotong teks ke n karakter (bukan byte), untuk kolom log yang sempit.
@@ -318,6 +324,11 @@ func (e *endpointDatar) rencanaBawaan(c *gin.Context) (*rencanaSync, string) {
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		return nil, "Permintaan tidak valid"
 	}
+	return e.rencanaDari(req)
+}
+
+// rencanaDari sama dengan rencanaBawaan, tetapi dari nilai yang sudah terbaca (dipakai penarikan terjadwal dan antrean, tanpa HTTP).
+func (e *endpointDatar) rencanaDari(req syncDatarRequest) (*rencanaSync, string) {
 	req.Tahun = strings.TrimSpace(req.Tahun)
 	req.Kode = strings.TrimSpace(req.Kode)
 	if req.KodeKLPD == "" {
@@ -357,9 +368,41 @@ func (e *endpointDatar) rencanaBawaan(c *gin.Context) (*rencanaSync, string) {
 	return r, ""
 }
 
+// HasilSinkron: hasil satu sinkronisasi dataset.
+type HasilSinkron struct {
+	TotalSinkron int // baris yang tersimpan
+	TotalGagal   int // baris yang gagal disimpan (dilewati)
+	Halaman      int // halaman yang diambil dari Inaproc
+}
+
+// GalatSinkron: kegagalan sinkronisasi beserta status HTTP yang cocok bila dijawabkan ke klien. Hulu = Inaproc menolak (Status
+// berasal dari Inaproc, mis. 401/429), bukan kegagalan di sisi kita.
+type GalatSinkron struct {
+	Status   int
+	Pesan    string
+	Sebagian int // baris yang sudah tersimpan sebelum gagal (selalu 0: penyimpanan baru dimulai setelah semua halaman terambil)
+	Hulu     bool
+}
+
+func (g *GalatSinkron) Error() string { return g.Pesan }
+
+const (
+	maksHalamanSinkron = 200
+	// statusDibatalkan: status (tidak baku) untuk sinkronisasi yang dibatalkan lewat konteks.
+	statusDibatalkan = 499
+	// Pembatalan dan penyimpanan diperiksa tiap sekian baris.
+	periksaTiapBaris = 500
+)
+
+// pelaksanaSQL: *sql.DB atau *sql.Tx.
+type pelaksanaSQL interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
 // Sync (admin) menarik seluruh halaman dari Inaproc ke tabel lokal. Data lama untuk penyaring yang sama (klpd dan tahun, klpd saja,
-// atau satu kode) dihapus lebih dulu supaya tidak menumpuk. Baris yang gagal disimpan dilewati, dihitung, dan dilaporkan (tidak
-// menggagalkan seluruh sinkronisasi).
+// atau satu kode) diganti, dan penggantian itu atomik: halaman diambil lebih dulu ke berkas sementara tanpa menyentuh database, baru
+// data lama dihapus dan yang baru disisipkan dalam satu transaksi. Jika pengambilan gagal atau dibatalkan, data lama tetap utuh. Baris
+// yang gagal disimpan dilewati, dihitung, dan dilaporkan (tidak menggagalkan seluruh sinkronisasi).
 func (e *endpointDatar) Sync(c *gin.Context) { e.SyncDengan(c, e.rencanaBawaan) }
 
 // SyncDengan sama dengan Sync, tetapi rencananya (parameter, penghapusan data lama, konteks, catatan log) disusun oleh `susun`;
@@ -371,28 +414,66 @@ func (e *endpointDatar) SyncDengan(c *gin.Context, susun func(*gin.Context) (*re
 		return
 	}
 
+	// Tidak memakai konteks permintaan: sinkronisasi tetap selesai walau klien menutup koneksi di tengah jalan.
+	hasil, err := e.Jalankan(context.Background(), rencana, c.GetString("user_id"))
+	if err != nil {
+		var g *GalatSinkron
+		switch {
+		case errors.As(err, &g) && g.Hulu:
+			c.JSON(g.Status, gin.H{"success": false, "message": g.Pesan, "partial_synced": g.Sebagian})
+		case errors.As(err, &g):
+			utils.ErrorResponse(c, g.Status, g.Pesan)
+		default:
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi gagal")
+		}
+		return
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": hasil.TotalSinkron, "total_failed": hasil.TotalGagal, "pages_fetched": hasil.Halaman})
+}
+
+// Jalankan mengerjakan satu rencana sinkronisasi tanpa konteks HTTP (dipakai Sync, antrean penarikan, dan penjadwal). oleh = id
+// pengguna pemicu; kosong untuk penarikan otomatis. Pembatalan lewat ctx menghentikan pengambilan (permintaan yang sedang berjalan ikut
+// dibatalkan) maupun penyimpanan (transaksi dibatalkan, data lama utuh). Setiap hasil dicatat di inaproc_sync_log.
+func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh string) (HasilSinkron, error) {
 	nama := e.namaLog()
-	adminUserID := c.GetString("user_id")
-	startedAt := time.Now()
+	mulai := time.Now()
 	catat := func(status string, total int, catatan string) {
-		logInaprocSync(nama, rencana.LogKLPD, rencana.LogTahun, rencana.LogJenis, status, total, catatan, adminUserID, startedAt)
+		logInaprocSync(nama, rencana.LogKLPD, rencana.LogTahun, rencana.LogJenis, status, total, catatan, oleh, mulai)
+	}
+	gagal := func(g *GalatSinkron, catatan string) (HasilSinkron, error) {
+		catat("failed", g.Sebagian, catatan)
+		return HasilSinkron{}, g
+	}
+	dibatalkan := func() (HasilSinkron, error) {
+		return gagal(&GalatSinkron{Status: statusDibatalkan, Pesan: "Sinkronisasi dibatalkan"}, "Dibatalkan")
+	}
+	kabar := func(format string, a ...interface{}) {
+		if rencana.Kemajuan != nil {
+			rencana.Kemajuan(fmt.Sprintf(format, a...))
+		}
 	}
 
-	if _, err := database.DB.Exec(rencana.HapusSQL, rencana.HapusArgs...); err != nil {
-		log.Println("[INAPROC SYNC WARN] gagal hapus data lama "+nama+":", err)
+	// ---- Fase 1: ambil semua halaman ke berkas sementara (satu baris JSON per baris data) ----
+	spool, err := os.CreateTemp("", "inaproc-sinkron-*.jsonl")
+	if err != nil {
+		log.Println("[INAPROC SYNC ERROR] gagal membuat berkas sementara "+nama+":", err)
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal menyiapkan penampungan sementara"}, err.Error())
 	}
+	defer func() {
+		spool.Close()
+		os.Remove(spool.Name())
+	}()
+	tulis := bufio.NewWriterSize(spool, 1<<20)
 
-	totalSynced, totalFailed := 0, 0
+	jumlahBaris, halaman := 0, 0
 	cursor := ""
-	pageCount := 0
-	const maxPages = 200
-
 	for {
-		pageCount++
-		if pageCount > maxPages {
-			catat("failed", totalSynced, "Melebihi batas maksimum halaman")
-			utils.ErrorResponse(c, http.StatusInternalServerError, "Sinkronisasi dihentikan: terlalu banyak halaman")
-			return
+		if ctx.Err() != nil {
+			return dibatalkan()
+		}
+		halaman++
+		if halaman > maksHalamanSinkron {
+			return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Sinkronisasi dihentikan: terlalu banyak halaman"}, "Melebihi batas maksimum halaman")
 		}
 
 		params := url.Values{}
@@ -404,19 +485,18 @@ func (e *endpointDatar) SyncDengan(c *gin.Context, susun func(*gin.Context) (*re
 			params.Set("cursor", cursor)
 		}
 
-		body, statusCode, err := callInaprocEndpoint(e.jalurAPI(), params)
+		body, statusCode, err := callInaprocEndpointCtx(ctx, e.jalurAPI(), params)
 		if err != nil {
+			if ctx.Err() != nil {
+				return dibatalkan()
+			}
 			log.Println("[INAPROC SYNC ERROR] gagal request "+nama+":", err)
-			catat("failed", totalSynced, err.Error())
-			utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc saat sinkronisasi")
-			return
+			return gagal(&GalatSinkron{Status: http.StatusBadGateway, Pesan: "Gagal menghubungi API Inaproc saat sinkronisasi"}, err.Error())
 		}
 
 		if statusCode != http.StatusOK {
 			errMsg := extractInaprocErrorMessage(body, statusCode)
-			catat("failed", totalSynced, errMsg)
-			c.JSON(statusCode, gin.H{"success": false, "message": "Sinkronisasi gagal: " + errMsg, "partial_synced": totalSynced})
-			return
+			return gagal(&GalatSinkron{Status: statusCode, Pesan: "Sinkronisasi gagal: " + errMsg, Hulu: true}, errMsg)
 		}
 
 		var envelope struct {
@@ -432,28 +512,78 @@ func (e *endpointDatar) SyncDengan(c *gin.Context, susun func(*gin.Context) (*re
 		dec.UseNumber()
 		if err := dec.Decode(&envelope); err != nil {
 			log.Println("[INAPROC SYNC ERROR] gagal parse "+nama+":", err, "| body:", string(body))
-			catat("failed", totalSynced, "gagal parse: "+err.Error())
-			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca respons Inaproc saat sinkronisasi")
-			return
+			return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal membaca respons Inaproc saat sinkronisasi"}, "gagal parse: "+err.Error())
 		}
 
-		if pageCount == 1 && len(envelope.Data) > 0 {
+		if halaman == 1 && len(envelope.Data) > 0 {
 			log.Printf("[INAPROC SYNC DEBUG] Contoh baris %s: %+v", nama, envelope.Data[0])
 		}
 
 		for _, row := range envelope.Data {
-			if err := e.insert(row, rencana.Konteks); err != nil {
-				log.Println("[INAPROC SYNC WARN] gagal simpan baris "+nama+":", err)
-				totalFailed++
-				continue
+			b, err := json.Marshal(row)
+			if err != nil {
+				return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal memproses respons Inaproc"}, "marshal baris: "+err.Error())
 			}
-			totalSynced++
+			if _, err := tulis.Write(append(b, '\n')); err != nil {
+				return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal menyimpan ke penampungan sementara"}, err.Error())
+			}
+			jumlahBaris++
 		}
 
+		kabar("Mengambil dari Inaproc: halaman %d, %d baris", halaman, jumlahBaris)
 		if !envelope.Meta.HasMore || envelope.Meta.Cursor == "" {
 			break
 		}
 		cursor = envelope.Meta.Cursor
+	}
+	if err := tulis.Flush(); err != nil {
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal menyimpan ke penampungan sementara"}, err.Error())
+	}
+	if _, err := spool.Seek(0, io.SeekStart); err != nil {
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal membaca penampungan sementara"}, err.Error())
+	}
+
+	// ---- Fase 2: ganti data lama dengan yang baru dalam satu transaksi ----
+	if ctx.Err() != nil {
+		return dibatalkan()
+	}
+	tx, err := database.DB.BeginTx(ctx, nil)
+	if err != nil {
+		log.Println("[INAPROC SYNC ERROR] gagal memulai transaksi "+nama+":", err)
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal memulai penyimpanan data"}, err.Error())
+	}
+	if _, err := tx.Exec(rencana.HapusSQL, rencana.HapusArgs...); err != nil {
+		_ = tx.Rollback()
+		log.Println("[INAPROC SYNC ERROR] gagal hapus data lama "+nama+":", err)
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal mengganti data lama (data lama tetap utuh)"}, "hapus data lama: "+err.Error())
+	}
+
+	totalSynced, totalFailed := 0, 0
+	dec := json.NewDecoder(bufio.NewReaderSize(spool, 1<<20))
+	dec.UseNumber()
+	for n := 0; dec.More(); n++ {
+		if n%periksaTiapBaris == 0 && ctx.Err() != nil {
+			_ = tx.Rollback()
+			return dibatalkan()
+		}
+		if n > 0 && n%(2*periksaTiapBaris) == 0 {
+			kabar("Menyimpan ke database: %d dari %d baris", n, jumlahBaris)
+		}
+		var row map[string]interface{}
+		if err := dec.Decode(&row); err != nil {
+			_ = tx.Rollback()
+			return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal membaca penampungan sementara"}, err.Error())
+		}
+		if err := e.insert(tx, row, rencana.Konteks); err != nil {
+			log.Println("[INAPROC SYNC WARN] gagal simpan baris "+nama+":", err)
+			totalFailed++
+			continue
+		}
+		totalSynced++
+	}
+	if err := tx.Commit(); err != nil {
+		log.Println("[INAPROC SYNC ERROR] gagal commit "+nama+":", err)
+		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal menyimpan data (data lama tetap utuh)"}, "commit: "+err.Error())
 	}
 
 	catatan := ""
@@ -461,7 +591,7 @@ func (e *endpointDatar) SyncDengan(c *gin.Context, susun func(*gin.Context) (*re
 		catatan = fmt.Sprintf("%d baris gagal disimpan", totalFailed)
 	}
 	catat("success", totalSynced, catatan)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
+	return HasilSinkron{TotalSinkron: totalSynced, TotalGagal: totalFailed, Halaman: halaman}, nil
 }
 
 // whereBawaan: klausa WHERE daftar lokal menurut bentuk saringan bawaan: kolom KLPD (+ kolom tahun bila ada) atau, untuk saringan

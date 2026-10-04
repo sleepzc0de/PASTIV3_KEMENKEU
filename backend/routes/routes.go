@@ -203,6 +203,18 @@ func SetupRoutes(r *gin.Engine) {
 			inaproc.GET("/ekatalog/e-purchasing-by-produk/local", handlers.ListLocalEkatalog6Transaksi)
 			inaproc.POST("/ekatalog/e-purchasing-by-produk/sync", middleware.RequireRole("admin", "superadmin"), handlers.SyncEkatalog6Transaksi)
 
+			// Penarikan Data terpadu (Pengadaan, Tender, E-Katalog V5 dan V6): status, penarikan manual dan otomatis, data lokal, ekspor, dasbor.
+			// Membaca terbuka bagi semua pengguna login; memulai/membatalkan/mengatur khusus admin.
+			inaproc.GET("/penarikan", handlers.GetInaprocPenarikan)
+			inaproc.GET("/penarikan/aktif", handlers.GetInaprocPenarikanAktif)
+			inaproc.GET("/penarikan/riwayat", handlers.GetInaprocPenarikanRiwayat)
+			inaproc.POST("/penarikan", middleware.RequireRole("admin", "superadmin"), handlers.StartInaprocPenarikan)
+			inaproc.POST("/penarikan/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelInaprocPenarikan)
+			inaproc.PUT("/penarikan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.PutInaprocPenarikanPengaturan)
+			inaproc.GET("/data/:awalan/:nama", handlers.GetInaprocData)
+			inaproc.GET("/ekspor/:awalan/:nama", handlers.EksporInaprocData)
+			inaproc.GET("/analitik", handlers.GetInaprocAnalitik)
+
 			inaproc.GET("/sync-log", middleware.RequireRole("admin", "superadmin"), handlers.GetSyncHistory)
 		}
 	}

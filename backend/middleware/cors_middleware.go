@@ -30,7 +30,9 @@ func CORSMiddleware() gin.HandlerFunc {
 		AllowOrigins:     allowedOrigins(),
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		// Content-Disposition: nama berkas unduhan (ekspor data dan dokumen SAPA) dibaca frontend dari header ini; tanpa dibuka, frontend di
+		// origin lain hanya melihat nama cadangan.
+		ExposeHeaders:    []string{"Content-Length", "Content-Disposition"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	})

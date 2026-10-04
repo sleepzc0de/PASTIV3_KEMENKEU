@@ -57,6 +57,15 @@ type Config struct {
 	DigitalisasiAutoJamMulai     int
 	DigitalisasiAutoJamAkhir     int
 
+	// ============ Penarikan data Pengadaan/Tender/E-Katalog otomatis (Inaproc) ============
+	// Nilai bawaan penarikan otomatis; pengaturan yang disimpan dari halaman Penarikan Data menggantikannya. Aktif bawaan: tiap
+	// 2 hari, mulai antara pukul 01.00 dan 05.00 WIB, tahun berjalan dan satu tahun sebelumnya. Hanya berjalan bila INAPROC_TOKEN terisi.
+	InaprocAutoSync         bool
+	InaprocAutoIntervalHari int
+	InaprocAutoJamMulai     int
+	InaprocAutoJamAkhir     int
+	InaprocAutoJumlahTahun  int
+
 	TokenEncryptionKey string
 	InaprocBaseURL     string
 	InaprocToken       string
@@ -116,6 +125,12 @@ func LoadConfig() {
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),
 		DigitalisasiAutoJamMulai:     getEnvInt("DIGITALISASI_AUTO_JAM_MULAI", 1),
 		DigitalisasiAutoJamAkhir:     getEnvInt("DIGITALISASI_AUTO_JAM_AKHIR", 5),
+
+		InaprocAutoSync:         getEnvBool("INAPROC_AUTO_SYNC", true),
+		InaprocAutoIntervalHari: getEnvInt("INAPROC_AUTO_INTERVAL_HARI", 2),
+		InaprocAutoJamMulai:     getEnvInt("INAPROC_AUTO_JAM_MULAI", 1),
+		InaprocAutoJamAkhir:     getEnvInt("INAPROC_AUTO_JAM_AKHIR", 5),
+		InaprocAutoJumlahTahun:  getEnvInt("INAPROC_AUTO_JUMLAH_TAHUN", 2),
 
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),

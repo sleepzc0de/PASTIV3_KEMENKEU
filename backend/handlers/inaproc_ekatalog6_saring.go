@@ -105,7 +105,12 @@ func ekatalog6KategoriRencana(c *gin.Context) (*rencanaSync, string) {
 	if !bacaBadanJSON(c, &req) {
 		return nil, "Permintaan tidak valid"
 	}
-	k := kategoriSaring{Kd1: strings.TrimSpace(req.Kd1), Kd2: strings.TrimSpace(req.Kd2)}
+	return ekatalog6KategoriRencanaDari(req.Kd1, req.Kd2)
+}
+
+// ekatalog6KategoriRencanaDari sama dengan ekatalog6KategoriRencana, tetapi dari nilai yang sudah terbaca (penarikan terjadwal/antrean).
+func ekatalog6KategoriRencanaDari(kd1, kd2 string) (*rencanaSync, string) {
+	k := kategoriSaring{Kd1: strings.TrimSpace(kd1), Kd2: strings.TrimSpace(kd2)}
 	if pesan := k.validasi(); pesan != "" {
 		return nil, pesan
 	}
@@ -239,7 +244,11 @@ func ekatalog6TransaksiRencana(c *gin.Context) (*rencanaSync, string) {
 	if !bacaBadanJSON(c, &req) {
 		return nil, "Permintaan tidak valid"
 	}
-	t := transaksiSaring{Tahun: req.Tahun, KodeKLPD: req.KodeKLPD, Kd1: req.Kd1, KdProduk: req.KdProduk, Status: req.Status}
+	return ekatalog6TransaksiRencanaDari(transaksiSaring{Tahun: req.Tahun, KodeKLPD: req.KodeKLPD, Kd1: req.Kd1, KdProduk: req.KdProduk, Status: req.Status})
+}
+
+// ekatalog6TransaksiRencanaDari sama dengan ekatalog6TransaksiRencana, tetapi dari nilai yang sudah terbaca (penarikan terjadwal/antrean).
+func ekatalog6TransaksiRencanaDari(t transaksiSaring) (*rencanaSync, string) {
 	t.rapikan()
 	if pesan := t.validasi(); pesan != "" {
 		return nil, pesan

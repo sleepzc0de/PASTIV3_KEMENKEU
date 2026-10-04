@@ -26,6 +26,8 @@ type Stmt struct {
 type DB struct {
 	OnQuery func(ctx context.Context, query string, args []driver.NamedValue) (cols []string, rows [][]driver.Value, err error)
 	OnExec  func(query string, args []driver.NamedValue) error
+	// TipeKolom (opsional): nama tipe database (mis. "DECIMAL", "NVARCHAR") yang dilaporkan untuk kolom hasil query, menurut urutan kolom.
+	TipeKolom []string
 
 	mu      sync.Mutex
 	events  []string
@@ -140,7 +142,7 @@ func (c *conn) QueryContext(ctx context.Context, q string, args []driver.NamedVa
 	if err != nil {
 		return nil, err
 	}
-	return &result{cols: cols, rows: rows}, nil
+	return &result{cols: cols, rows: rows, types: c.db.TipeKolom}, nil
 }
 
 func (c *conn) ExecContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
@@ -162,9 +164,18 @@ func (t *tx) Commit() error   { t.db.record("COMMIT"); return nil }
 func (t *tx) Rollback() error { t.db.record("ROLLBACK"); return nil }
 
 type result struct {
-	cols []string
-	rows [][]driver.Value
-	i    int
+	cols  []string
+	rows  [][]driver.Value
+	types []string
+	i     int
+}
+
+// ColumnTypeDatabaseTypeName melaporkan tipe kolom (database/sql meneruskannya ke ColumnType.DatabaseTypeName).
+func (r *result) ColumnTypeDatabaseTypeName(i int) string {
+	if i < len(r.types) {
+		return r.types[i]
+	}
+	return ""
 }
 
 func (r *result) Columns() []string { return r.cols }

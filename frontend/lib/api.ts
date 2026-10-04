@@ -2416,3 +2416,352 @@ export async function syncEkatalog6Transaksi(payload: { tahun: string; kode_klpd
   const res = await api.post("/inaproc/ekatalog/e-purchasing-by-produk/sync", payload);
   return res.data;
 }
+
+// ============ Penarikan Data Pengadaan terpadu (Pengadaan, Tender, E-Katalog V5 dan V6) ============
+
+export type PenarikanMode = "klpd_tahun" | "klpd" | "kode" | "kategori" | "transaksi";
+export type PenarikanStatusTugas = "antri" | "berjalan" | "sukses" | "gagal" | "dibatalkan" | "dilewati";
+
+export interface PenarikanRiwayat {
+  id: number;
+  batch_id: string;
+  dataset: string;
+  parameter: string;
+  pemicu: "manual" | "otomatis";
+  status: PenarikanStatusTugas;
+  jumlah_baris: number | null;
+  baris_gagal: number | null;
+  halaman: number | null;
+  percobaan: number;
+  pesan: string | null;
+  dijalankan_oleh: string | null; // disembunyikan dari non-admin
+  dibuat: string;
+  mulai: string | null;
+  selesai: string | null;
+}
+
+export interface PenarikanDataset {
+  id: string;
+  kelompok: string;
+  subkelompok: string;
+  nama: string;
+  deskripsi: string;
+  mode: PenarikanMode;
+  otomatis: boolean;
+  punya_klpd: boolean;
+  punya_tahun: boolean;
+  perlu_status: boolean;
+  baris: number;
+  disinkron_at: string | null;
+  terakhir: PenarikanRiwayat | null;
+  terakhir_sukses: PenarikanRiwayat | null;
+}
+
+export interface PenarikanTugasInfo {
+  id: number;
+  dataset: string;
+  nama: string;
+  parameter: string;
+  status: PenarikanStatusTugas;
+  pesan: string;
+  jumlah_baris: number;
+  baris_gagal: number;
+  percobaan: number;
+  mulai: string | null;
+  selesai: string | null;
+}
+
+export interface PenarikanAktif {
+  batch_id: string;
+  pemicu: "manual" | "otomatis";
+  oleh: string;
+  mulai: string;
+  dibatalkan: boolean;
+  total: number;
+  selesai: number;
+  tugas: PenarikanTugasInfo[];
+}
+
+export interface PenarikanPengaturan {
+  aktif: boolean;
+  interval_hari: number;
+  jam_mulai: number;
+  jam_akhir: number;
+  kode_klpd: string;
+  jumlah_tahun: number;
+  jeda_detik: number;
+  dataset: string[];
+  diubah: string | null;
+  diubah_oleh: string;
+  bawaan_server: boolean;
+}
+
+export interface PenarikanOtomatis {
+  aktif: boolean;
+  token_ada: boolean;
+  berikutnya: string | null;
+  jumlah_tugas: number;
+  jatuh_tempo: number;
+  terakhir_otomatis: string | null;
+  zona: string;
+}
+
+export interface PenarikanStatus {
+  token_ada: boolean;
+  aktif: PenarikanAktif | null;
+  otomatis: PenarikanOtomatis;
+  pengaturan: PenarikanPengaturan;
+  kelompok: { id: string; nama: string }[];
+  datasets: PenarikanDataset[];
+  riwayat: PenarikanRiwayat[];
+  kode_klpd: string;
+  tahun_ini: number;
+  tahun_bawaan: string[];
+}
+
+export interface PermintaanTugas {
+  dataset: string;
+  kode_klpd?: string;
+  tahun?: string;
+  kode?: string;
+  status?: string;
+  jenis_paket?: string;
+  kd_kategori_1?: string;
+  kd_kategori_2?: string;
+  kd_product?: string;
+}
+
+export interface PermintaanPenarikan {
+  tugas?: PermintaanTugas[];
+  datasets?: string[];
+  semua_otomatis?: boolean;
+  tahun?: string[];
+  kode_klpd?: string;
+}
+
+type Amplop<T> = { success: boolean; message: string; data: T };
+
+export async function getPenarikanStatus() {
+  const res = await api.get<Amplop<PenarikanStatus>>("/inaproc/penarikan");
+  return res.data;
+}
+
+// Ringan: hanya antrean yang sedang berjalan, untuk polling kemajuan.
+export async function getPenarikanAktif() {
+  const res = await api.get<Amplop<{ aktif: PenarikanAktif | null }>>("/inaproc/penarikan/aktif");
+  return res.data;
+}
+
+export async function getPenarikanRiwayat(params: { dataset?: string; limit?: number }) {
+  const res = await api.get<Amplop<PenarikanRiwayat[]>>("/inaproc/penarikan/riwayat", { params });
+  return res.data;
+}
+
+// Khusus admin. Penarikan berjalan di server; respons langsung kembali (202) dan kemajuannya dibaca lewat getPenarikanAktif.
+export async function startPenarikan(body: PermintaanPenarikan) {
+  const res = await api.post<Amplop<{ aktif: PenarikanAktif }>>("/inaproc/penarikan", body);
+  return res.data;
+}
+
+export async function cancelPenarikan() {
+  const res = await api.post<Amplop<{ dibatalkan: boolean }>>("/inaproc/penarikan/batal");
+  return res.data;
+}
+
+export async function savePenarikanPengaturan(body: Omit<PenarikanPengaturan, "diubah" | "diubah_oleh" | "bawaan_server">) {
+  const res = await api.put<Amplop<{ pengaturan: PenarikanPengaturan; otomatis: PenarikanOtomatis }>>("/inaproc/penarikan/pengaturan", body);
+  return res.data;
+}
+
+// ---- Data lokal dan ekspor ----
+
+export interface DataKolom {
+  nama: string;
+  label: string;
+  jenis: "teks" | "angka" | "tanggal";
+}
+
+export interface DataHalaman {
+  dataset: string;
+  kolom: DataKolom[];
+  baris: (string | number | boolean | null)[][];
+  total: number;
+  halaman: number;
+  per_halaman: number;
+  tahun_tersedia?: string[];
+}
+
+export interface PenyaringData {
+  kode_klpd?: string;
+  tahun?: string;
+  cari?: string;
+}
+
+export async function getInaprocData(dataset: string, params: PenyaringData & { halaman?: number; per_halaman?: number }) {
+  const res = await api.get<Amplop<DataHalaman>>(`/inaproc/data/${dataset}`, { params });
+  return res.data;
+}
+
+export type FormatEkspor = "xlsx" | "csv" | "pdf";
+export type PemisahCsv = "titik-koma" | "koma" | "tab";
+
+// Berkas diambil lewat axios (butuh header Authorization) lalu disimpan dari blob. Galat dari server datang sebagai blob JSON; pesannya dibaca di sini.
+export async function eksporInaprocData(dataset: string, params: PenyaringData & { format: FormatEkspor; pemisah?: PemisahCsv }) {
+  try {
+    const res = await api.get<Blob>(`/inaproc/ekspor/${dataset}`, { params, responseType: "blob" });
+    return { blob: res.data, disposition: String(res.headers["content-disposition"] ?? "") };
+  } catch (err) {
+    const data = (err as { response?: { data?: unknown } })?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const msg = JSON.parse(await data.text())?.message;
+        if (typeof msg === "string" && msg) throw new Error(msg);
+      } catch (inner) {
+        if (inner instanceof Error && inner.message && !(inner instanceof SyntaxError)) throw inner;
+      }
+    }
+    throw err;
+  }
+}
+
+// ---- Dasbor analitik ----
+
+export interface AnPasangan {
+  label: string;
+  jumlah: number;
+  nilai: number;
+}
+
+export interface AnBulan {
+  bulan: number;
+  jumlah: number;
+  nilai: number;
+}
+
+export interface AnRUP {
+  total_paket: number;
+  total_pagu: number;
+  paket_swakelola: number;
+  pagu_swakelola: number;
+  pagu_program: number;
+  status_umumkan: AnPasangan[];
+  per_metode: AnPasangan[];
+  per_jenis: AnPasangan[];
+  top_satker: AnPasangan[];
+  per_bulan_pemilihan: AnBulan[];
+  status_ukm: AnPasangan[];
+  status_pdn: AnPasangan[];
+}
+
+export interface AnPemilihan {
+  tender_jumlah: number;
+  tender_pagu: number;
+  tender_hps: number;
+  non_tender_jumlah: number;
+  non_tender_pagu: number;
+  non_tender_hps: number;
+  tender_selesai: number;
+  nilai_kontrak: number;
+  status_tender: AnPasangan[];
+  metode_tender: AnPasangan[];
+  metode_non_tender: AnPasangan[];
+  jenis_tender: AnPasangan[];
+  per_bulan_tender: AnBulan[];
+  per_bulan_non_tender: AnBulan[];
+  efisiensi: { sampel: number; total_hps: number; total_kontrak: number; persen: number; median: number; sebaran: AnPasangan[] };
+  persaingan: { tender_berpeserta: number; satu_peserta: number; rata_peserta: number; sebaran: AnPasangan[] };
+  waktu_proses: { sampel: number; median: number; rata: number };
+  pasar: { jumlah_penyedia: number; total_nilai: number; hhi: number; top: AnPasangan[] };
+}
+
+export interface AnKontrakBerakhir {
+  no_kontrak: string;
+  nama_paket: string;
+  penyedia: string;
+  nilai: number;
+  berakhir: string;
+  sisa_hari: number;
+  jenis: string;
+}
+
+export interface AnKontrak {
+  tender_jumlah: number;
+  tender_nilai: number;
+  non_tender_jumlah: number;
+  non_tender_nilai: number;
+  status: AnPasangan[];
+  addendum: number;
+  per_bulan: AnBulan[];
+  berakhir_dalam: number;
+  nilai_berakhir: number;
+  akan_berakhir: AnKontrakBerakhir[] | null;
+  hari_peringatan: number;
+}
+
+export interface AnEkatalog {
+  v5: { paket: number; nilai: number; per_bulan: AnBulan[]; top_komoditas: AnPasangan[]; top_penyedia: AnPasangan[]; status: AnPasangan[] };
+  v6: {
+    order: number;
+    nilai: number;
+    order_swasta: number;
+    nilai_swasta: number;
+    per_bulan: AnBulan[];
+    top_penyedia: AnPasangan[];
+    status: AnPasangan[];
+    transaksi_nilai: number;
+    transaksi_baris: number;
+    top_kategori: AnPasangan[];
+  };
+}
+
+export interface AnCorong {
+  total_paket: number;
+  total_pagu: number;
+  tahap: AnPasangan[];
+}
+
+export interface AnPembanding {
+  tahun: string;
+  rup_paket: number;
+  rup_pagu: number;
+  tender_jumlah: number;
+  nilai_kontrak: number;
+}
+
+export interface AnHasil {
+  tahun: string;
+  kode_klpd: string;
+  rup: AnRUP | null;
+  pemilihan: AnPemilihan | null;
+  kontrak: AnKontrak | null;
+  ekatalog: AnEkatalog | null;
+  corong: AnCorong | null;
+  pembanding: AnPembanding | null;
+  dataset_kosong: string[] | null;
+  terakhir_tarik: string | null;
+  galat: Record<string, string> | null;
+}
+
+export type TingkatWawasan = "penting" | "perhatian" | "info" | "baik";
+
+export interface AnWawasan {
+  bagian: string;
+  tingkat: TingkatWawasan;
+  judul: string;
+  isi: string;
+}
+
+export interface AnalitikResponse {
+  hasil: AnHasil;
+  wawasan: AnWawasan[];
+  tahun_tersedia: string[];
+  dibuat: string;
+  dari_cache: boolean;
+}
+
+export async function getAnalitik(params: { tahun?: string; kode_klpd?: string; segarkan?: boolean }) {
+  const res = await api.get<Amplop<AnalitikResponse>>("/inaproc/analitik", {
+    params: { tahun: params.tahun || undefined, kode_klpd: params.kode_klpd || undefined, segarkan: params.segarkan ? 1 : undefined },
+  });
+  return res.data;
+}
