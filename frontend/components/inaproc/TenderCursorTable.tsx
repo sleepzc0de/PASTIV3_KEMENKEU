@@ -32,16 +32,41 @@ export interface IsianKode {
   numerik?: boolean; // hanya angka
 }
 
+// Isian penyaring tambahan (teks atau pilihan) yang ikut dikirim pada pencarian dan sinkronisasi, mis. status transaksi.
+export interface FilterTambahan {
+  kunci: string; // nama kunci pada `tambahan` yang diterima ambil/sinkron
+  label: string;
+  placeholder?: string;
+  pilihan?: string[]; // bila ada: tampil sebagai pilihan (tanpa pilihan kosong); nilai pilihan = teks yang dikirim
+  bawaan?: string;
+}
+
+// Kotak centang yang mengganti kode KLPD bawaan (K10) dengan kode lain, mis. "swasta" untuk paket swasta.
+export interface KlpdAlternatif {
+  label: string;
+  kode: string;
+  keterangan: string; // pengganti banner saat kotak dicentang
+}
+
 interface Props<T> {
   ikon: LucideIcon;
   petunjukAwal: string; // teks sebelum pencarian pertama
   kodeCari?: IsianKode;
   tanpaTahun?: boolean; // sembunyikan isian Tahun (endpoint tanpa tahun)
+  filterTambahan?: FilterTambahan[];
+  klpdAlternatif?: KlpdAlternatif;
   // Pengganti teks "Menampilkan data untuk Kementerian Keuangan (Kode KLPD: K10)", mis. untuk pencarian per kode yang tidak
   // berkaitan dengan KLPD.
   keterangan?: string;
-  ambil: (p: { kode_klpd: string; tahun: number; kode?: string; limit: number; cursor?: string }) => Promise<{ data: T[] | null; meta?: InaprocMeta }>;
-  sinkron: (p: { kode_klpd: string; tahun: string; kode?: string }) => Promise<{ data: { total_synced: number; total_failed?: number } }>;
+  ambil: (p: {
+    kode_klpd: string;
+    tahun: number;
+    kode?: string;
+    tambahan?: Record<string, string>;
+    limit: number;
+    cursor?: string;
+  }) => Promise<{ data: T[] | null; meta?: InaprocMeta }>;
+  sinkron: (p: { kode_klpd: string; tahun: string; kode?: string; tambahan?: Record<string, string> }) => Promise<{ data: { total_synced: number; total_failed?: number } }>;
   kolom: KolomTender<T>[];
   kunciBaris: (row: T, idx: number) => string;
   detail: (row: T, tutup: () => void) => ReactNode;
@@ -58,6 +83,8 @@ export function TenderCursorTable<T>({
   petunjukAwal,
   kodeCari,
   tanpaTahun = false,
+  filterTambahan,
+  klpdAlternatif,
   keterangan,
   ambil,
   sinkron,
@@ -70,6 +97,14 @@ export function TenderCursorTable<T>({
 
   const [tahun, setTahun] = useState(new Date().getFullYear().toString());
   const [kode, setKode] = useState("");
+  const [tambahan, setTambahan] = useState<Record<string, string>>(() =>
+    Object.fromEntries((filterTambahan ?? []).map((f) => [f.kunci, f.bawaan ?? f.pilihan?.[0] ?? ""]))
+  );
+  const [pakaiAlternatif, setPakaiAlternatif] = useState(false);
+  const kodeKlpd = klpdAlternatif && pakaiAlternatif ? klpdAlternatif.kode : KODE_KLPD_KEMENKEU;
+  // Hanya isian tambahan yang terisi yang dikirim; tanpa filter tambahan, properti ini tidak dikirim sama sekali.
+  const tambahanTerisi = (): Record<string, string> | undefined =>
+    filterTambahan ? Object.fromEntries(Object.entries(tambahan).filter(([, v]) => v.trim() !== "").map(([k, v]) => [k, v.trim()])) : undefined;
 
   const [rows, setRows] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | undefined>(undefined);
@@ -112,9 +147,10 @@ export function TenderCursorTable<T>({
 
       try {
         const res = await ambil({
-          kode_klpd: KODE_KLPD_KEMENKEU,
+          kode_klpd: kodeKlpd,
           tahun: parseInt(tahun, 10),
           kode: kd || undefined,
+          tambahan: tambahanTerisi(),
           limit: 50,
           cursor: useCursor,
         });
@@ -137,7 +173,7 @@ export function TenderCursorTable<T>({
         setIsLoadingMore(false);
       }
     },
-    [tahun, kode, kodeCari, tanpaTahun, ambil]
+    [tahun, kode, kodeCari, tanpaTahun, kodeKlpd, tambahan, ambil]
   );
 
   const handleSync = useCallback(async () => {
@@ -159,7 +195,7 @@ export function TenderCursorTable<T>({
     setSyncError(null);
     setSyncMessage(null);
     try {
-      const res = await sinkron({ kode_klpd: KODE_KLPD_KEMENKEU, tahun, ...(kd ? { kode: kd } : {}) });
+      const res = await sinkron({ kode_klpd: kodeKlpd, tahun, ...(kd ? { kode: kd } : {}), tambahan: tambahanTerisi() });
       const gagal = res.data.total_failed ?? 0;
       setSyncMessage(
         `Berhasil menyinkronkan ${res.data.total_synced} baris data ke database.` + (gagal > 0 ? ` ${gagal} baris gagal disimpan (lihat log server).` : "")
@@ -173,11 +209,12 @@ export function TenderCursorTable<T>({
     } finally {
       setIsSyncing(false);
     }
-  }, [tahun, kode, kodeCari, tanpaTahun, sinkron]);
+  }, [tahun, kode, kodeCari, tanpaTahun, kodeKlpd, tambahan, sinkron]);
 
-  // Tombol Cari mengisi sisa baris dari grid 3 kolom.
-  const jumlahIsian = (tanpaTahun ? 0 : 1) + (kodeCari ? 1 : 0);
-  const lebarCari = jumlahIsian === 0 ? "sm:col-span-3" : jumlahIsian === 1 ? "sm:col-span-2" : "";
+  // Tombol Cari mengisi sisa baris dari grid 3 kolom (baris baru bila barisnya sudah penuh).
+  const jumlahIsian = (tanpaTahun ? 0 : 1) + (kodeCari ? 1 : 0) + (klpdAlternatif ? 1 : 0) + (filterTambahan?.length ?? 0);
+  const sisa = jumlahIsian % 3;
+  const lebarCari = sisa === 0 ? "sm:col-span-3" : sisa === 1 ? "sm:col-span-2" : "";
   const cariBilaEnter = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !isLoading) runSearch();
   };
@@ -186,7 +223,9 @@ export function TenderCursorTable<T>({
     <div className="w-full space-y-4">
       <div className="flex items-center gap-2.5 rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-800">
         <Ikon className="h-4 w-4 shrink-0" />
-        {keterangan ? (
+        {klpdAlternatif && pakaiAlternatif ? (
+          <span>{klpdAlternatif.keterangan}</span>
+        ) : keterangan ? (
           <span>{keterangan}</span>
         ) : (
           <span>
@@ -224,6 +263,41 @@ export function TenderCursorTable<T>({
             />
           </div>
         )}
+        {klpdAlternatif && (
+          <label className="flex cursor-pointer items-end gap-2.5 pb-2.5 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={pakaiAlternatif}
+              onChange={(e) => setPakaiAlternatif(e.target.checked)}
+              className="mb-0.5 h-4 w-4 rounded border-slate-300 text-blue-600"
+            />
+            {klpdAlternatif.label}
+          </label>
+        )}
+        {filterTambahan?.map((f) => (
+          <div key={f.kunci}>
+            <label className="mb-1.5 block text-xs font-medium text-slate-600">{f.label}</label>
+            {f.pilihan ? (
+              <select value={tambahan[f.kunci] ?? ""} onChange={(e) => setTambahan((p) => ({ ...p, [f.kunci]: e.target.value }))} className={KELAS_ISIAN}>
+                {f.pilihan.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                maxLength={100}
+                value={tambahan[f.kunci] ?? ""}
+                onChange={(e) => setTambahan((p) => ({ ...p, [f.kunci]: e.target.value }))}
+                onKeyDown={cariBilaEnter}
+                placeholder={f.placeholder}
+                className={KELAS_ISIAN}
+              />
+            )}
+          </div>
+        ))}
         <div className={`flex items-end ${lebarCari}`}>
           <button
             onClick={() => runSearch()}

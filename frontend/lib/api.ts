@@ -2244,3 +2244,175 @@ export async function syncEkatalogDistributor(payload: { kode: string }) {
   const res = await api.post("/inaproc/ekatalog-archive/penyedia-distributor-detail/sync", payload);
   return res.data;
 }
+
+// ============ Inaproc - E-Katalog V6 ============
+//
+// Penyedia dan produk penyedia dicari per kode_penyedia (kode teks); paket per kode_klpd + tahun (kode_klpd "swasta" = paket
+// swasta); kategori produk berjenjang L1 -> L2 -> L3; transaksi per produk per tahun dengan filter status. Sinkronisasi pencarian
+// per kode menyimpan hasil untuk kode di badan sebagai `kode`.
+
+export interface Ekatalog6PenyediaItem {
+  kode_penyedia: string;
+  nama_penyedia: string | null;
+  nib: string | null;
+  npwp_penyedia: string | null;
+  bentuk_usaha: string | null;
+  jenis_perusahaan: string | null;
+  status_aktif: string | null;
+  status_umkk: number | null; // penanda 0/1
+  rekan_id: number | null;
+  alamat_penyedia: string | null;
+  email: string | null;
+  telepon: string | null;
+  kbli_id: string | null; // beberapa kode dipisah koma
+  kbli_name: string | null; // beberapa nama dipisah koma
+}
+
+export interface Ekatalog6ProdukPenyediaItem {
+  kd_produk: string;
+  nama_produk: string | null;
+  status_produk: string | null;
+  status_produk_tayang: boolean | null;
+}
+
+export interface Ekatalog6PaketItem {
+  kode_klpd: string | null;
+  fiscal_year: number;
+  order_id: string;
+  product_id: string | null;
+  kode_penyedia: string | null;
+  rekan_id: number | null;
+  status: string | null;
+  shipment_status: string | null;
+  is_swasta: boolean | null;
+  kode_satker: string | null;
+  nama_satker: string | null;
+  rup_code: string | null;
+  rup_name: string | null;
+  rup_desc: string | null;
+  mak: string | null;
+  funding_source: string | null;
+  count_product: number | null;
+  total_qty: number | null;
+  shipping_fee: number | null;
+  total: number | null;
+  order_date: string | null;
+  last_update_date: string | null;
+}
+
+// Tiap tingkat hanya memuat pasangan kode/nama untuk tingkatnya sendiri (+ datamart_id).
+export interface Ekatalog6KategoriItem {
+  datamart_id: number | null;
+  kd_kategori_1?: string | null;
+  nama_kategori_1?: string | null;
+  kd_kategori_2?: string | null;
+  nama_kategori_2?: string | null;
+  kd_kategori_3?: string | null;
+  nama_kategori_3?: string | null;
+}
+
+export interface Ekatalog6TransaksiItem {
+  order_id: string;
+  kd_kategori_1: string | null;
+  kategori_1: string | null;
+  kd_kategori_2: string | null;
+  kategori_2: string | null;
+  kd_kategori_3: string | null;
+  kategori_3: string | null;
+  product_id: string | null;
+  nama_produk: string | null;
+  kode_klpd: string | null;
+  nama_group_klpd: string | null;
+  nama_klpd: string | null;
+  kode_satker: string | null;
+  nama_satker: string | null;
+  status: string | null;
+  nilai_transaksi: number | null;
+}
+
+// Status transaksi yang didukung Inaproc (tidak peka huruf besar/kecil; bawaan COMPLETED).
+export const STATUS_TRANSAKSI = [
+  "COMPLETED",
+  "CANCELLED",
+  "CANCELLED_ON_NEGOTIATION",
+  "CANCELLED_ON_REVIEW",
+  "ESIGN_IN_PROGRESS",
+  "ON_ADDENDUM",
+  "ON_NEGOTIATION",
+  "ON_PROCESS",
+  "PAYMENT_OUTSIDE_SYSTEM",
+  "REQUEST_CANCEL_BY_ADMIN",
+  "WAITING_PPK_REVIEW",
+  "WAITING_SELLER_CONFIRMATION",
+];
+
+interface Ekatalog6Response<T> {
+  success: boolean;
+  data: T[] | null;
+  meta: InaprocMeta;
+}
+
+export interface Ekatalog6ParamsDasar {
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getEkatalog6Penyedia(params: Ekatalog6ParamsDasar & { kode_penyedia: string }) {
+  const res = await api.get<Ekatalog6Response<Ekatalog6PenyediaItem>>("/inaproc/ekatalog/penyedia-detail", { params });
+  return res.data;
+}
+
+export async function getEkatalog6ProdukPenyedia(params: Ekatalog6ParamsDasar & { kode_penyedia: string }) {
+  const res = await api.get<Ekatalog6Response<Ekatalog6ProdukPenyediaItem>>("/inaproc/ekatalog/list-produk-penyedia", { params });
+  return res.data;
+}
+
+export async function getEkatalog6Paket(params: Ekatalog6ParamsDasar & { kode_klpd: string; tahun: number }) {
+  const res = await api.get<Ekatalog6Response<Ekatalog6PaketItem>>("/inaproc/ekatalog/paket-e-purchasing", { params });
+  return res.data;
+}
+
+// Tanpa kd_kategori_1: tingkat 1; dengan kd_kategori_1: tingkat 2; dengan keduanya: tingkat 3.
+export async function getEkatalog6Kategori(params: Ekatalog6ParamsDasar & { kd_kategori_1?: string; kd_kategori_2?: string }) {
+  const res = await api.get<Ekatalog6Response<Ekatalog6KategoriItem>>("/inaproc/ekatalog/list-kategori-produk", { params });
+  return res.data;
+}
+
+export interface Ekatalog6ParamsTransaksi extends Ekatalog6ParamsDasar {
+  tahun: number;
+  kode_klpd?: string;
+  kd_kategori_1?: string;
+  kd_product?: string;
+  status?: string;
+}
+
+export async function getEkatalog6Transaksi(params: Ekatalog6ParamsTransaksi) {
+  const res = await api.get<Ekatalog6Response<Ekatalog6TransaksiItem>>("/inaproc/ekatalog/e-purchasing-by-produk", { params });
+  return res.data;
+}
+
+export async function syncEkatalog6Penyedia(payload: { kode: string }) {
+  const res = await api.post("/inaproc/ekatalog/penyedia-detail/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalog6ProdukPenyedia(payload: { kode: string }) {
+  const res = await api.post("/inaproc/ekatalog/list-produk-penyedia/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalog6Paket(payload: { kode_klpd: string; tahun: string }) {
+  const res = await api.post("/inaproc/ekatalog/paket-e-purchasing/sync", payload);
+  return res.data;
+}
+
+// Menarik satu tingkat untuk satu induk: kosong = tingkat 1, kd_kategori_1 = tingkat 2, keduanya = tingkat 3.
+export async function syncEkatalog6Kategori(payload: { kd_kategori_1?: string; kd_kategori_2?: string }) {
+  const res = await api.post("/inaproc/ekatalog/list-kategori-produk/sync", payload);
+  return res.data;
+}
+
+export async function syncEkatalog6Transaksi(payload: { tahun: string; kode_klpd?: string; kd_kategori_1?: string; kd_product?: string; status?: string }) {
+  const res = await api.post("/inaproc/ekatalog/e-purchasing-by-produk/sync", payload);
+  return res.data;
+}
