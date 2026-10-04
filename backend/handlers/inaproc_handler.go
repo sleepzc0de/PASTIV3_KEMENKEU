@@ -35,6 +35,8 @@ func getStr(m map[string]interface{}, keys ...string) string {
 				if val != "" {
 					return val
 				}
+			case json.Number:
+				return val.String()
 			case float64:
 				return strconv.FormatFloat(val, 'f', -1, 64)
 			case bool:
@@ -1088,6 +1090,13 @@ func getInt64FromAny(m map[string]interface{}, key string) interface{} {
 		return nil
 	}
 	switch val := v.(type) {
+	case json.Number:
+		if n, err := val.Int64(); err == nil {
+			return n
+		}
+		if f, err := val.Float64(); err == nil {
+			return int64(f)
+		}
 	case float64:
 		return int64(val)
 	case string:
