@@ -438,9 +438,6 @@ func TestPenarikanDenganSQLServer(t *testing.T) {
 	t.Cleanup(func() { bersihkanUji(t, db) })
 
 	m := NewPenarikInaproc(db)
-	jedaLama := jedaUlang429
-	jedaUlang429 = []time.Duration{time.Millisecond}
-	t.Cleanup(func() { jedaUlang429 = jedaLama })
 
 	var panggilan int32
 	m.jalankan = func(ctx context.Context, tg Tugas, oleh string, kabar func(string)) (HasilSinkron, error) {
@@ -535,5 +532,142 @@ func TestPenarikanDenganSQLServer(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM inaproc_penarikan_pengaturan").Scan(&baris)
 	if baris != 1 {
 		t.Errorf("baris pengaturan = %d, want tepat 1", baris)
+	}
+}
+
+// Kebijakan percobaan, kuota, dan kunci terhadap tabel dan query asli (jendela OVER/PARTITION, sp_getapplock, UPDATE ... IF @@ROWCOUNT).
+func TestKebijakanDanKuotaDenganSQLServer(t *testing.T) {
+	db := dbIntegrasi(t)
+	bersihkanUji(t, db)
+	ctx := context.Background()
+	const menitAwal2031 = int64(1924992000 / 60) // 1 Jan 2031
+	bersihKuota := func() { db.Exec("DELETE FROM inaproc_kuota_menit WHERE menit >= @p1", menitAwal2031) }
+	bersihKuota()
+	t.Cleanup(func() { bersihkanUji(t, db); bersihKuota() })
+	batasUji(t)
+
+	// ---- kuota: selisih ditambahkan, dimuat ulang setelah "restart", dan digabung dengan server lain ----
+	b := NewBatasInaproc(1000, 4500)
+	j := pasangJamUji(b)
+	j.now = time.Unix(1924992000+3600, 0).UTC()
+	for i := 0; i < 7; i++ {
+		if err := b.Tunggu(ctx, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Simpan(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	db.QueryRow("SELECT ISNULL(SUM(jumlah),0) FROM inaproc_kuota_menit WHERE menit >= @p1", menitAwal2031).Scan(&total)
+	if total != 7 {
+		t.Fatalf("tersimpan %d, want 7", total)
+	}
+	_ = b.Tunggu(ctx, 0)
+	if err := b.Simpan(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	db.QueryRow("SELECT ISNULL(SUM(jumlah),0) FROM inaproc_kuota_menit WHERE menit >= @p1", menitAwal2031).Scan(&total)
+	if total != 8 {
+		t.Errorf("setelah satu permintaan lagi tersimpan %d, want 8 (selisih ditambahkan)", total)
+	}
+	baru := NewBatasInaproc(1000, 4500)
+	jb := pasangJamUji(baru)
+	jb.now = j.now
+	if err := baru.Muat(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if s := baru.Status(); s.TerpakaiJam != 8 {
+		t.Errorf("setelah dimuat terpakai %d, want 8", s.TerpakaiJam)
+	}
+
+	// ---- kunci aplikasi: hanya satu pemegang di seluruh server ----
+	m1 := NewPenarikInaproc(db)
+	m2 := NewPenarikInaproc(db)
+	k1, err := m1.ambilKunciDB()
+	if err != nil || k1 == nil {
+		t.Fatalf("kunci pertama: conn=%v err=%v", k1, err)
+	}
+	if k2, err := m2.ambilKunciDB(); err != ErrPenarikanSibuk || k2 != nil {
+		t.Errorf("kunci kedua saat dipegang: conn=%v err=%v, want ErrPenarikanSibuk", k2, err)
+	}
+	m2.jalankan = sukses(1)
+	if _, err := m2.Start([]Tugas{tugasUji(t, "tender/pengumuman", PermintaanTarik{KodeKLPD: klpdUji, Tahun: "2025"})}, PemicuManual, Oleh{}, 0); err != ErrPenarikanSibuk {
+		t.Errorf("Start saat kunci dipegang salinan lain: %v, want ErrPenarikanSibuk", err)
+	}
+	if m2.Aktif() != nil {
+		t.Error("antrean tidak boleh tersisa")
+	}
+	m1.lepasKunciDB(k1)
+	k3, err := m2.ambilKunciDB()
+	if err != nil || k3 == nil {
+		t.Fatalf("kunci setelah dilepas: conn=%v err=%v", k3, err)
+	}
+	m2.lepasKunciDB(k3)
+
+	// ---- percobaan: gagal tercatat dengan isiannya, sukses menutup siklus, server mulai ulang tidak dihitung gagal ----
+	m := NewPenarikInaproc(db)
+	var hasil atomic.Value
+	hasil.Store("gagal")
+	m.jalankan = func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
+		if hasil.Load() == "gagal" {
+			return HasilSinkron{}, &GalatSinkron{Status: http.StatusBadGateway, Pesan: "Gagal menghubungi API Inaproc"}
+		}
+		return HasilSinkron{TotalSinkron: 3, Halaman: 1}, nil
+	}
+	tg := tugasUji(t, "tender/pengumuman", PermintaanTarik{KodeKLPD: klpdUji, Tahun: "2025"})
+	tg.Percobaan = 2
+	if _, err := m.Start([]Tugas{tg}, PemicuOtomatis, Oleh{Nama: "otomatis"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	tungguSelesai(t, m)
+	gagal, err := m.KegagalanBelumPulih(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := gagal[tg.Kunci()]
+	if g == nil || len(g.Waktu) != 1 || g.Pesan != "Gagal menghubungi API Inaproc" || g.Permintaan == "" {
+		t.Fatalf("kegagalan = %+v", g)
+	}
+	if back, ok := tugasDariKegagalan(g); !ok || back.Kunci() != tg.Kunci() || back.Perm != tg.Perm {
+		t.Errorf("tugas tidak bisa disusun ulang dari isian tersimpan: %+v", back)
+	}
+	riwayat, _ := m.Riwayat(ctx, "tender/pengumuman", 20)
+	var percobaan int
+	for _, r := range riwayat {
+		if r.Parameter == klpdUji+"/2025" {
+			percobaan = r.Percobaan
+		}
+	}
+	if percobaan != 2 {
+		t.Errorf("percobaan tercatat = %d, want 2", percobaan)
+	}
+
+	// Dibatalkan karena server mulai ulang: tidak menambah kegagalan.
+	if _, err := db.Exec(`INSERT INTO inaproc_penarikan (batch_id, dataset, parameter, pemicu, status) VALUES (@p1, @p2, @p3, @p4, @p5)`,
+		"b-uji-yatim", "tender/pengumuman", klpdUji+"/2025", PemicuOtomatis, PenarikanBerjalan); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := m.RecoverOrphans(ctx); err != nil || n < 1 {
+		t.Fatalf("RecoverOrphans n=%d err=%v", n, err)
+	}
+	gagal, _ = m.KegagalanBelumPulih(ctx, time.Now())
+	if g := gagal[tg.Kunci()]; g == nil || len(g.Waktu) != 1 {
+		t.Errorf("setelah server mulai ulang kegagalan = %+v, want tetap 1", g)
+	}
+
+	// Sukses menutup siklus (manual atau otomatis).
+	hasil.Store("sukses")
+	if _, err := m.Start([]Tugas{tg}, PemicuManual, Oleh{Nama: "admin"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	tungguSelesai(t, m)
+	gagal, _ = m.KegagalanBelumPulih(ctx, time.Now())
+	if g := gagal[tg.Kunci()]; g != nil {
+		t.Errorf("setelah sukses kegagalan = %+v, want kosong", g)
+	}
+	// Perkiraan permintaan memakai halaman sukses terakhir.
+	if n := m.perkiraanPermintaan(ctx, tg); n != 1*13/10+2 {
+		t.Errorf("perkiraan = %d", n)
 	}
 }

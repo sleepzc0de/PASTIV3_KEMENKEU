@@ -109,10 +109,22 @@ func GetInaprocPenarikan(c *gin.Context) {
 		penarikGagal(c, "pengaturan", err)
 		return
 	}
-	info, err := m.InfoOtomatis(ctx, pengaturan, time.Now())
+	now := time.Now()
+	gagal, err := m.KegagalanBelumPulih(ctx, now)
+	if err != nil {
+		penarikGagal(c, "kegagalan", err)
+		return
+	}
+	info, err := m.InfoOtomatis(ctx, pengaturan, now, gagal)
 	if err != nil {
 		penarikGagal(c, "info otomatis", err)
 		return
+	}
+	bermasalah := pengaturan.Bermasalah(now, gagal)
+	for i := range bermasalah {
+		if !admin {
+			bermasalah[i].Pesan = "Penarikan gagal"
+		}
 	}
 	ringkas := m.RingkasTabel(ctx)
 
@@ -142,6 +154,8 @@ func GetInaprocPenarikan(c *gin.Context) {
 		"token_ada":    config.Cfg != nil && config.Cfg.InaprocToken != "",
 		"aktif":        maskInfoAktif(m.Aktif(), admin),
 		"otomatis":     info,
+		"kuota":        batas().Status(),
+		"bermasalah":   bermasalah,
 		"pengaturan":   pengaturan,
 		"kelompok":     kelompok,
 		"datasets":     datasets,
@@ -157,7 +171,7 @@ func GetInaprocPenarikanAktif(c *gin.Context) {
 	if !penarikReady(c) {
 		return
 	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil kemajuan penarikan", gin.H{"aktif": maskInfoAktif(Penarik.Aktif(), dgIsAdmin(c))})
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil kemajuan penarikan", gin.H{"aktif": maskInfoAktif(Penarik.Aktif(), dgIsAdmin(c)), "kuota": batas().Status()})
 }
 
 // GetInaprocPenarikanRiwayat: riwayat penarikan (query: dataset, limit).
@@ -341,10 +355,36 @@ func PutInaprocPenarikanPengaturan(c *gin.Context) {
 		penarikGagal(c, "muat pengaturan", err)
 		return
 	}
-	info, err := Penarik.InfoOtomatis(ctx, tersimpan, time.Now())
+	now := time.Now()
+	gagal, err := Penarik.KegagalanBelumPulih(ctx, now)
+	if err != nil {
+		penarikGagal(c, "kegagalan", err)
+		return
+	}
+	info, err := Penarik.InfoOtomatis(ctx, tersimpan, now, gagal)
 	if err != nil {
 		penarikGagal(c, "info otomatis", err)
 		return
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Pengaturan penarikan otomatis disimpan", gin.H{"pengaturan": tersimpan, "otomatis": info})
+}
+
+// SinkronEksklusif membungkus rute sinkron di halaman lama (satu dataset): sinkron itu tidak boleh berjalan bersamaan dengan antrean
+// penarikan atau sinkron lain, karena keduanya menulis tabel yang sama dan memakai kuota Inaproc yang sama. Bila penarikan lain sedang
+// berjalan, dijawab 409.
+func SinkronEksklusif() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if Penarik == nil {
+			c.Next()
+			return
+		}
+		lepas, err := Penarik.MulaiEksklusif()
+		if err != nil {
+			utils.ErrorResponse(c, http.StatusConflict, "Penarikan data lain sedang berjalan. Tunggu sampai selesai (lihat halaman Penarikan Data) lalu coba lagi.")
+			c.Abort()
+			return
+		}
+		defer lepas()
+		c.Next()
+	}
 }

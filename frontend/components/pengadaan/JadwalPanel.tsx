@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { CalendarClock, Loader2, Save } from "lucide-react";
 import { PenarikanOtomatis, PenarikanPengaturan, PenarikanStatus, savePenarikanPengaturan } from "@/lib/api";
-import { formatAngka, formatWaktu, jam, kalimatJadwal, kelompokkanDataset, waktuRelatif } from "@/lib/pengadaan";
+import { formatAngka, formatWaktu, jam, kalimatJadwal, kalimatKebijakan, kelompokkanDataset, waktuRelatif } from "@/lib/pengadaan";
 import { Alert } from "@/components/ui/Alert";
 import { useToast } from "@/components/ui/Toast";
 import { errorMessage } from "../digitalisasi/useDigitalisasi";
@@ -80,11 +80,24 @@ export function JadwalPanel({
             <p className="mt-0.5 text-sm text-slate-600">{kalimatJadwal(otomatis, pengaturan)}</p>
             <p className="mt-1 text-xs text-slate-500">
               {otomatis.terakhir_otomatis ? `Penarikan otomatis berhasil terakhir ${waktuRelatif(otomatis.terakhir_otomatis)} (${formatWaktu(otomatis.terakhir_otomatis)}). ` : "Belum pernah ada penarikan otomatis yang berhasil. "}
-              {otomatis.jatuh_tempo > 0 ? `${formatAngka(otomatis.jatuh_tempo)} dari ${formatAngka(otomatis.jumlah_tugas)} tugas sudah jatuh tempo dan menunggu jendela jam berikutnya.` : `${formatAngka(otomatis.jumlah_tugas)} tugas per putaran, semuanya masih segar.`}
+              {otomatis.jatuh_tempo > 0 ? `${formatAngka(otomatis.jatuh_tempo)} dari ${formatAngka(otomatis.jumlah_tugas)} tugas sudah jatuh tempo (percobaan ulang langsung berjalan; yang reguler menunggu jendela jam).` : `${formatAngka(otomatis.jumlah_tugas)} tugas per putaran, semuanya masih segar.`}
               {pengaturan.bawaan_server ? " Pengaturan masih memakai nilai bawaan server." : pengaturan.diubah ? ` Terakhir diubah ${formatWaktu(pengaturan.diubah)}${isAdmin && pengaturan.diubah_oleh ? ` oleh ${pengaturan.diubah_oleh}` : ""}.` : ""}
             </p>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <h3 className="text-sm font-semibold text-slate-900">Bila penarikan gagal</h3>
+        <p className="mt-1 text-sm text-slate-600">{kalimatKebijakan(otomatis.maks_percobaan, otomatis.istirahat_jam)}</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-500">
+          <li>Percobaan ulang tidak menunggu jendela jam, tetapi tetap lewat antrean tunggal: tidak pernah dua penarikan berjalan bersamaan.</li>
+          <li>Hanya yang berstatus gagal dihitung. Dibatalkan, dilewati, dan terhenti karena server dimulai ulang tidak menghabiskan kesempatan; satu penarikan sukses menutup siklus.</li>
+          <li>Bila banyak tugas gagal berturut-turut (Inaproc atau jaringan bermasalah), antrean berhenti dan penarikan otomatis ditahan sebentar supaya kesempatan tidak habis percuma.</li>
+          <li>Batas permintaan Inaproc (1.000 per 60 detik, 5.000 per jam) dijaga otomatis; bila jatah habis, penarikan menunggu, bukan gagal.</li>
+        </ul>
+        {otomatis.istirahat > 0 && <p className="mt-2 text-xs font-medium text-amber-700">{formatAngka(otomatis.istirahat)} tugas sedang istirahat saat ini.</p>}
+        {otomatis.ditahan_sampai && <p className="mt-1 text-xs font-medium text-amber-700">Penarikan otomatis ditahan sementara sampai {formatWaktu(otomatis.ditahan_sampai)}.</p>}
       </section>
 
       {baca && <Alert tone="info" message="Hanya admin yang dapat mengubah pengaturan penarikan otomatis." />}

@@ -2501,15 +2501,46 @@ export interface PenarikanOtomatis {
   token_ada: boolean;
   berikutnya: string | null;
   jumlah_tugas: number;
-  jatuh_tempo: number;
+  jatuh_tempo: number; // percobaan ulang dan tugas reguler yang jatuh tempo sekarang
+  istirahat: number; // tugas yang istirahat setelah gagal berulang
   terakhir_otomatis: string | null;
+  ditahan_sampai: string | null; // penarikan otomatis ditahan sementara (gangguan Inaproc/jaringan)
+  maks_percobaan: number;
+  istirahat_jam: number;
   zona: string;
+}
+
+// Batas permintaan ke Inaproc (1.000 per 60 detik dan 5.000 per jam; batas di server sedikit di bawahnya).
+export interface PenarikanKuota {
+  batas_per_menit: number;
+  batas_per_jam: number;
+  terpakai_menit: number;
+  terpakai_jam: number;
+  sisa_jam: number;
+  tahan_sampai: string | null; // jeda bersama setelah Inaproc menjawab 429
+  pulih_sekitar: string | null; // saat jatah mulai longgar lagi; null bila masih ada jatah
+}
+
+// Tugas yang gagal dan belum pulih: percobaan ulang otomatis, atau istirahat setelah gagal berulang.
+export interface TugasBermasalah {
+  dataset: string;
+  nama: string;
+  parameter: string;
+  gagal: number;
+  maks_percobaan: number;
+  istirahat: boolean;
+  berikutnya_sekitar: string | null;
+  terakhir_gagal: string;
+  pesan: string;
+  dalam_rencana: boolean;
 }
 
 export interface PenarikanStatus {
   token_ada: boolean;
   aktif: PenarikanAktif | null;
   otomatis: PenarikanOtomatis;
+  kuota: PenarikanKuota;
+  bermasalah: TugasBermasalah[];
   pengaturan: PenarikanPengaturan;
   kelompok: { id: string; nama: string }[];
   datasets: PenarikanDataset[];
@@ -2548,7 +2579,7 @@ export async function getPenarikanStatus() {
 
 // Ringan: hanya antrean yang sedang berjalan, untuk polling kemajuan.
 export async function getPenarikanAktif() {
-  const res = await api.get<Amplop<{ aktif: PenarikanAktif | null }>>("/inaproc/penarikan/aktif");
+  const res = await api.get<Amplop<{ aktif: PenarikanAktif | null; kuota: PenarikanKuota }>>("/inaproc/penarikan/aktif");
   return res.data;
 }
 

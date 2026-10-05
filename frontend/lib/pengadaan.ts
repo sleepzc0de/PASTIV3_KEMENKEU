@@ -1,4 +1,4 @@
-import type { PenarikanDataset, PenarikanOtomatis, PenarikanPengaturan, PenarikanStatusTugas, PermintaanPenarikan, PermintaanTugas } from "./api";
+import type { PenarikanDataset, PenarikanKuota, PenarikanOtomatis, PenarikanPengaturan, PenarikanStatusTugas, PermintaanPenarikan, PermintaanTugas, TugasBermasalah } from "./api";
 
 // Pembantu murni untuk halaman Penarikan Data dan Dasbor Pengadaan terpadu (tanpa React, supaya bisa diuji dengan node --test).
 
@@ -273,4 +273,60 @@ export function bangunPermintaan(datasets: PenarikanDataset[], p: PilihanTarik):
   }
   if (tugas.length > 0) permintaan.tugas = tugas.map((t) => (t.kode_klpd || !klpd || t.kode ? t : { ...t, kode_klpd: klpd }));
   return { permintaan, jumlahTugas: jumlah + tugas.length, masalah };
+}
+// ---- kuota dan kebijakan gagal tarik ----
+
+export type NadaKuota = "normal" | "waspada" | "melambat" | "habis" | "ditahan";
+
+// Keadaan kuota: normal, waspada (>= 80% jatah jam atau menit), melambat (batas per menit penuh: menunggu hitungan detik), habis (jatah jam
+// habis: menunggu sampai jatah longgar), atau ditahan (jeda bersama setelah 429).
+export function nadaKuota(k: PenarikanKuota, sekarang: number = Date.now()): NadaKuota {
+  if (k.tahan_sampai && new Date(k.tahan_sampai).getTime() > sekarang) return "ditahan";
+  if (k.sisa_jam <= 0) return "habis";
+  if (k.pulih_sekitar || k.terpakai_menit >= k.batas_per_menit) return "melambat";
+  const pakaiJam = k.batas_per_jam > 0 ? k.terpakai_jam / k.batas_per_jam : 0;
+  const pakaiMenit = k.batas_per_menit > 0 ? k.terpakai_menit / k.batas_per_menit : 0;
+  return Math.max(pakaiJam, pakaiMenit) >= 0.8 ? "waspada" : "normal";
+}
+
+export function persenPakai(terpakai: number, batas: number): number {
+  if (batas <= 0) return 0;
+  return Math.min(100, Math.max(0, (terpakai / batas) * 100));
+}
+
+export function kalimatKuota(k: PenarikanKuota, sekarang: number = Date.now()): string {
+  switch (nadaKuota(k, sekarang)) {
+    case "ditahan":
+      return `Inaproc membatasi laju (429), jadi semua permintaan ditahan sampai ${formatWaktu(k.tahan_sampai)}.`;
+    case "habis":
+      return `Jatah permintaan per jam habis. Penarikan menunggu dan lanjut sekitar ${formatWaktu(k.pulih_sekitar)}.`;
+    case "melambat":
+      return "Batas per menit sedang penuh; permintaan berikutnya menunggu hitungan detik sampai jendela 60 detik longgar, lalu lanjut sendiri.";
+    case "waspada":
+      return "Pemakaian mendekati batas. Penarikan melambat sendiri bila perlu supaya tidak ditolak Inaproc.";
+  }
+  return "Pemakaian wajar.";
+}
+
+export function kalimatKebijakan(maks: number, istirahatJam: number): string {
+  const jam = Number.isInteger(istirahatJam) ? String(istirahatJam) : formatAngka(istirahatJam, 1);
+  return `Tugas yang gagal dicoba ulang otomatis sampai ${maks} kali dalam sehari (jarak minimal 10 menit antar percobaan). Setelah ${maks} kali gagal, tugas istirahat ${jam} jam, lalu bisa ditarik ulang.`;
+}
+
+export type NadaBermasalah = "ulang" | "istirahat" | "manual";
+
+// Keadaan satu tugas bermasalah: percobaan ulang terjadwal, istirahat, atau di luar rencana otomatis (tidak dicoba otomatis lagi).
+export function keadaanBermasalah(b: TugasBermasalah, sekarang: number = Date.now()): { label: string; nada: NadaBermasalah } {
+  const kapan = b.berikutnya_sekitar ? formatWaktu(b.berikutnya_sekitar) : null;
+  if (b.istirahat) {
+    return {
+      label: kapan && b.dalam_rencana ? `Istirahat sampai ${kapan}, lalu ditarik ulang otomatis` : "Istirahat setelah gagal berulang; tarik manual bila perlu",
+      nada: "istirahat",
+    };
+  }
+  if (b.berikutnya_sekitar) {
+    const lewat = new Date(b.berikutnya_sekitar).getTime() <= sekarang;
+    return { label: `Gagal ${b.gagal} dari ${b.maks_percobaan} percobaan; percobaan berikut ${lewat ? "segera" : "sekitar " + kapan}`, nada: "ulang" };
+  }
+  return { label: `Gagal ${b.gagal} dari ${b.maks_percobaan} percobaan; tidak dicoba otomatis (penarikan otomatis nonaktif atau di luar rencana)`, nada: "manual" };
 }

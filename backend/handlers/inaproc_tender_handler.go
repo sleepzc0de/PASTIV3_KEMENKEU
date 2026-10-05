@@ -56,7 +56,7 @@ func GetJadwalTahapanNonTender(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/jadwal-tahapan-non-tender", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/jadwal-tahapan-non-tender", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request jadwal-tahapan-non-tender:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -258,7 +258,7 @@ func GetJadwalTahapanTender(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/jadwal-tahapan-tender", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/jadwal-tahapan-tender", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request jadwal-tahapan-tender:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -469,7 +469,7 @@ func GetNonTenderEkontrak(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-ekontrak", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-ekontrak", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request non-tender-ekontrak:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -751,7 +751,7 @@ func GetNonTenderEkontrakKontrak(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-ekontrak-kontrak", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-ekontrak-kontrak", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request non-tender-ekontrak-kontrak:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -1016,7 +1016,7 @@ func GetNonTenderPengumuman(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/tender/non-tender-pengumuman", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-pengumuman", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request non-tender-pengumuman:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")

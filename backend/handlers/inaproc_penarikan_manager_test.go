@@ -30,10 +30,7 @@ func penarikUji(t *testing.T, stub pelaksanaTugas) (*PenarikInaproc, *fakesql.DB
 	}
 	m := NewPenarikInaproc(db)
 	m.jalankan = stub
-
-	lama := jedaUlang429
-	jedaUlang429 = []time.Duration{time.Millisecond, time.Millisecond}
-	t.Cleanup(func() { jedaUlang429 = lama })
+	batasUji(t)
 	return m, f
 }
 
@@ -219,32 +216,9 @@ func TestBatalkanMenghentikanTugasBerjalanDanMembatalkanSisanya(t *testing.T) {
 	}
 }
 
-func TestBatasLajuDicobaUlangLaluBerhasil(t *testing.T) {
-	var panggilan int32
-	m, f := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
-		if atomic.AddInt32(&panggilan, 1) <= 2 {
-			return HasilSinkron{}, &GalatSinkron{Status: 429, Pesan: "Sinkronisasi gagal: Rate limit exceeded", Hulu: true}
-		}
-		return HasilSinkron{TotalSinkron: 5, Halaman: 1}, nil
-	})
-	if _, err := m.Start([]Tugas{tugasUji(t, "tender/pengumuman", PermintaanTarik{Tahun: "2025"})}, PemicuOtomatis, Oleh{Nama: "otomatis"}, 0); err != nil {
-		t.Fatal(err)
-	}
-	tungguSelesai(t, m)
-	if panggilan != 3 {
-		t.Errorf("panggilan = %d, want 3 (dua kali 429 lalu berhasil)", panggilan)
-	}
-	if st := statusAkhir(f); st[1] != PenarikanSukses {
-		t.Errorf("status = %v", st)
-	}
-	for _, ex := range f.Execs() {
-		if strings.Contains(ex.Query, "SET status = @p1, selesai") && ex.Args[4].Value != int64(3) {
-			t.Errorf("percobaan tercatat = %v, want 3", ex.Args[4].Value)
-		}
-	}
-}
-
-func TestBatasLajuTerusMenerusBerakhirGagalTanpaMenghentikanSisanya(t *testing.T) {
+// Kegagalan satu tugas (mis. 429 yang tidak sembuh setelah pengulangan per halaman di klien) dicatat gagal dan tidak menghentikan sisa
+// antrean; pengulangan tugasnya ditangani kebijakan percobaan, bukan antrean.
+func TestKegagalanSatuTugasTidakMenghentikanSisanya(t *testing.T) {
 	var panggilan int32
 	m, f := penarikUji(t, func(_ context.Context, tg Tugas, _ string, _ func(string)) (HasilSinkron, error) {
 		atomic.AddInt32(&panggilan, 1)
@@ -264,8 +238,64 @@ func TestBatasLajuTerusMenerusBerakhirGagalTanpaMenghentikanSisanya(t *testing.T
 	if st[1] != PenarikanGagal || st[2] != PenarikanSukses {
 		t.Errorf("status = %v, want tugas 1 gagal dan tugas 2 sukses", st)
 	}
-	if panggilan != 4 { // 1 awal + 2 ulang (jedaUlang429 di tes) untuk tugas 1, dan 1 untuk tugas 2
-		t.Errorf("panggilan = %d, want 4", panggilan)
+	if panggilan != 2 {
+		t.Errorf("panggilan = %d, want 2 (tidak ada pengulangan tugas di tingkat antrean)", panggilan)
+	}
+}
+
+// Pemutus beruntun: banyak tugas gagal berturut-turut menghentikan antrean (sisanya dilewati, tidak dihitung gagal) dan menahan penarikan otomatis.
+func TestPemutusBeruntunMenghentikanAntreanDanMenahanOtomatis(t *testing.T) {
+	lama, lamaJeda := ambangPemutus, jedaPemutus
+	ambangPemutus, jedaPemutus = 3, 30*time.Minute
+	defer func() { ambangPemutus, jedaPemutus = lama, lamaJeda }()
+
+	var panggilan int32
+	m, f := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
+		atomic.AddInt32(&panggilan, 1)
+		return HasilSinkron{}, &GalatSinkron{Status: http.StatusBadGateway, Pesan: "Gagal menghubungi API Inaproc"}
+	})
+	var tugas []Tugas
+	for _, id := range []string{"tender/pengumuman", "tender/peserta-tender", "tender/tender-selesai", "tender/tender-selesai-nilai", "tender/tender-ekontrak"} {
+		tugas = append(tugas, tugasUji(t, id, PermintaanTarik{Tahun: "2025"}))
+	}
+	if _, err := m.Start(tugas, PemicuOtomatis, Oleh{Nama: "otomatis"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	tungguSelesai(t, m)
+	st := statusAkhir(f)
+	if panggilan != 3 || st[1] != PenarikanGagal || st[2] != PenarikanGagal || st[3] != PenarikanGagal || st[4] != PenarikanDilewati || st[5] != PenarikanDilewati {
+		t.Errorf("panggilan=%d status=%v, want 3 gagal lalu 2 dilewati", panggilan, st)
+	}
+	if t0 := m.otomatisDitahanSampai(); !t0.After(time.Now().Add(25 * time.Minute)) {
+		t.Errorf("penarikan otomatis harus ditahan sekitar 30 menit, ditahan sampai %v", t0)
+	}
+	// 503 dari Inaproc sendiri (Hulu) tidak dianggap token ditolak: antrean lanjut sampai pemutus beruntun, bukan langsung dilewati semua.
+}
+
+// Berhasil di tengah memutus hitungan kegagalan beruntun.
+func TestPemutusBeruntunDiulangBilaAdaYangBerhasil(t *testing.T) {
+	lama := ambangPemutus
+	ambangPemutus = 3
+	defer func() { ambangPemutus = lama }()
+	var i int32
+	m, f := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
+		if n := atomic.AddInt32(&i, 1); n == 3 {
+			return HasilSinkron{TotalSinkron: 1}, nil // 2 gagal, 1 sukses, 2 gagal lagi: tidak sampai 3 beruntun
+		}
+		return HasilSinkron{}, &GalatSinkron{Status: http.StatusServiceUnavailable, Pesan: "layanan tidak tersedia", Hulu: true}
+	})
+	var tugas []Tugas
+	for _, id := range []string{"tender/pengumuman", "tender/peserta-tender", "tender/tender-selesai", "tender/tender-selesai-nilai", "tender/tender-ekontrak"} {
+		tugas = append(tugas, tugasUji(t, id, PermintaanTarik{Tahun: "2025"}))
+	}
+	if _, err := m.Start(tugas, PemicuManual, Oleh{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	tungguSelesai(t, m)
+	for id, s := range statusAkhir(f) {
+		if s == PenarikanDilewati {
+			t.Errorf("tugas %d dilewati padahal hitungan beruntun terputus oleh keberhasilan", id)
+		}
 	}
 }
 
@@ -331,7 +361,8 @@ func TestJedaAntarTugasDapatDibatalkan(t *testing.T) {
 	}
 }
 
-func TestRecoverOrphansMenandaiAntrianDanBerjalanGagal(t *testing.T) {
+// Server dimulai ulang bukan kesalahan sumber data: yang menggantung ditandai dibatalkan (tidak menghabiskan kesempatan percobaan).
+func TestRecoverOrphansMenandaiAntrianDanBerjalanDibatalkan(t *testing.T) {
 	m, f := penarikUji(t, sukses(0))
 	if _, err := m.RecoverOrphans(context.Background()); err != nil {
 		t.Fatal(err)
@@ -340,7 +371,7 @@ func TestRecoverOrphansMenandaiAntrianDanBerjalanGagal(t *testing.T) {
 	for _, ex := range f.Execs() {
 		if strings.Contains(ex.Query, "UPDATE inaproc_penarikan SET status = @p1") && strings.Contains(ex.Query, "IN (@p3, @p4)") {
 			ada = true
-			if ex.Args[0].Value != PenarikanGagal || ex.Args[2].Value != PenarikanAntri || ex.Args[3].Value != PenarikanBerjalan {
+			if ex.Args[0].Value != PenarikanDibatalkan || ex.Args[2].Value != PenarikanAntri || ex.Args[3].Value != PenarikanBerjalan {
 				t.Errorf("args = %+v", ex.Args)
 			}
 		}
@@ -484,33 +515,191 @@ func TestDalamJendelaDanSelaraskan(t *testing.T) {
 	}
 }
 
-func TestJatuhTempoMengikutiIntervalDanJedaCoba(t *testing.T) {
+func TestJatuhTempoMengikutiIntervalDanSiklusKegagalan(t *testing.T) {
 	p := pengaturanUji()
 	p.Dataset = []string{"tender/pengumuman"}
 	p.JumlahTahun = 1
 	now := wib(2026, 10, 4, 2)
 	tg := p.RencanaOtomatis(now)[0]
 	kunci := tg.Kunci()
-	jam := func(j int) time.Time { return now.Add(-time.Duration(j) * time.Hour) }
+	jam := func(j float64) time.Time { return now.Add(-time.Duration(j * float64(time.Hour))) }
 	ptr := func(t time.Time) *time.Time { return &t }
+	sukses := func(j float64) map[string]RiwayatOtomatis {
+		return map[string]RiwayatOtomatis{kunci: {SuksesTerakhir: ptr(jam(j)), CobaTerakhir: jam(j)}}
+	}
+	gagal := func(jamLalu ...float64) map[string]*KegagalanTugas {
+		g := &KegagalanTugas{Dataset: tg.Dataset.ID, Parameter: tg.Dataset.Ringkas(tg.Perm)}
+		for _, j := range jamLalu {
+			g.Waktu = append(g.Waktu, jam(j))
+		}
+		return map[string]*KegagalanTugas{kunci: g}
+	}
 
 	kasus := []struct {
-		nama    string
-		riwayat map[string]RiwayatOtomatis
-		jatuh   bool
+		nama        string
+		riwayat     map[string]RiwayatOtomatis
+		gagal       map[string]*KegagalanTugas
+		lanjutan    int
+		reguler     int
+		percobaanKe int
 	}{
-		{"belum pernah", nil, true},
-		{"sukses 24 jam lalu (interval 2 hari)", map[string]RiwayatOtomatis{kunci: {SuksesTerakhir: ptr(jam(24)), CobaTerakhir: jam(24)}}, false},
-		{"sukses 49 jam lalu", map[string]RiwayatOtomatis{kunci: {SuksesTerakhir: ptr(jam(49)), CobaTerakhir: jam(49)}}, true},
-		{"sukses lama tetapi baru gagal 1 jam lalu", map[string]RiwayatOtomatis{kunci: {SuksesTerakhir: ptr(jam(100)), CobaTerakhir: jam(1)}}, false},
-		{"sukses lama dan gagal 7 jam lalu", map[string]RiwayatOtomatis{kunci: {SuksesTerakhir: ptr(jam(100)), CobaTerakhir: jam(7)}}, true},
-		{"tak pernah sukses, gagal 1 jam lalu", map[string]RiwayatOtomatis{kunci: {CobaTerakhir: jam(1)}}, false},
-		{"tugas lain yang sukses tidak berpengaruh", map[string]RiwayatOtomatis{"tender/pengumuman|K10/2020": {SuksesTerakhir: ptr(jam(1)), CobaTerakhir: jam(1)}}, true},
+		{"belum pernah", nil, nil, 0, 1, 0},
+		{"sukses 24 jam lalu (interval 2 hari)", sukses(24), nil, 0, 0, 0},
+		{"sukses 49 jam lalu", sukses(49), nil, 0, 1, 0},
+		{"tugas lain yang sukses tidak berpengaruh", map[string]RiwayatOtomatis{"tender/pengumuman|K10/2020": {SuksesTerakhir: ptr(jam(1)), CobaTerakhir: jam(1)}}, nil, 0, 1, 0},
+
+		// Kegagalan pertama: dicoba ulang setelah jarak antar percobaan (10 menit), tanpa menunggu interval.
+		{"gagal 5 menit lalu: masih menunggu jarak antar percobaan", sukses(100), gagal(5.0 / 60), 0, 0, 0},
+		{"gagal 15 menit lalu: percobaan ke-2", sukses(100), gagal(0.25), 1, 0, 2},
+		{"gagal 2 kali, terakhir 15 menit lalu: percobaan ke-3", nil, gagal(1, 0.25), 1, 0, 3},
+		{"sukses baru (interval belum lewat) tetapi ada gagal sesudahnya: tetap dilanjutkan", sukses(24), gagal(0.25), 1, 0, 2},
+
+		// Setelah 3 kali gagal: istirahat 8 jam sejak kegagalan ketiga, lalu siklus baru.
+		{"3 gagal, terakhir 15 menit lalu: istirahat", nil, gagal(2, 1, 0.25), 0, 0, 0},
+		{"3 gagal, terakhir 7 jam lalu: masih istirahat", nil, gagal(9, 8, 7), 0, 0, 0},
+		{"3 gagal, terakhir 9 jam lalu: istirahat selesai, siklus baru percobaan ke-1", nil, gagal(11, 10, 9), 1, 0, 1},
+		{"istirahat selesai lalu gagal lagi 15 menit lalu: percobaan ke-2 siklus baru", nil, gagal(20, 19, 18, 0.25), 1, 0, 2},
 	}
 	for _, k := range kasus {
-		if got := len(p.JatuhTempo(now, k.riwayat)) == 1; got != k.jatuh {
-			t.Errorf("%s: jatuh tempo = %v, want %v", k.nama, got, k.jatuh)
+		l, r := p.TugasTerjadwal(now, k.riwayat, k.gagal)
+		if len(l) != k.lanjutan || len(r) != k.reguler {
+			t.Errorf("%s: lanjutan=%d reguler=%d, want %d dan %d", k.nama, len(l), len(r), k.lanjutan, k.reguler)
+			continue
 		}
+		if k.lanjutan == 1 && k.percobaanKe > 0 && l[0].Percobaan != k.percobaanKe {
+			t.Errorf("%s: percobaan ke-%d, want ke-%d", k.nama, l[0].Percobaan, k.percobaanKe)
+		}
+		if got := len(p.JatuhTempo(now, k.riwayat, k.gagal)); got != k.lanjutan+k.reguler {
+			t.Errorf("%s: JatuhTempo = %d", k.nama, got)
+		}
+	}
+}
+
+func TestKondisiSiklusPercobaan(t *testing.T) {
+	now := wib(2026, 10, 4, 12)
+	jam := func(j float64) time.Time { return now.Add(-time.Duration(j * float64(time.Hour))) }
+	ls := func(j ...float64) []time.Time {
+		var out []time.Time
+		for _, x := range j {
+			out = append(out, jam(x))
+		}
+		return out
+	}
+
+	if k := Kondisi(nil, now); k.BelumPulih || k.Terpakai != 0 || k.Istirahat {
+		t.Errorf("tanpa gagal = %+v", k)
+	}
+	k := Kondisi(ls(1), now)
+	if !k.BelumPulih || k.Terpakai != 1 || k.Istirahat || !k.SaatCobaLagi().Equal(jam(1).Add(jedaAntarPercobaan)) {
+		t.Errorf("satu gagal = %+v", k)
+	}
+	k = Kondisi(ls(3, 2, 1), now)
+	if !k.Istirahat || k.Terpakai != 3 || !k.IstirahatSampai.Equal(jam(1).Add(8*time.Hour)) || !k.SaatCobaLagi().Equal(k.IstirahatSampai) {
+		t.Errorf("tiga gagal = %+v", k)
+	}
+	// Gagal yang tercatat selama istirahat (mis. penarikan manual) tidak memperpanjang istirahat dan tidak membuka siklus baru.
+	k = Kondisi(ls(3, 2, 1, 0.5), now)
+	if !k.Istirahat || !k.IstirahatSampai.Equal(jam(1).Add(8*time.Hour)) {
+		t.Errorf("gagal saat istirahat = %+v", k)
+	}
+	// Istirahat selesai: siklus baru dimulai dari nol dan masih tercatat belum pulih.
+	k = Kondisi(ls(20, 19, 18), now)
+	if k.Istirahat || k.Terpakai != 0 || !k.BelumPulih || !k.SaatCobaLagi().IsZero() {
+		t.Errorf("setelah istirahat = %+v", k)
+	}
+	// Enam gagal dengan istirahat di tengah: dua siklus penuh, istirahat kedua masih berjalan.
+	k = Kondisi(ls(40, 39, 38, 6, 5, 4), now)
+	if !k.Istirahat || !k.IstirahatSampai.Equal(jam(4).Add(8*time.Hour)) {
+		t.Errorf("dua siklus = %+v", k)
+	}
+	// Kebijakan dapat diubah (env): 2 percobaan, istirahat 1 jam.
+	lamaPerc, lamaIst := maksPercobaan, lamaIstirahat
+	maksPercobaan, lamaIstirahat = 2, time.Hour
+	defer func() { maksPercobaan, lamaIstirahat = lamaPerc, lamaIst }()
+	if k := Kondisi(ls(3, 2), now); k.Istirahat || k.Terpakai != 0 {
+		t.Errorf("istirahat 1 jam sudah lewat = %+v", k)
+	}
+	if k := Kondisi(ls(2, 0.5), now); !k.Istirahat || k.Terpakai != 2 {
+		t.Errorf("2 gagal = %+v", k)
+	}
+}
+
+func TestTugasDiLuarRencanaHanyaDilanjutkanSelamaSiklusBerjalan(t *testing.T) {
+	p := pengaturanUji()
+	p.Dataset = []string{"tender/pengumuman"}
+	p.JumlahTahun = 1
+	now := wib(2026, 10, 4, 12)
+	d, _ := DatasetByID("ekatalog/penyedia-detail")
+	manual := Tugas{Dataset: d, Perm: d.Normalisasi(PermintaanTarik{Kode: "01ABC"})}
+	perm := `{"kode":"01ABC"}`
+	g := func(jamLalu ...float64) map[string]*KegagalanTugas {
+		k := &KegagalanTugas{Dataset: d.ID, Parameter: d.Ringkas(manual.Perm), Permintaan: perm}
+		for _, j := range jamLalu {
+			k.Waktu = append(k.Waktu, now.Add(-time.Duration(j*float64(time.Hour))))
+		}
+		return map[string]*KegagalanTugas{manual.Kunci(): k}
+	}
+	jml := func(gagal map[string]*KegagalanTugas) (int, int) {
+		l, r := p.TugasTerjadwal(now, nil, gagal)
+		var luar int
+		for _, x := range l {
+			if x.Dataset.ID == d.ID {
+				luar++
+				if x.Perm.Kode != "01ABC" {
+					t.Errorf("isian tugas tidak disusun ulang dengan benar: %+v", x.Perm)
+				}
+			}
+		}
+		return luar, len(r)
+	}
+	if luar, _ := jml(g(0.25)); luar != 1 {
+		t.Errorf("gagal sekali: %d tugas luar rencana, want 1 (percobaan ke-2)", luar)
+	}
+	if luar, _ := jml(g(2, 1, 0.25)); luar != 0 {
+		t.Errorf("sedang istirahat: %d, want 0", luar)
+	}
+	if luar, _ := jml(g(11, 10, 9)); luar != 0 {
+		t.Errorf("istirahat selesai: tugas manual tidak ditarik otomatis lagi, dapat %d", luar)
+	}
+	// Baris lama tanpa isian tersimpan tidak bisa dilanjutkan.
+	lama := g(0.25)
+	lama[manual.Kunci()].Permintaan = ""
+	if luar, _ := jml(lama); luar != 0 {
+		t.Errorf("tanpa isian tersimpan: %d, want 0", luar)
+	}
+	// Isian yang tidak cocok dengan kuncinya ditolak.
+	salah := g(0.25)
+	salah[manual.Kunci()].Permintaan = `{"kode":"LAIN"}`
+	if luar, _ := jml(salah); luar != 0 {
+		t.Errorf("isian tidak cocok kunci: %d, want 0", luar)
+	}
+}
+
+func TestBermasalahMenjelaskanKeadaanSiklus(t *testing.T) {
+	p := pengaturanUji()
+	p.Dataset = []string{"tender/pengumuman"}
+	p.JumlahTahun = 1
+	now := wib(2026, 10, 4, 12)
+	tg := p.RencanaOtomatis(now)[0]
+	g := func(jamLalu ...float64) map[string]*KegagalanTugas {
+		k := &KegagalanTugas{Dataset: tg.Dataset.ID, Parameter: tg.Dataset.Ringkas(tg.Perm), Pesan: "timeout"}
+		for _, j := range jamLalu {
+			k.Waktu = append(k.Waktu, now.Add(-time.Duration(j*float64(time.Hour))))
+		}
+		return map[string]*KegagalanTugas{tg.Kunci(): k}
+	}
+	b := p.Bermasalah(now, g(0.05))
+	if len(b) != 1 || b[0].Gagal != 1 || b[0].MaksPercobaan != 3 || b[0].Istirahat || !b[0].DalamRencana || b[0].BerikutnyaSekitar == nil ||
+		!b[0].BerikutnyaSekitar.Equal(now.Add(-3*time.Minute).Add(jedaAntarPercobaan)) || b[0].Pesan != "timeout" {
+		t.Errorf("satu gagal = %+v", b)
+	}
+	b = p.Bermasalah(now, g(2, 1, 0.5))
+	if len(b) != 1 || !b[0].Istirahat || b[0].Gagal != 3 || b[0].BerikutnyaSekitar == nil || !b[0].BerikutnyaSekitar.Equal(now.Add(-30*time.Minute).Add(8*time.Hour)) {
+		t.Errorf("istirahat = %+v", b)
+	}
+	p.Aktif = false
+	if b := p.Bermasalah(now, g(0.5)); len(b) != 1 || b[0].BerikutnyaSekitar != nil {
+		t.Errorf("otomatis nonaktif tidak punya jadwal percobaan: %+v", b)
 	}
 }
 
@@ -522,16 +711,26 @@ func TestBerikutnya(t *testing.T) {
 	tg := p.RencanaOtomatis(now)[0]
 
 	// Belum pernah ditarik: jatuh tempo sekarang, tetapi baru boleh mulai di jendela berikutnya.
-	if got := p.Berikutnya(now, nil); got == nil || !got.Equal(wib(2026, 10, 5, 1)) {
+	if got := p.Berikutnya(now, nil, nil); got == nil || !got.Equal(wib(2026, 10, 5, 1)) {
 		t.Errorf("tanpa riwayat: %v, want 5 Okt 01.00 WIB", got)
 	}
 	// Sukses 4 Okt 02.00: jatuh tempo 6 Okt 02.00 (di dalam jendela).
 	riwayat := map[string]RiwayatOtomatis{tg.Kunci(): {SuksesTerakhir: func() *time.Time { x := wib(2026, 10, 4, 2); return &x }(), CobaTerakhir: wib(2026, 10, 4, 2)}}
-	if got := p.Berikutnya(now, riwayat); got == nil || !got.Equal(wib(2026, 10, 6, 2)) {
+	if got := p.Berikutnya(now, riwayat, nil); got == nil || !got.Equal(wib(2026, 10, 6, 2)) {
 		t.Errorf("setelah sukses: %v, want 6 Okt 02.00 WIB", got)
 	}
+	// Gagal 9.55 lalu: percobaan ulang 10 menit setelahnya (09.55 + 10 menit = 10.05), tidak menunggu jendela jam.
+	gagal := map[string]*KegagalanTugas{tg.Kunci(): {Waktu: []time.Time{now.Add(-5 * time.Minute)}}}
+	if got := p.Berikutnya(now, riwayat, gagal); got == nil || !got.Equal(now.Add(5*time.Minute)) {
+		t.Errorf("percobaan ulang: %v, want %v", got, now.Add(5*time.Minute))
+	}
+	// Istirahat 8 jam: berikutnya = akhir istirahat.
+	istirahat := map[string]*KegagalanTugas{tg.Kunci(): {Waktu: []time.Time{now.Add(-3 * time.Hour), now.Add(-2 * time.Hour), now.Add(-time.Hour)}}}
+	if got := p.Berikutnya(now, riwayat, istirahat); got == nil || !got.Equal(now.Add(-time.Hour).Add(8*time.Hour)) {
+		t.Errorf("istirahat: %v", got)
+	}
 	p.Aktif = false
-	if got := p.Berikutnya(now, nil); got != nil {
+	if got := p.Berikutnya(now, nil, nil); got != nil {
 		t.Errorf("nonaktif harus nil, dapat %v", got)
 	}
 }

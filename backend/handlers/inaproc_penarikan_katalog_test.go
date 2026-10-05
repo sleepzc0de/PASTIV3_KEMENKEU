@@ -216,8 +216,9 @@ func TestJalankanTulisanGagalUjiSambunganTidakMenyentuhData(t *testing.T) {
 			t.Errorf("data lama tidak boleh dihapus saat uji sambungan gagal: %s", ex.Query)
 		}
 	}
-	if p.Permintaan() != 1 {
-		t.Errorf("hanya satu permintaan uji yang diharapkan, dapat %d", p.Permintaan())
+	// 429 dicoba ulang per halaman di klien (menunggu jeda bersama), tetapi hanya permintaan uji yang pernah dikirim.
+	if p.Permintaan() != maksCoba429 {
+		t.Errorf("permintaan uji = %d, want %d (satu permintaan uji dengan pengulangan 429)", p.Permintaan(), maksCoba429)
 	}
 }
 

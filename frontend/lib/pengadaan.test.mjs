@@ -198,3 +198,47 @@ test("skalaSumbu: langkah bulat, tanpa label sumbu berulang, batas >= nilai", ()
     assert.equal(new Set(labels).size, labels.length, `label berulang untuk ${v}: ${labels}`);
   }
 });
+const kuota = (o) => ({ batas_per_menit: 800, batas_per_jam: 4500, terpakai_menit: 10, terpakai_jam: 100, sisa_jam: 4400, tahan_sampai: null, pulih_sekitar: null, ...o });
+
+test("nadaKuota: normal, waspada, habis, ditahan", () => {
+  const now = Date.parse("2026-10-05T10:00:00Z");
+  assert.equal(p.nadaKuota(kuota({}), now), "normal");
+  assert.equal(p.nadaKuota(kuota({ terpakai_jam: 3700, sisa_jam: 800 }), now), "waspada"); // 82% jatah jam
+  assert.equal(p.nadaKuota(kuota({ terpakai_menit: 650 }), now), "waspada"); // 81% jatah menit
+  // Jatah jam habis: menunggu lama. Batas per menit penuh saja: hanya melambat (menunggu detik).
+  assert.equal(p.nadaKuota(kuota({ terpakai_jam: 4500, sisa_jam: 0, pulih_sekitar: "2026-10-05T10:20:00Z" }), now), "habis");
+  assert.equal(p.nadaKuota(kuota({ sisa_jam: 0 }), now), "habis");
+  assert.equal(p.nadaKuota(kuota({ terpakai_menit: 800, pulih_sekitar: "2026-10-05T10:00:20Z" }), now), "melambat");
+  assert.equal(p.nadaKuota(kuota({ terpakai_menit: 800 }), now), "melambat");
+  assert.equal(p.nadaKuota(kuota({ tahan_sampai: "2026-10-05T10:05:00Z" }), now), "ditahan");
+  // Jeda yang sudah lewat tidak dihitung.
+  assert.equal(p.nadaKuota(kuota({ tahan_sampai: "2026-10-05T09:00:00Z" }), now), "normal");
+  assert.match(p.kalimatKuota(kuota({ tahan_sampai: "2026-10-05T10:05:00Z" }), now), /ditahan sampai/);
+  assert.match(p.kalimatKuota(kuota({ sisa_jam: 0, pulih_sekitar: "2026-10-05T10:20:00Z" }), now), /Jatah permintaan per jam habis/);
+  assert.match(p.kalimatKuota(kuota({ terpakai_menit: 800 }), now), /Batas per menit sedang penuh/);
+  assert.equal(p.persenPakai(2250, 4500), 50);
+  assert.equal(p.persenPakai(9000, 4500), 100);
+  assert.equal(p.persenPakai(1, 0), 0);
+});
+
+const bermasalah = (o) => ({ dataset: "tender/pengumuman", nama: "Pengumuman Tender", parameter: "K10/2026", gagal: 1, maks_percobaan: 3, istirahat: false,
+  berikutnya_sekitar: "2026-10-05T10:10:00Z", terakhir_gagal: "2026-10-05T10:00:00Z", pesan: "timeout", dalam_rencana: true, ...o });
+
+test("keadaanBermasalah dan kalimatKebijakan", () => {
+  const now = Date.parse("2026-10-05T10:05:00Z");
+  let k = p.keadaanBermasalah(bermasalah({}), now);
+  assert.equal(k.nada, "ulang");
+  assert.match(k.label, /Gagal 1 dari 3 percobaan; percobaan berikut sekitar/);
+  k = p.keadaanBermasalah(bermasalah({ berikutnya_sekitar: "2026-10-05T10:00:00Z" }), now);
+  assert.match(k.label, /percobaan berikut segera/);
+  k = p.keadaanBermasalah(bermasalah({ gagal: 3, istirahat: true, berikutnya_sekitar: "2026-10-05T18:00:00Z" }), now);
+  assert.equal(k.nada, "istirahat");
+  assert.match(k.label, /Istirahat sampai .* lalu ditarik ulang otomatis/);
+  // Di luar rencana otomatis: setelah istirahat tidak ditarik otomatis lagi.
+  k = p.keadaanBermasalah(bermasalah({ gagal: 3, istirahat: true, berikutnya_sekitar: null, dalam_rencana: false }), now);
+  assert.match(k.label, /tarik manual/);
+  k = p.keadaanBermasalah(bermasalah({ berikutnya_sekitar: null }), now);
+  assert.equal(k.nada, "manual");
+  assert.equal(p.kalimatKebijakan(3, 8), "Tugas yang gagal dicoba ulang otomatis sampai 3 kali dalam sehari (jarak minimal 10 menit antar percobaan). Setelah 3 kali gagal, tugas istirahat 8 jam, lalu bisa ditarik ulang.");
+  assert.match(p.kalimatKebijakan(2, 1.5), /istirahat 1,5 jam/);
+});

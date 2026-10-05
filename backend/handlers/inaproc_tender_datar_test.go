@@ -1147,6 +1147,7 @@ func newInaprocPalsu(t *testing.T, balas func(r *http.Request) (int, string)) *i
 
 func pasangKonfigInaproc(t *testing.T, base, token string) {
 	t.Helper()
+	pasangBatasUjiBilaPerlu(t)
 	lama := config.Cfg
 	config.Cfg = &config.Config{InaprocBaseURL: base, InaprocToken: token, HTTPClientTimeoutSeconds: 5}
 	t.Cleanup(func() { config.Cfg = lama })
@@ -1233,8 +1234,14 @@ func TestEndpointDatarGetValidasiDanGalatHulu(t *testing.T) {
 				t.Errorf("%s tanpa parameter wajib tidak boleh menghubungi Inaproc: %v", j.nama, p.diminta[sebelum:])
 			}
 		}
-		// Galat dari Inaproc diteruskan apa adanya (status dan badan).
+		// Galat dari Inaproc diteruskan apa adanya (status dan badan). Jeda bersama setelah 429 dikosongkan tiap putaran: yang diuji di sini
+		// adalah penerusan jawaban Inaproc, bukan penahanan permintaan interaktif berikutnya (itu diuji di inaproc_batas_test.go).
+		kosongkanBatasUji()
+		diminta := len(p.diminta)
 		code, body := panggil(r, "GET", j.jalur()+j.query(), "")
+		if len(p.diminta) != diminta+1 {
+			t.Errorf("%s: permintaan interaktif harus satu kali ke Inaproc tanpa pengulangan, dapat %d", j.nama, len(p.diminta)-diminta)
+		}
 		if code != 429 || body["error"].(map[string]interface{})["code"] != "Too Many Requests" {
 			t.Errorf("%s: 429 harus diteruskan: %d %v", j.nama, code, body)
 		}
@@ -1249,6 +1256,7 @@ func TestEndpointDatarGetValidasiDanGalatHulu(t *testing.T) {
 		return 200, `{"success":true,"data":null,"meta":{"limit":50,"has_more":false,"cursor":""}}`
 	})
 	pasangKonfigInaproc(t, q.URL, "token-uji")
+	kosongkanBatasUji()
 	_, body := panggil(r, "GET", "/inaproc/tender/pencatatan-non-tender-realisasi?tahun=2024", "")
 	if d, ok := body["data"].([]interface{}); !ok || len(d) != 0 {
 		t.Errorf("data = %#v, want []", body["data"])
