@@ -320,6 +320,41 @@ func TestTokenDitolakMelewatiSisaAntrean(t *testing.T) {
 	}
 }
 
+// 403 berlaku per dataset: izin token bisa berbeda tiap endpoint, jadi sisa tugas dataset itu dilewati tetapi dataset lain tetap ditarik.
+func TestForbiddenHanyaMelewatiSisaDatasetYangSama(t *testing.T) {
+	var mu sync.Mutex
+	var dipanggil []string
+	m, f := penarikUji(t, func(_ context.Context, tg Tugas, _ string, _ func(string)) (HasilSinkron, error) {
+		mu.Lock()
+		dipanggil = append(dipanggil, tg.Dataset.ID+"|"+tg.Dataset.Ringkas(tg.Perm))
+		mu.Unlock()
+		if tg.Dataset.ID == "tender/tender-selesai" {
+			return HasilSinkron{}, &GalatSinkron{Status: http.StatusForbidden, Pesan: "Sinkronisasi gagal: status 403", Hulu: true}
+		}
+		return HasilSinkron{TotalSinkron: 1}, nil
+	})
+	if _, err := m.Start([]Tugas{
+		tugasUji(t, "tender/pengumuman", PermintaanTarik{Tahun: "2025"}),
+		tugasUji(t, "tender/tender-selesai", PermintaanTarik{Tahun: "2025"}),
+		tugasUji(t, "tender/tender-selesai", PermintaanTarik{Tahun: "2024"}),
+		tugasUji(t, "tender/peserta-tender", PermintaanTarik{Tahun: "2025"}),
+	}, PemicuManual, Oleh{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	tungguSelesai(t, m)
+
+	st := statusAkhir(f)
+	if st[1] != PenarikanSukses || st[2] != PenarikanGagal || st[3] != PenarikanDilewati || st[4] != PenarikanSukses {
+		t.Errorf("status = %v, want sukses, gagal, dilewati, sukses", st)
+	}
+	if got := strings.Join(dipanggil, ","); got != "tender/pengumuman|K10/2025,tender/tender-selesai|K10/2025,tender/peserta-tender|K10/2025" {
+		t.Errorf("dipanggil = %s (tender-selesai 2024 tidak boleh dicoba setelah 403)", got)
+	}
+	if t0 := m.otomatisDitahanSampai(); t0.After(time.Now()) {
+		t.Errorf("satu dataset yang ditolak tidak boleh menahan penarikan otomatis, ditahan sampai %v", t0)
+	}
+}
+
 func TestPanikDiPelaksanaTidakMenggantungkanAntrean(t *testing.T) {
 	m, f := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
 		panic("boom")

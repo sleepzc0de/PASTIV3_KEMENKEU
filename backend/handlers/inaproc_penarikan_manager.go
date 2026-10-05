@@ -122,7 +122,9 @@ type antreanAktif struct {
 	jeda   time.Duration
 	batal  context.CancelFunc
 	galat  string // diisi bila antrean dihentikan karena galat yang membuat sisanya sia-sia (token ditolak)
-	dbatal bool
+	// ditolak: dataset yang dijawab 403 oleh Inaproc (id dataset → alasan); sisa tugas dataset itu dilewati, dataset lain tetap jalan.
+	ditolak map[string]string
+	dbatal  bool
 	kunci  *sql.Conn // koneksi yang memegang kunci aplikasi SQL Server selama antrean berjalan (nil bila tidak bisa dipastikan)
 }
 
@@ -412,6 +414,9 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 		case run.galat != "":
 			m.akhiri(t, PenarikanDilewati, HasilSinkron{}, run.galat)
 			continue
+		case run.ditolak[t.Dataset.ID] != "":
+			m.akhiri(t, PenarikanDilewati, HasilSinkron{}, run.ditolak[t.Dataset.ID])
+			continue
 		}
 
 		m.ubah(t, func(i *TugasInfo) {
@@ -424,11 +429,7 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 		switch {
 		case err == nil:
 			gagalBeruntun = 0
-			catatan := ""
-			if hasil.TotalGagal > 0 {
-				catatan = fmt.Sprintf("%d baris gagal disimpan", hasil.TotalGagal)
-			}
-			m.akhiri(t, PenarikanSukses, hasil, catatan)
+			m.akhiri(t, PenarikanSukses, hasil, catatanHasil(hasil))
 		case ctx.Err() != nil:
 			m.akhiri(t, PenarikanDibatalkan, HasilSinkron{}, "Dibatalkan oleh pengguna")
 		default:
@@ -436,10 +437,19 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 			pesan := err.Error()
 			if errors.As(err, &g) {
 				pesan = g.Pesan
-				// Token ditolak atau tidak ada: sisanya pasti ikut ditolak, jadi tidak dicoba satu per satu. 503 dari Inaproc sendiri
+				switch {
+				// Token salah atau tidak ada: sisanya pasti ikut ditolak, jadi tidak dicoba satu per satu. 503 dari Inaproc sendiri
 				// (layanan tidak tersedia) bukan soal token; itu ditangani pemutus beruntun di bawah.
-				if g.Status == http.StatusUnauthorized || g.Status == http.StatusForbidden || (g.Status == http.StatusServiceUnavailable && !g.Hulu) {
+				case g.Status == http.StatusUnauthorized || (g.Status == http.StatusServiceUnavailable && !g.Hulu):
 					run.galat = "Dilewati: Inaproc menolak akses (" + pesan + ")"
+				// 403 berlaku per dataset: izin token di Inaproc bisa berbeda tiap endpoint, dan dataset sebelumnya mungkin sudah berhasil
+				// ditarik dengan token yang sama. Sisa tugas dataset ini dilewati; dataset lain tetap dicoba (bila semuanya ditolak,
+				// pemutus beruntun yang menghentikan antrean).
+				case g.Status == http.StatusForbidden:
+					if run.ditolak == nil {
+						run.ditolak = map[string]string{}
+					}
+					run.ditolak[t.Dataset.ID] = "Dilewati: Inaproc menolak akses ke dataset ini (" + pesan + ")"
 				}
 			}
 			m.akhiri(t, PenarikanGagal, HasilSinkron{}, pesan)
