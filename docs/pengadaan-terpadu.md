@@ -31,12 +31,18 @@ memeriksa tabel, kolom penyaring, kolom ringkasan, dan kolom kunci terhadap migr
 - **Satu antrean pada satu waktu** (`PenarikInaproc`, `inaproc_penarikan_manager.go`), berjalan di goroutine server, kemajuannya dibaca halaman
   tiap 2 detik. Tugas = satu dataset dengan satu isian (mis. "Pengumuman Tender, K10, 2025"). Jeda antar tugas bawaan 2 detik.
 - **Dataset generik (21)**: halaman diambil dulu ke berkas sementara tanpa menyentuh database, baru data lama dihapus dan yang baru disisipkan
-  **dalam satu transaksi**. Pengambilan gagal atau dibatalkan = data lama utuh. Baris yang gagal disimpan dilewati dan dihitung.
+  **dalam satu transaksi**. Pengambilan gagal atau dibatalkan = data lama utuh. Baris yang gagal disimpan dilewati dan dihitung; hanya 3 galat
+  pertama per penarikan yang ditulis ke log (selebihnya diringkas satu baris). **Lebar kolom**: sebelum menyimpan, lebar kolom `NVARCHAR(n)` tabelnya
+  dibaca dari skema; nilai teks yang lebih panjang dari kolomnya dipotong (bukan menggugurkan satu baris penuh) dan dicatat sebagai "N nilai
+  dipotong karena melebihi lebar kolom" di riwayat dan log. Pemotongan hanya jaring pengaman: bila muncul, lebarkan kolomnya lewat migrasi
+  (contoh: 047 untuk `nip_pokja`/`nama_pokja`, karena satu pengumuman memuat seluruh anggota pokja).
 - **Dataset lama (13, RUP dan non-tender)**: handler sinkron lama dipanggil di dalam proses. Handler itu menghapus data lama lebih dulu, jadi
   sebelum dijalankan dilakukan **uji sambungan** (satu permintaan `limit=1`); bila Inaproc menolak (token, 429), penarikan dibatalkan sebelum
   data disentuh. Kegagalan di tengah penarikan dataset ini tetap meninggalkan data parsial sampai penarikan berikutnya. Pembatalan baru
   berlaku setelah dataset itu selesai.
-- **401/403** (token ditolak) dan token kosong: sisa antrean dilewati, tidak dicoba satu per satu.
+- **401** (token salah) dan token kosong: sisa antrean dilewati, tidak dicoba satu per satu. **403** berlaku per dataset: izin token di Inaproc bisa
+  berbeda tiap endpoint dan dataset sebelumnya mungkin sudah berhasil dengan token yang sama, jadi hanya sisa tugas dataset itu yang dilewati;
+  dataset lain tetap ditarik (bila semuanya ditolak, pemutus beruntun yang menghentikan antrean).
 - Setiap tugas dicatat di `inaproc_penarikan` (status, baris, halaman, percobaan, pesan, dan isian tugas sebagai JSON) dan di `inaproc_sync_log`
   (dipakai kartu aktivitas lama). Antrean yang menggantung karena server dimulai ulang ditandai **dibatalkan** (bukan gagal) saat server naik,
   jadi tidak menghabiskan kesempatan percobaan.
@@ -120,6 +126,8 @@ peserta tunggal 30%/50%, addendum 15%/30%, median proses 60 hari, efisiensi 2%/8
 Migrasi `045_create_inaproc_penarikan.sql`: `inaproc_penarikan` (riwayat tugas) dan `inaproc_penarikan_pengaturan` (pengaturan otomatis).
 Migrasi `046_inaproc_penarikan_kuota_percobaan.sql`: kolom `permintaan` (isian tugas) dan indeks pada `inaproc_penarikan`, serta `inaproc_kuota_menit`
 (hitungan permintaan per menit).
+Migrasi `047_inaproc_tender_pengumuman_pokja_lebar.sql`: `nip_pokja` dan `nama_pokja` pada `inaproc_tender_pengumuman` menjadi `NVARCHAR(MAX)` (sebelumnya
+50 dan 255 karakter sehingga pengumuman dengan banyak anggota pokja gagal disimpan). Idempotent; data yang ada tetap.
 
 ## Pengujian
 

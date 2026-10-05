@@ -71,6 +71,7 @@ type endpointDatar struct {
 	MenerimaKdTender bool
 
 	insertSQL    string
+	kolomInsert  []string // kolom INSERT menurut urutan argumen: row_key, kolom data, extra_json
 	kolomKonteks []string // kunci KolomKonteks, terurut
 }
 
@@ -132,6 +133,7 @@ func newEndpointDatar(e endpointDatar) *endpointDatar {
 		e.kolomKonteks = append(e.kolomKonteks, k)
 	}
 	sort.Strings(e.kolomKonteks)
+	e.kolomInsert = append(append([]string{"row_key"}, e.SemuaKolom()...), "extra_json")
 	e.insertSQL = e.buildInsertSQL()
 	return &e
 }
@@ -153,9 +155,7 @@ func (e *endpointDatar) SemuaKolom() []string {
 
 // Nama kolom berasal dari deklarasi di kode, bukan dari input pengguna.
 func (e *endpointDatar) buildInsertSQL() string {
-	cols := []string{"row_key"}
-	cols = append(cols, e.SemuaKolom()...)
-	cols = append(cols, "extra_json")
+	cols := e.kolomInsert
 
 	placeholders := make([]string, len(cols))
 	for i := range cols {
@@ -216,9 +216,89 @@ func (e *endpointDatar) ArgsKonteks(row map[string]interface{}, konteks map[stri
 	return args
 }
 
-func (e *endpointDatar) insert(ex pelaksanaSQL, row map[string]interface{}, konteks map[string]string) error {
-	_, err := ex.Exec(e.insertSQL, e.ArgsKonteks(row, konteks)...)
-	return err
+// insert menyisipkan satu baris. Nilai teks yang lebih panjang dari kolomnya (lebar, dari lebarKolomTeks) dipotong lebih dulu supaya satu
+// kolom yang kurang lebar tidak menggugurkan seluruh barisnya; kolom yang dipotong dikembalikan (hanya bila INSERT berhasil).
+func (e *endpointDatar) insert(ex pelaksanaSQL, row map[string]interface{}, konteks map[string]string, lebar map[string]int) ([]string, error) {
+	args := e.ArgsKonteks(row, konteks)
+	dipotong := e.sesuaikanLebar(args, lebar)
+	if _, err := ex.Exec(e.insertSQL, args...); err != nil {
+		return nil, err
+	}
+	return dipotong, nil
+}
+
+// sesuaikanLebar memotong argumen teks INSERT yang melebihi lebar kolomnya dan mengembalikan nama kolom yang dipotong. row_key (kunci
+// utama) tidak pernah dipotong.
+func (e *endpointDatar) sesuaikanLebar(args []interface{}, lebar map[string]int) []string {
+	if len(lebar) == 0 {
+		return nil
+	}
+	var dipotong []string
+	for i := 1; i < len(args) && i < len(e.kolomInsert); i++ {
+		n, ada := lebar[e.kolomInsert[i]]
+		if !ada {
+			continue
+		}
+		if s, ok := args[i].(string); ok {
+			if p, terpotong := potongUTF16(s, n); terpotong {
+				args[i] = p
+				dipotong = append(dipotong, e.kolomInsert[i])
+			}
+		}
+	}
+	return dipotong
+}
+
+// potongUTF16 memotong s ke paling banyak n unit UTF-16 (satuan lebar NVARCHAR(n)) pada batas karakter utuh.
+func potongUTF16(s string, n int) (string, bool) {
+	if len(s) <= n { // satu unit UTF-16 paling sedikit satu byte UTF-8, jadi sudah pasti muat
+		return s, false
+	}
+	unit := 0
+	for i, r := range s {
+		w := 1
+		if r >= 0x10000 {
+			w = 2
+		}
+		if unit+w > n {
+			return s[:i], true
+		}
+		unit += w
+	}
+	return s, false
+}
+
+// lebarKolomTeks membaca lebar kolom teks bertipe NVARCHAR(n)/VARCHAR(n) sebuah tabel (satuan karakter; kolom MAX dan bukan teks tidak
+// ikut). Galat membaca skema tidak menggagalkan sinkronisasi: peta kosong berarti nilai disimpan apa adanya.
+func lebarKolomTeks(ctx context.Context, tabel string) map[string]int {
+	rows, err := database.DB.QueryContext(ctx,
+		"SELECT COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @p1 AND CHARACTER_MAXIMUM_LENGTH > 0", tabel)
+	if err != nil {
+		log.Println("[INAPROC SYNC WARN] gagal membaca lebar kolom "+tabel+":", err)
+		return nil
+	}
+	defer rows.Close()
+	lebar := map[string]int{}
+	for rows.Next() {
+		var nama string
+		var n int64
+		if rows.Scan(&nama, &n) == nil {
+			lebar[nama] = int(n)
+		}
+	}
+	return lebar
+}
+
+// catatanHasil: catatan singkat untuk riwayat dan log sinkronisasi; kosong bila semua baris tersimpan utuh.
+func catatanHasil(h HasilSinkron) string {
+	var bagian []string
+	if h.TotalGagal > 0 {
+		bagian = append(bagian, fmt.Sprintf("%d baris gagal disimpan", h.TotalGagal))
+	}
+	if h.TotalDipotong > 0 {
+		bagian = append(bagian, fmt.Sprintf("%d nilai dipotong karena melebihi lebar kolom", h.TotalDipotong))
+	}
+	return strings.Join(bagian, "; ")
 }
 
 // paramGetBawaan menyusun parameter penyaring GET menurut bentuk saringan bawaan; pesan tidak kosong = permintaan ditolak (400).
@@ -370,9 +450,10 @@ func (e *endpointDatar) rencanaDari(req syncDatarRequest) (*rencanaSync, string)
 
 // HasilSinkron: hasil satu sinkronisasi dataset.
 type HasilSinkron struct {
-	TotalSinkron int // baris yang tersimpan
-	TotalGagal   int // baris yang gagal disimpan (dilewati)
-	Halaman      int // halaman yang diambil dari Inaproc
+	TotalSinkron  int // baris yang tersimpan
+	TotalGagal    int // baris yang gagal disimpan (dilewati)
+	TotalDipotong int // nilai teks yang dipotong agar muat di kolomnya (barisnya tetap tersimpan)
+	Halaman       int // halaman yang diambil dari Inaproc
 }
 
 // GalatSinkron: kegagalan sinkronisasi beserta status HTTP yang cocok bila dijawabkan ke klien. Hulu = Inaproc menolak (Status
@@ -392,6 +473,8 @@ const (
 	statusDibatalkan = 499
 	// Pembatalan dan penyimpanan diperiksa tiap sekian baris.
 	periksaTiapBaris = 500
+	// maksLogBarisGagal: jumlah galat simpan baris yang dituliskan ke log per sinkronisasi; selebihnya hanya dihitung.
+	maksLogBarisGagal = 3
 )
 
 // pelaksanaSQL: *sql.DB atau *sql.Tx.
@@ -428,7 +511,7 @@ func (e *endpointDatar) SyncDengan(c *gin.Context, susun func(*gin.Context) (*re
 		}
 		return
 	}
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": hasil.TotalSinkron, "total_failed": hasil.TotalGagal, "pages_fetched": hasil.Halaman})
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": hasil.TotalSinkron, "total_failed": hasil.TotalGagal, "total_truncated": hasil.TotalDipotong, "pages_fetched": hasil.Halaman})
 }
 
 // Jalankan mengerjakan satu rencana sinkronisasi tanpa konteks HTTP (dipakai Sync, antrean penarikan, dan penjadwal). oleh = id
@@ -547,6 +630,7 @@ func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh
 	if ctx.Err() != nil {
 		return dibatalkan()
 	}
+	lebar := lebarKolomTeks(ctx, e.Tabel)
 	tx, err := database.DB.BeginTx(ctx, nil)
 	if err != nil {
 		log.Println("[INAPROC SYNC ERROR] gagal memulai transaksi "+nama+":", err)
@@ -558,7 +642,8 @@ func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh
 		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal mengganti data lama (data lama tetap utuh)"}, "hapus data lama: "+err.Error())
 	}
 
-	totalSynced, totalFailed := 0, 0
+	totalSynced, totalFailed, totalDipotong := 0, 0, 0
+	dipotongPerKolom := map[string]int{}
 	dec := json.NewDecoder(bufio.NewReaderSize(spool, 1<<20))
 	dec.UseNumber()
 	for n := 0; dec.More(); n++ {
@@ -574,10 +659,18 @@ func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh
 			_ = tx.Rollback()
 			return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal membaca penampungan sementara"}, err.Error())
 		}
-		if err := e.insert(tx, row, rencana.Konteks); err != nil {
-			log.Println("[INAPROC SYNC WARN] gagal simpan baris "+nama+":", err)
+		dipotong, err := e.insert(tx, row, rencana.Konteks, lebar)
+		if err != nil {
+			// Hanya beberapa yang pertama ditulis ke log (satu penarikan bisa menggagalkan ribuan baris dengan sebab yang sama).
+			if totalFailed < maksLogBarisGagal {
+				log.Println("[INAPROC SYNC WARN] gagal simpan baris "+nama+":", err)
+			}
 			totalFailed++
 			continue
+		}
+		for _, k := range dipotong {
+			dipotongPerKolom[k]++
+			totalDipotong++
 		}
 		totalSynced++
 	}
@@ -585,13 +678,16 @@ func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh
 		log.Println("[INAPROC SYNC ERROR] gagal commit "+nama+":", err)
 		return gagal(&GalatSinkron{Status: http.StatusInternalServerError, Pesan: "Gagal menyimpan data (data lama tetap utuh)"}, "commit: "+err.Error())
 	}
-
-	catatan := ""
-	if totalFailed > 0 {
-		catatan = fmt.Sprintf("%d baris gagal disimpan", totalFailed)
+	if totalFailed > maksLogBarisGagal {
+		log.Printf("[INAPROC SYNC WARN] %s: %d baris gagal disimpan; hanya %d yang pertama dicatat di atas", nama, totalFailed, maksLogBarisGagal)
 	}
-	catat("success", totalSynced, catatan)
-	return HasilSinkron{TotalSinkron: totalSynced, TotalGagal: totalFailed, Halaman: halaman}, nil
+	if totalDipotong > 0 {
+		log.Printf("[INAPROC SYNC WARN] %s: %d nilai dipotong agar muat di kolomnya (kolom: jumlah) %v; lebarkan kolomnya lewat migrasi bila datanya perlu utuh", nama, totalDipotong, dipotongPerKolom)
+	}
+
+	hasil := HasilSinkron{TotalSinkron: totalSynced, TotalGagal: totalFailed, TotalDipotong: totalDipotong, Halaman: halaman}
+	catat("success", totalSynced, catatanHasil(hasil))
+	return hasil, nil
 }
 
 // whereBawaan: klausa WHERE daftar lokal menurut bentuk saringan bawaan: kolom KLPD (+ kolom tahun bila ada) atau, untuk saringan
