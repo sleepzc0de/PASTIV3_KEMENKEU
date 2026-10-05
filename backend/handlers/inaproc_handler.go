@@ -1,12 +1,10 @@
 package handlers
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -132,38 +130,8 @@ func logInaprocSync(endpoint, kodeKLPD, tahun, jenisPaket, status string, totalS
 	)
 }
 
-// callInaprocEndpoint melakukan GET generik ke API Inaproc dengan Bearer
-// token, dipakai oleh semua endpoint Inaproc yang kita integrasikan.
-func callInaprocEndpoint(path string, params url.Values) ([]byte, int, error) {
-	return callInaprocEndpointCtx(context.Background(), path, params)
-}
-
-// callInaprocEndpointCtx sama dengan callInaprocEndpoint, tetapi permintaan ikut dibatalkan bila ctx berakhir (dipakai
-// penarikan data terjadwal/antrean yang bisa dibatalkan).
-func callInaprocEndpointCtx(ctx context.Context, path string, params url.Values) ([]byte, int, error) {
-	cfg := config.Cfg
-	reqURL := fmt.Sprintf("%s%s?%s", cfg.InaprocBaseURL, path, params.Encode())
-
-	httpClient := utils.NewSSOHTTPClient()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.InaprocToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := utils.DoWithRetry(httpClient, req, 2)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, err
-	}
-	return body, resp.StatusCode, nil
-}
+// callInaprocEndpoint, callInaprocEndpointCtx, dan callInaprocEndpointInteraktif ada di inaproc_klien.go (pembatas permintaan bersama,
+// percobaan ulang per halaman, dan pemakaian ulang koneksi).
 
 // ============================================================
 // Endpoint 1: History Kaji Ulang RUP
@@ -200,7 +168,7 @@ func GetHistoryKajiUlang(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/history-kaji-ulang", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/history-kaji-ulang", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -483,7 +451,7 @@ func GetPaketAnggaranPenyedia(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-anggaran-penyedia", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-anggaran-penyedia", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-anggaran:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -811,7 +779,7 @@ func GetPaketPenyedia(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-penyedia", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-penyedia", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-penyedia:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -1156,7 +1124,7 @@ func GetPaketSwakelola(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-swakelola", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-swakelola", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-swakelola:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -1383,7 +1351,7 @@ func GetProgramMaster(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/program-master", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/program-master", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request program-master:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -1604,7 +1572,7 @@ func GetPaketSwakelolaTerumumkan(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-swakelola-terumumkan", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-swakelola-terumumkan", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-swakelola-terumumkan:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -1856,7 +1824,7 @@ func GetPaketPenyediaTerumumkan(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-penyedia-terumumkan", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-penyedia-terumumkan", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-penyedia-terumumkan:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
@@ -2135,7 +2103,7 @@ func GetPaketAnggaranSwakelola(c *gin.Context) {
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint("/api/v1/rup/paket-anggaran-swakelola", params)
+	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-anggaran-swakelola", params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request paket-anggaran-swakelola:", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")

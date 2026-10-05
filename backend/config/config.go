@@ -66,6 +66,15 @@ type Config struct {
 	InaprocAutoJamAkhir     int
 	InaprocAutoJumlahTahun  int
 
+	// Batas permintaan ke Inaproc. Inaproc membatasi 1.000 permintaan per 60 detik dan kuota 5.000 permintaan yang direset tiap 1 jam; batas
+	// di sini sengaja sedikit di bawahnya (bawaan 800 per menit dan 4.500 per jam) supaya penarikan tidak pernah menabrak batas Inaproc.
+	InaprocBatasPerMenit int
+	InaprocBatasPerJam   int
+	// Kebijakan gagal tarik: sebuah tugas dicoba maksimal InaprocMaksPercobaan kali dalam satu siklus, lalu istirahat InaprocIstirahatJam jam
+	// sebelum boleh ditarik ulang otomatis.
+	InaprocMaksPercobaan int
+	InaprocIstirahatJam  int
+
 	TokenEncryptionKey string
 	InaprocBaseURL     string
 	InaprocToken       string
@@ -131,6 +140,10 @@ func LoadConfig() {
 		InaprocAutoJamMulai:     getEnvInt("INAPROC_AUTO_JAM_MULAI", 1),
 		InaprocAutoJamAkhir:     getEnvInt("INAPROC_AUTO_JAM_AKHIR", 5),
 		InaprocAutoJumlahTahun:  getEnvInt("INAPROC_AUTO_JUMLAH_TAHUN", 2),
+		InaprocBatasPerMenit:    getEnvInt("INAPROC_BATAS_PER_MENIT", 800),
+		InaprocBatasPerJam:      getEnvInt("INAPROC_BATAS_PER_JAM", 4500),
+		InaprocMaksPercobaan:    getEnvInt("INAPROC_MAKS_PERCOBAAN", 3),
+		InaprocIstirahatJam:     getEnvInt("INAPROC_ISTIRAHAT_JAM", 8),
 
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),

@@ -280,7 +280,7 @@ func (e *endpointDatar) GetDengan(c *gin.Context, susun func(*gin.Context) (url.
 		params.Set("cursor", cursor)
 	}
 
-	body, statusCode, err := callInaprocEndpoint(e.jalurAPI(), params)
+	body, statusCode, err := callInaprocEndpointInteraktif(e.jalurAPI(), params)
 	if err != nil {
 		log.Println("[INAPROC ERROR] gagal request "+e.namaLog()+":", err)
 		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")

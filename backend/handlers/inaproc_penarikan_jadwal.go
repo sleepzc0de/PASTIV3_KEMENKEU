@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,25 +17,50 @@ import (
 // Penarikan otomatis berkala. Penjadwal berjalan di dalam proses server (tanpa cron di luar): ia memeriksa riwayat di
 // inaproc_penarikan, sehingga keadaannya bertahan saat server dimulai ulang.
 //
-// Aturan:
+// Aturan penarikan teratur:
 //   - Yang dijadwalkan adalah tugas (dataset + isian), mis. "Pengumuman Tender untuk K10 tahun 2025": tiap dataset otomatis dikali
 //     tahun berjalan dan (JumlahTahun-1) tahun sebelumnya. Dataset per kode (rujukan) tidak ikut: Inaproc tidak punya daftar "semua".
 //   - Sebuah tugas jatuh tempo bila penarikan OTOMATIS suksesnya yang terakhir sudah lebih tua dari IntervalHari (bawaan 2 hari)
-//     atau belum pernah ada, dan percobaan otomatis terakhirnya (apa pun hasilnya) sudah lebih lama dari jedaCoba. Penarikan manual
-//     tidak menggeser jadwal ini. Jeda itu mencegah percobaan berulang saat Inaproc menolak (mis. 429).
-//   - Penarikan hanya DIMULAI di dalam jendela jam (bawaan 01.00-05.00 WIB); yang sudah berjalan boleh melewatinya sampai selesai.
-//   - Tidak pernah berjalan bersamaan dengan penarikan lain (satu antrean pada satu waktu).
-//   - Pengaturan dibaca dari database tiap putaran, jadi perubahan dari halaman Penarikan Data berlaku tanpa memulai ulang server.
+//     atau belum pernah ada. Penarikan manual tidak menggeser jadwal ini.
+//   - Penarikan teratur hanya DIMULAI di dalam jendela jam (bawaan 01.00-05.00 WIB); yang sudah berjalan boleh melewatinya sampai selesai.
+//
+// Kebijakan gagal tarik (berlaku untuk penarikan manual maupun otomatis):
+//   - Tugas yang gagal dicoba ulang otomatis, paling banyak maksPercobaan kali (bawaan 3) dalam satu siklus, dengan jarak minimal
+//     jedaAntarPercobaan antar percobaan (jadi ketiganya jatuh di hari yang sama). Percobaan ulang tidak menunggu jendela jam.
+//   - Setelah maksPercobaan kali gagal, tugas ISTIRAHAT selama lamaIstirahat (bawaan 8 jam). Setelah itu ia boleh ditarik lagi dan
+//     siklus baru dimulai (percobaan dihitung dari awal). Tugas di rencana otomatis ditarik lagi otomatis; tugas manual di luar rencana
+//     (mis. per kode) tidak dicoba otomatis lagi setelah istirahat, dan bisa ditarik manual kapan saja.
+//   - Yang dihitung percobaan hanya yang berstatus gagal. Dibatalkan, dilewati, dan dihentikan karena server dimulai ulang tidak dihitung.
+//     Satu penarikan sukses (manual atau otomatis) menutup siklus.
+//
+// Kestabilan lain: pemutus beruntun (manager) menghentikan antrean bila banyak tugas gagal berturut-turut dan menahan penjadwal sebentar;
+// antrean tunggal dan kunci database mencegah dua penarikan berjalan bersamaan; pembatas permintaan menjaga batas Inaproc.
 
 // zonaWIB: waktu Indonesia Barat tanpa bergantung pada basis data zona waktu di server/container.
 var zonaWIB = time.FixedZone("WIB", 7*60*60)
 
-// Variabel (bukan konstanta) hanya supaya tes bisa mempercepatnya.
+// Variabel (bukan konstanta) hanya supaya tes bisa mempercepatnya atau konfigurasi mengubahnya.
 var (
-	periodeCek = 15 * time.Minute // seberapa sering penjadwal memeriksa
-	tundaAwal  = 2 * time.Minute  // penundaan pemeriksaan pertama setelah server mulai
-	jedaCoba   = 6 * time.Hour    // jarak minimal antar percobaan otomatis sebuah tugas
+	periodeCek         = 5 * time.Minute  // seberapa sering penjadwal memeriksa
+	tundaAwal          = 2 * time.Minute  // penundaan pemeriksaan pertama setelah server mulai
+	maksPercobaan      = 3                // percobaan gagal dalam satu siklus sebelum istirahat
+	lamaIstirahat      = 8 * time.Hour    // istirahat setelah maksPercobaan kali gagal
+	jedaAntarPercobaan = 10 * time.Minute // jarak minimal antar percobaan gagal sebuah tugas
+	// Kegagalan lebih tua dari ini tidak dibaca lagi (siklus sudah lama lewat).
+	jendelaKegagalan = 48 * time.Hour
 )
+
+// terapkanKebijakan membaca kebijakan dari konfigurasi (nilai di luar rentang diganti bawaan).
+func terapkanKebijakan() {
+	if c := config.Cfg; c != nil {
+		if c.InaprocMaksPercobaan >= 1 && c.InaprocMaksPercobaan <= 10 {
+			maksPercobaan = c.InaprocMaksPercobaan
+		}
+		if c.InaprocIstirahatJam >= 1 && c.InaprocIstirahatJam <= 72 {
+			lamaIstirahat = time.Duration(c.InaprocIstirahatJam) * time.Hour
+		}
+	}
+}
 
 // Pengaturan: pengaturan penarikan otomatis.
 type Pengaturan struct {
@@ -181,51 +207,273 @@ func (p Pengaturan) RencanaOtomatis(now time.Time) []Tugas {
 	return tugas
 }
 
-// saatJatuhTempo: kapan tugas ini paling cepat boleh ditarik otomatis (tanpa memperhitungkan jendela jam).
+// ---- kebijakan gagal tarik ----
+
+// KondisiTugas: keadaan siklus percobaan sebuah tugas.
+type KondisiTugas struct {
+	Terpakai        int       // percobaan gagal pada siklus berjalan (0..maksPercobaan)
+	Istirahat       bool      // sedang istirahat setelah maksPercobaan kali gagal
+	IstirahatSampai time.Time // akhir istirahat (bermakna bila Istirahat)
+	GagalTerakhir   time.Time
+	BelumPulih      bool // ada kegagalan sejak penarikan sukses terakhir
+}
+
+// Kondisi menghitung siklus percobaan dari waktu-waktu kegagalan (urut naik, semuanya sesudah penarikan sukses terakhir). Tiap maksPercobaan
+// kegagalan beruntun menutup satu siklus dan memulai istirahat lamaIstirahat; kegagalan sesudah istirahat memulai siklus baru.
+func Kondisi(gagal []time.Time, now time.Time) KondisiTugas {
+	k := KondisiTugas{BelumPulih: len(gagal) > 0}
+	if len(gagal) == 0 {
+		return k
+	}
+	k.GagalTerakhir = gagal[len(gagal)-1]
+	n := 0
+	var istirahat time.Time
+	for _, t := range gagal {
+		if !istirahat.IsZero() && t.Before(istirahat) {
+			continue // gagal yang tercatat selama istirahat (mis. penarikan manual) tidak membuka siklus baru
+		}
+		n++
+		if n >= maksPercobaan {
+			istirahat = t.Add(lamaIstirahat)
+			n = 0
+		}
+	}
+	if istirahat.After(now) {
+		k.Istirahat, k.IstirahatSampai, k.Terpakai = true, istirahat, maksPercobaan
+		return k
+	}
+	k.Terpakai = n
+	return k
+}
+
+// SaatCobaLagi: kapan percobaan otomatis berikutnya paling cepat boleh dimulai (nol = sekarang).
+func (k KondisiTugas) SaatCobaLagi() time.Time {
+	switch {
+	case k.Istirahat:
+		return k.IstirahatSampai
+	case k.Terpakai > 0:
+		return k.GagalTerakhir.Add(jedaAntarPercobaan)
+	}
+	return time.Time{}
+}
+
+// KegagalanTugas: kegagalan sebuah tugas sejak penarikan sukses terakhir (dari riwayat).
+type KegagalanTugas struct {
+	Dataset    string
+	Parameter  string
+	Waktu      []time.Time // urut naik
+	Permintaan string      // isian tugas (JSON); kosong untuk baris lama
+	Pesan      string      // pesan kegagalan terakhir
+}
+
+func (k *KegagalanTugas) kunci() string { return k.Dataset + "|" + k.Parameter }
+
+// KegagalanBelumPulih membaca tugas yang gagal sejak penarikan suksesnya yang terakhir (manual atau otomatis), dalam jendelaKegagalan.
+func (m *PenarikInaproc) KegagalanBelumPulih(ctx context.Context, now time.Time) (map[string]*KegagalanTugas, error) {
+	rows, err := m.db.QueryContext(ctx, `
+		WITH r AS (
+			SELECT id, dataset, parameter, status, COALESCE(selesai, dibuat) AS waktu, permintaan, pesan,
+				MAX(CASE WHEN status = @p2 THEN id END) OVER (PARTITION BY dataset, parameter) AS id_sukses
+			FROM inaproc_penarikan WHERE dibuat >= @p1 AND status IN (@p2, @p3))
+		SELECT dataset, parameter, waktu, permintaan, pesan FROM r
+		WHERE status = @p3 AND (id_sukses IS NULL OR id > id_sukses) ORDER BY dataset, parameter, id`,
+		now.Add(-jendelaKegagalan).UTC(), PenarikanSukses, PenarikanGagal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]*KegagalanTugas{}
+	for rows.Next() {
+		var ds, par string
+		var waktu time.Time
+		var perm, pesan sql.NullString
+		if err := rows.Scan(&ds, &par, &waktu, &perm, &pesan); err != nil {
+			return nil, err
+		}
+		k := &KegagalanTugas{Dataset: ds, Parameter: par}
+		if lama, ada := out[k.kunci()]; ada {
+			k = lama
+		} else {
+			out[k.kunci()] = k
+		}
+		k.Waktu = append(k.Waktu, waktu)
+		if perm.Valid && perm.String != "" {
+			k.Permintaan = perm.String
+		}
+		k.Pesan = pesan.String
+	}
+	return out, rows.Err()
+}
+
+// tugasDariKegagalan menyusun ulang tugas dari isian yang tersimpan; false bila tidak bisa (baris lama, dataset tidak ada, isian tidak sah).
+func tugasDariKegagalan(k *KegagalanTugas) (Tugas, bool) {
+	d, ok := DatasetByID(k.Dataset)
+	if !ok || k.Permintaan == "" {
+		return Tugas{}, false
+	}
+	var perm PermintaanTarik
+	if err := json.Unmarshal([]byte(k.Permintaan), &perm); err != nil {
+		return Tugas{}, false
+	}
+	perm = d.Normalisasi(perm)
+	if d.Validasi(perm) != "" {
+		return Tugas{}, false
+	}
+	t := Tugas{Dataset: d, Perm: perm}
+	if t.Kunci() != k.kunci() {
+		return Tugas{}, false
+	}
+	return t, true
+}
+
+// saatJatuhTempo: kapan tugas ini paling cepat boleh ditarik menurut interval (tanpa memperhitungkan jendela jam dan kegagalan).
 func (p Pengaturan) saatJatuhTempo(now time.Time, t Tugas, riwayat map[string]RiwayatOtomatis) time.Time {
 	saat := now
-	r, ada := riwayat[t.Kunci()]
-	if !ada {
-		return saat
-	}
-	if r.SuksesTerakhir != nil {
+	if r, ada := riwayat[t.Kunci()]; ada && r.SuksesTerakhir != nil {
 		saat = r.SuksesTerakhir.Add(time.Duration(p.IntervalHari) * 24 * time.Hour)
-	}
-	if tunggu := r.CobaTerakhir.Add(jedaCoba); tunggu.After(saat) {
-		saat = tunggu
 	}
 	return saat
 }
 
-// JatuhTempo: tugas otomatis yang harus ditarik sekarang.
-func (p Pengaturan) JatuhTempo(now time.Time, riwayat map[string]RiwayatOtomatis) []Tugas {
-	var out []Tugas
+// TugasTerjadwal memisahkan tugas yang harus ditarik sekarang menjadi:
+//   - lanjutan: percobaan ulang (siklus berjalan, jarak antar percobaan sudah lewat) dan tugas yang istirahatnya sudah selesai. Tidak
+//     menunggu jendela jam dan tidak menunggu interval: data yang gagal harus segera pulih.
+//   - reguler: tugas yang jatuh tempo menurut interval; hanya boleh dimulai di dalam jendela jam.
+//
+// Tugas yang sedang istirahat atau masih dalam jarak antar percobaan tidak masuk keduanya.
+func (p Pengaturan) TugasTerjadwal(now time.Time, riwayat map[string]RiwayatOtomatis, gagal map[string]*KegagalanTugas) (lanjutan, reguler []Tugas) {
+	dalamRencana := map[string]bool{}
 	for _, t := range p.RencanaOtomatis(now) {
+		k := t.Kunci()
+		dalamRencana[k] = true
+		if g := gagal[k]; g != nil && len(g.Waktu) > 0 {
+			kond := Kondisi(g.Waktu, now)
+			if now.Before(kond.SaatCobaLagi()) {
+				continue
+			}
+			t.Percobaan = kond.Terpakai + 1
+			lanjutan = append(lanjutan, t)
+			continue
+		}
 		if !p.saatJatuhTempo(now, t, riwayat).After(now) {
-			out = append(out, t)
+			reguler = append(reguler, t)
 		}
 	}
-	return out
+
+	// Tugas di luar rencana (penarikan manual yang gagal): hanya dilanjutkan selama siklus percobaannya berjalan.
+	var luar []string
+	for k := range gagal {
+		if !dalamRencana[k] {
+			luar = append(luar, k)
+		}
+	}
+	sort.Strings(luar)
+	for _, k := range luar {
+		g := gagal[k]
+		kond := Kondisi(g.Waktu, now)
+		if kond.Terpakai == 0 || kond.Istirahat || now.Before(kond.SaatCobaLagi()) {
+			continue
+		}
+		if t, ok := tugasDariKegagalan(g); ok {
+			t.Percobaan = kond.Terpakai + 1
+			lanjutan = append(lanjutan, t)
+		}
+	}
+	return lanjutan, reguler
 }
 
-// Berikutnya: perkiraan kapan penarikan otomatis berikutnya dimulai (jatuh tempo paling awal, diselaraskan ke jendela jam).
-// nil bila otomatis tidak aktif atau tidak ada tugas.
-func (p Pengaturan) Berikutnya(now time.Time, riwayat map[string]RiwayatOtomatis) *time.Time {
+// JatuhTempo: semua tugas otomatis yang harus ditarik sekarang tanpa memperhitungkan jendela jam (lanjutan dan reguler).
+func (p Pengaturan) JatuhTempo(now time.Time, riwayat map[string]RiwayatOtomatis, gagal map[string]*KegagalanTugas) []Tugas {
+	l, r := p.TugasTerjadwal(now, riwayat, gagal)
+	return append(l, r...)
+}
+
+// Berikutnya: perkiraan kapan penarikan otomatis berikutnya dimulai: yang paling awal dari percobaan ulang/akhir istirahat (tanpa jendela
+// jam) dan jatuh tempo reguler (diselaraskan ke jendela jam). nil bila otomatis tidak aktif atau tidak ada tugas.
+func (p Pengaturan) Berikutnya(now time.Time, riwayat map[string]RiwayatOtomatis, gagal map[string]*KegagalanTugas) *time.Time {
 	tugas := p.RencanaOtomatis(now)
 	if !p.Aktif || len(tugas) == 0 {
 		return nil
 	}
-	awal := p.saatJatuhTempo(now, tugas[0], riwayat)
-	for _, t := range tugas[1:] {
-		if s := p.saatJatuhTempo(now, t, riwayat); s.Before(awal) {
-			awal = s
+	var awal time.Time
+	ambil := func(t time.Time) {
+		if awal.IsZero() || t.Before(awal) {
+			awal = t
 		}
+	}
+	for _, t := range tugas {
+		if g := gagal[t.Kunci()]; g != nil && len(g.Waktu) > 0 {
+			ambil(Kondisi(g.Waktu, now).SaatCobaLagi())
+			continue
+		}
+		ambil(p.selaraskan(maxWaktu(p.saatJatuhTempo(now, t, riwayat), now)))
 	}
 	if awal.Before(now) {
 		awal = now
 	}
-	awal = p.selaraskan(awal)
 	return &awal
+}
+
+func maxWaktu(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// TugasBermasalah: tugas yang gagal dan belum pulih, untuk ditampilkan di halaman.
+type TugasBermasalah struct {
+	Dataset           string     `json:"dataset"`
+	Nama              string     `json:"nama"`
+	Parameter         string     `json:"parameter"`
+	Gagal             int        `json:"gagal"` // percobaan gagal pada siklus berjalan
+	MaksPercobaan     int        `json:"maks_percobaan"`
+	Istirahat         bool       `json:"istirahat"`
+	BerikutnyaSekitar *time.Time `json:"berikutnya_sekitar"` // percobaan otomatis berikutnya (atau akhir istirahat); nil bila tidak ada
+	TerakhirGagal     time.Time  `json:"terakhir_gagal"`
+	Pesan             string     `json:"pesan"`
+	DalamRencana      bool       `json:"dalam_rencana"` // ikut penarikan otomatis; yang di luar rencana tidak ditarik otomatis lagi setelah istirahat
+}
+
+// Bermasalah menyusun daftar tugas yang sedang gagal beserta keadaan siklus percobaannya, urut menurut katalog lalu isian.
+func (p Pengaturan) Bermasalah(now time.Time, gagal map[string]*KegagalanTugas) []TugasBermasalah {
+	dalamRencana := map[string]bool{}
+	for _, t := range p.RencanaOtomatis(now) {
+		dalamRencana[t.Kunci()] = true
+	}
+	urutan := map[string]int{}
+	for i, d := range DaftarDataset {
+		urutan[d.ID] = i
+	}
+	var out []TugasBermasalah
+	for k, g := range gagal {
+		if len(g.Waktu) == 0 {
+			continue
+		}
+		d, ok := DatasetByID(g.Dataset)
+		if !ok {
+			continue
+		}
+		kond := Kondisi(g.Waktu, now)
+		x := TugasBermasalah{Dataset: g.Dataset, Nama: d.Nama, Parameter: g.Parameter, Gagal: kond.Terpakai, MaksPercobaan: maksPercobaan,
+			Istirahat: kond.Istirahat, TerakhirGagal: kond.GagalTerakhir, Pesan: g.Pesan, DalamRencana: dalamRencana[k]}
+		if p.Aktif && (dalamRencana[k] || (kond.Terpakai > 0 && !kond.Istirahat)) {
+			t := maxWaktu(kond.SaatCobaLagi(), now)
+			if !dalamRencana[k] && kond.Istirahat {
+				x.BerikutnyaSekitar = nil
+			} else {
+				x.BerikutnyaSekitar = &t
+			}
+		}
+		out = append(out, x)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if urutan[out[i].Dataset] != urutan[out[j].Dataset] {
+			return urutan[out[i].Dataset] < urutan[out[j].Dataset]
+		}
+		return out[i].Parameter < out[j].Parameter
+	})
+	return out
 }
 
 // MuatPengaturan membaca pengaturan tersimpan; belum ada = bawaan dari konfigurasi server.
@@ -287,29 +535,46 @@ type InfoOtomatis struct {
 	TokenAda         bool       `json:"token_ada"`
 	Berikutnya       *time.Time `json:"berikutnya"`
 	JumlahTugas      int        `json:"jumlah_tugas"`      // tugas dalam satu putaran penuh
-	JatuhTempo       int        `json:"jatuh_tempo"`       // tugas yang jatuh tempo sekarang
+	JatuhTempo       int        `json:"jatuh_tempo"`       // tugas yang jatuh tempo sekarang (percobaan ulang dan reguler)
+	Istirahat        int        `json:"istirahat"`         // tugas yang sedang istirahat setelah gagal berulang
 	TerakhirOtomatis *time.Time `json:"terakhir_otomatis"` // penarikan otomatis sukses terakhir (mana pun)
+	DitahanSampai    *time.Time `json:"ditahan_sampai"`    // penarikan otomatis ditahan sementara (gangguan Inaproc/jaringan)
+	MaksPercobaan    int        `json:"maks_percobaan"`
+	IstirahatJam     float64    `json:"istirahat_jam"`
 	Zona             string     `json:"zona"`
 }
 
-// InfoOtomatis dihitung dari pengaturan dan riwayat otomatis.
-func (m *PenarikInaproc) InfoOtomatis(ctx context.Context, p Pengaturan, now time.Time) (InfoOtomatis, error) {
+// InfoOtomatis dihitung dari pengaturan, riwayat otomatis, dan kegagalan yang belum pulih.
+func (m *PenarikInaproc) InfoOtomatis(ctx context.Context, p Pengaturan, now time.Time, gagal map[string]*KegagalanTugas) (InfoOtomatis, error) {
 	riwayat, err := m.TerakhirOtomatis(ctx)
 	if err != nil {
 		return InfoOtomatis{}, err
 	}
 	tokenAda := config.Cfg != nil && config.Cfg.InaprocToken != ""
-	info := InfoOtomatis{Aktif: p.Aktif && tokenAda, TokenAda: tokenAda, Zona: "WIB"}
+	info := InfoOtomatis{Aktif: p.Aktif && tokenAda, TokenAda: tokenAda, Zona: "WIB", MaksPercobaan: maksPercobaan, IstirahatJam: lamaIstirahat.Hours()}
 	info.JumlahTugas = len(p.RencanaOtomatis(now))
-	info.JatuhTempo = len(p.JatuhTempo(now, riwayat))
+	info.JatuhTempo = len(p.JatuhTempo(now, riwayat, gagal))
+	for _, g := range gagal {
+		if Kondisi(g.Waktu, now).Istirahat {
+			info.Istirahat++
+		}
+	}
 	for _, r := range riwayat {
 		if r.SuksesTerakhir != nil && (info.TerakhirOtomatis == nil || r.SuksesTerakhir.After(*info.TerakhirOtomatis)) {
 			t := *r.SuksesTerakhir
 			info.TerakhirOtomatis = &t
 		}
 	}
+	if t := m.otomatisDitahanSampai(); t.After(now) {
+		info.DitahanSampai = &t
+	}
 	if info.Aktif {
-		info.Berikutnya = p.Berikutnya(now, riwayat)
+		b := p.Berikutnya(now, riwayat, gagal)
+		if b != nil && info.DitahanSampai != nil && b.Before(*info.DitahanSampai) {
+			t := *info.DitahanSampai
+			b = &t
+		}
+		info.Berikutnya = b
 	}
 	return info, nil
 }
@@ -318,8 +583,8 @@ func (m *PenarikInaproc) InfoOtomatis(ctx context.Context, p Pengaturan, now tim
 // memeriksa pengaturan (aktif atau tidak) dan token tiap putaran.
 func (m *PenarikInaproc) MulaiPenjadwal(ctx context.Context) {
 	p := PengaturanBawaan()
-	log.Printf("[INAPROC PENARIKAN] penjadwal dimulai (bawaan server: aktif=%v, tiap %d hari, mulai pukul %02d.00-%02d.00 WIB)",
-		p.Aktif, p.IntervalHari, p.JamMulai, p.JamAkhir)
+	log.Printf("[INAPROC PENARIKAN] penjadwal dimulai (bawaan server: aktif=%v, tiap %d hari, mulai pukul %02d.00-%02d.00 WIB; gagal: maks %d percobaan lalu istirahat %s)",
+		p.Aktif, p.IntervalHari, p.JamMulai, p.JamAkhir, maksPercobaan, lamaIstirahat)
 	go func() {
 		timer := time.NewTimer(tundaAwal)
 		defer timer.Stop()
@@ -342,7 +607,7 @@ func (m *PenarikInaproc) cekOtomatis(ctx context.Context, now time.Time) {
 			log.Printf("[INAPROC PENARIKAN ERROR] panic pada penjadwal: %v", r)
 		}
 	}()
-	if config.Cfg == nil || config.Cfg.InaprocToken == "" || m.Aktif() != nil {
+	if config.Cfg == nil || config.Cfg.InaprocToken == "" || m.Aktif() != nil || now.Before(m.otomatisDitahanSampai()) {
 		return
 	}
 	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -352,7 +617,7 @@ func (m *PenarikInaproc) cekOtomatis(ctx context.Context, now time.Time) {
 		log.Println("[INAPROC PENARIKAN WARN] penjadwal gagal membaca pengaturan:", err)
 		return
 	}
-	if !p.Aktif || !p.DalamJendela(now) {
+	if !p.Aktif {
 		return
 	}
 	riwayat, err := m.TerakhirOtomatis(qctx)
@@ -360,16 +625,25 @@ func (m *PenarikInaproc) cekOtomatis(ctx context.Context, now time.Time) {
 		log.Println("[INAPROC PENARIKAN WARN] penjadwal gagal membaca riwayat:", err)
 		return
 	}
-	tugas := p.JatuhTempo(now, riwayat)
+	gagal, err := m.KegagalanBelumPulih(qctx, now)
+	if err != nil {
+		log.Println("[INAPROC PENARIKAN WARN] penjadwal gagal membaca kegagalan:", err)
+		return
+	}
+	lanjutan, reguler := p.TugasTerjadwal(now, riwayat, gagal)
+	tugas := lanjutan
+	if p.DalamJendela(now) {
+		tugas = append(tugas, reguler...)
+	}
 	if len(tugas) == 0 {
 		return
 	}
 	info, err := m.Start(tugas, PemicuOtomatis, Oleh{Nama: namaPengirimOto}, time.Duration(p.JedaDetik)*time.Second)
 	switch {
 	case err == nil:
-		log.Printf("[INAPROC PENARIKAN] penarikan otomatis dimulai: %d tugas", info.Total)
+		log.Printf("[INAPROC PENARIKAN] penarikan otomatis dimulai: %d tugas (%d percobaan ulang/lanjutan, %d reguler)", info.Total, len(lanjutan), len(tugas)-len(lanjutan))
 	case errors.Is(err, ErrPenarikanSibuk):
-		// Penarikan manual baru saja dimulai; putaran berikutnya memeriksa lagi.
+		// Penarikan lain sedang berjalan; putaran berikutnya memeriksa lagi.
 	default:
 		log.Println("[INAPROC PENARIKAN ERROR] penarikan otomatis gagal dimulai:", err)
 	}

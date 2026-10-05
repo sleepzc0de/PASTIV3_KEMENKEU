@@ -34,7 +34,7 @@ export function PenarikanWorkspace() {
   const [versi, setVersi] = useState(0);
   const onSelesai = useCallback(() => setVersi((v) => v + 1), []);
   const penarikan = usePenarikan(onSelesai);
-  const { data: status, aktif } = penarikan;
+  const { data: status, aktif, kuota } = penarikan;
 
   const pilih = useCallback((k: KunciTab) => {
     setTab(k);
@@ -83,7 +83,7 @@ export function PenarikanWorkspace() {
       />
 
       <div role="tabpanel" id="pt-panel-tarik" aria-labelledby="pt-tab-tarik" hidden={tab !== "tarik"}>
-        <TarikPanel status={status} aktif={aktif} isAdmin={isAdmin} onMulai={penarikan.setAktif} />
+        <TarikPanel status={status} aktif={aktif} kuota={kuota ?? status.kuota} isAdmin={isAdmin} onMulai={penarikan.setAktif} />
       </div>
       {dikunjungi.data && (
         <div role="tabpanel" id="pt-panel-data" aria-labelledby="pt-tab-data" hidden={tab !== "data"}>

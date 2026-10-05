@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, Play, Plus } from "lucide-react";
-import { PenarikanAktif, PenarikanDataset, PenarikanStatus, startPenarikan } from "@/lib/api";
+import { PenarikanAktif, PenarikanDataset, PenarikanKuota, PenarikanStatus, startPenarikan } from "@/lib/api";
 import {
   PilihanTarik,
   STATUS_TRANSAKSI,
@@ -19,17 +19,19 @@ import { Alert } from "@/components/ui/Alert";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { errorMessage } from "../digitalisasi/useDigitalisasi";
+import { KartuKuota, PanelBermasalah } from "./KuotaDanKegagalan";
 import { KELAS_INPUT, LencanaKesegaran } from "./lencana";
 
 interface Props {
   status: PenarikanStatus;
   aktif: PenarikanAktif | null;
+  kuota: PenarikanKuota;
   isAdmin: boolean;
   onMulai: (a: PenarikanAktif) => void;
 }
 
 // Pilih dataset, KLPD, dan tahun, lalu tarik dari Inaproc. Dataset per KLPD+tahun dikali tahun terpilih; dataset rujukan per kode butuh kode.
-export function TarikPanel({ status, aktif, isAdmin, onMulai }: Props) {
+export function TarikPanel({ status, aktif, kuota, isAdmin, onMulai }: Props) {
   const toast = useToast();
   const [klpd, setKlpd] = useState(status.kode_klpd);
   const [tahun, setTahun] = useState<string[]>(status.tahun_bawaan);
@@ -89,6 +91,9 @@ export function TarikPanel({ status, aktif, isAdmin, onMulai }: Props) {
       {!status.token_ada && <Alert tone="warning" message="Token Inaproc belum dikonfigurasi di server (INAPROC_TOKEN), jadi penarikan tidak bisa dijalankan." />}
       {!isAdmin && <Alert tone="info" message="Hanya admin yang dapat menjalankan penarikan. Anda tetap dapat melihat status data, riwayat, dasbor, dan mengekspor data." />}
       {galat && <Alert message={galat} />}
+
+      <PanelBermasalah item={status.bermasalah} otomatis={status.otomatis} isAdmin={isAdmin} />
+      <KartuKuota kuota={kuota} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h3 className="text-sm font-semibold text-slate-900">Parameter penarikan</h3>

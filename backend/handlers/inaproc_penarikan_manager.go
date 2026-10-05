@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -46,16 +47,24 @@ var (
 
 // Variabel (bukan konstanta) hanya supaya tes bisa mempercepatnya.
 var (
-	// Jeda sebelum mencoba ulang tugas yang ditolak batas laju Inaproc (429): tiap isian = satu percobaan ulang.
-	jedaUlang429 = []time.Duration{45 * time.Second, 2 * time.Minute, 5 * time.Minute}
 	// Jeda bawaan antar tugas (dapat diganti pengaturan).
 	jedaAntarTugasBawaan = 2 * time.Second
+	// Pemutus beruntun: sekian tugas gagal berturut-turut menghentikan antrean (sisanya dilewati, bukan dihitung gagal) dan menahan
+	// penarikan otomatis selama jedaPemutus. Mencegah semua tugas menghabiskan kesempatannya saat Inaproc atau jaringan sedang bermasalah.
+	ambangPemutus = 5
+	jedaPemutus   = 30 * time.Minute
 )
+
+// kunciAppLock: nama kunci aplikasi SQL Server yang menjaga hanya satu penarikan berjalan di seluruh server (juga saat dua salinan backend hidup
+// bersamaan sebentar ketika deploy).
+const kunciAppLock = "pasti_inaproc_penarikan"
 
 // Tugas: satu dataset dengan satu isian penarikan (sudah dinormalisasi dan divalidasi).
 type Tugas struct {
 	Dataset *DatasetPenarikan
 	Perm    PermintaanTarik
+	// Percobaan: urutan percobaan dalam siklus gagal-tarik (1 = pertama). 0 dianggap 1.
+	Percobaan int
 }
 
 // Kunci: pengenal tugas untuk jatuh tempo penarikan otomatis dan pencegahan ganda.
@@ -114,6 +123,7 @@ type antreanAktif struct {
 	batal  context.CancelFunc
 	galat  string // diisi bila antrean dihentikan karena galat yang membuat sisanya sia-sia (token ditolak)
 	dbatal bool
+	kunci  *sql.Conn // koneksi yang memegang kunci aplikasi SQL Server selama antrean berjalan (nil bila tidak bisa dipastikan)
 }
 
 // PenarikInaproc mengelola antrean, riwayat, dan penjadwal.
@@ -123,6 +133,10 @@ type PenarikInaproc struct {
 
 	mu    sync.Mutex
 	aktif *antreanAktif
+	// sinkronLama: sinkron dari halaman lama (satu dataset) sedang berjalan; antrean tidak boleh mulai bersamaan dengannya.
+	sinkronLama bool
+	// tahanOtomatis: penarikan otomatis ditahan sampai saat ini (setelah pemutus beruntun).
+	tahanOtomatis time.Time
 }
 
 // Penarik dipakai handler HTTP; diisi InitInaprocPenarikan saat server dimulai.
@@ -133,11 +147,12 @@ func NewPenarikInaproc(db *sql.DB) *PenarikInaproc {
 }
 
 // RecoverOrphans: penarikan berjalan di dalam proses server, jadi saat server (re)start tidak mungkin ada yang benar-benar
-// berjalan. Baris yang masih "antri"/"berjalan" adalah sisa proses sebelumnya.
+// berjalan. Baris yang masih "antri"/"berjalan" adalah sisa proses sebelumnya. Ditandai dibatalkan, bukan gagal: server dimulai ulang bukan
+// kesalahan sumber data, jadi tidak boleh menghabiskan kesempatan percobaan tugasnya.
 func (m *PenarikInaproc) RecoverOrphans(ctx context.Context) (int64, error) {
 	res, err := m.db.ExecContext(ctx,
 		`UPDATE inaproc_penarikan SET status = @p1, selesai = SYSUTCDATETIME(), pesan = @p2 WHERE status IN (@p3, @p4)`,
-		PenarikanGagal, "Dihentikan karena server dimulai ulang", PenarikanAntri, PenarikanBerjalan)
+		PenarikanDibatalkan, "Dihentikan karena server dimulai ulang", PenarikanAntri, PenarikanBerjalan)
 	if err != nil {
 		return 0, err
 	}
@@ -205,7 +220,7 @@ func (m *PenarikInaproc) Start(tugas []Tugas, pemicu string, oleh Oleh, jeda tim
 	}
 
 	m.mu.Lock()
-	if m.aktif != nil {
+	if m.aktif != nil || m.sinkronLama {
 		m.mu.Unlock()
 		return InfoAktif{}, ErrPenarikanSibuk
 	}
@@ -217,6 +232,15 @@ func (m *PenarikInaproc) Start(tugas []Tugas, pemicu string, oleh Oleh, jeda tim
 	// Dicatat sebelum kunci dilepas supaya permintaan kedua yang datang bersamaan ditolak.
 	m.aktif = run
 	m.mu.Unlock()
+
+	// Kunci di database: menutup celah bila ada salinan backend lain yang sedang menarik (mis. saat deploy).
+	kunci, err := m.ambilKunciDB()
+	if err != nil {
+		batal()
+		m.lepas(run)
+		return InfoAktif{}, err
+	}
+	run.kunci = kunci
 
 	for _, t := range uniq {
 		id, err := m.enqueue(run.info.BatchID, t, pemicu, oleh.Nama)
@@ -230,7 +254,7 @@ func (m *PenarikInaproc) Start(tugas []Tugas, pemicu string, oleh Oleh, jeda tim
 			return InfoAktif{}, fmt.Errorf("gagal mencatat antrean: %w", err)
 		}
 		ta := &tugasAktif{Tugas: t, info: TugasInfo{
-			ID: id, Dataset: t.Dataset.ID, Nama: t.Dataset.Nama, Parameter: t.Dataset.Ringkas(t.Perm), Status: PenarikanAntri, Percobaan: 1,
+			ID: id, Dataset: t.Dataset.ID, Nama: t.Dataset.Nama, Parameter: t.Dataset.Ringkas(t.Perm), Status: PenarikanAntri, Percobaan: percobaanKe(t),
 		}}
 		m.mu.Lock()
 		run.tugas = append(run.tugas, ta)
@@ -244,12 +268,103 @@ func (m *PenarikInaproc) Start(tugas []Tugas, pemicu string, oleh Oleh, jeda tim
 }
 
 func (m *PenarikInaproc) lepas(run *antreanAktif) {
+	m.lepasKunciDB(run.kunci)
+	run.kunci = nil
 	m.mu.Lock()
 	if m.aktif == run {
 		m.aktif = nil
 	}
 	m.mu.Unlock()
 	kosongkanCacheAnalitik() // data berubah: dasbor harus dihitung ulang
+}
+
+func percobaanKe(t Tugas) int {
+	if t.Percobaan < 1 {
+		return 1
+	}
+	return t.Percobaan
+}
+
+// ambilKunciDB mengambil kunci aplikasi SQL Server (sp_getapplock, milik sesi, tanpa menunggu) pada satu koneksi yang ditahan selama
+// penarikan. Mengembalikan ErrPenarikanSibuk bila kunci dipegang pihak lain. Bila kunci tidak bisa dipastikan (database bermasalah), penarikan
+// tetap berjalan dengan penjagaan dalam proses saja dan masalahnya dicatat; kunci ini penjaga tambahan, bukan syarat.
+func (m *PenarikInaproc) ambilKunciDB() (*sql.Conn, error) {
+	ctx, cancel := bgCtx()
+	defer cancel()
+	conn, err := m.db.Conn(ctx)
+	if err != nil {
+		log.Println("[INAPROC PENARIKAN WARN] tidak bisa mengambil koneksi untuk kunci penarikan:", err)
+		return nil, nil
+	}
+	var kode sql.NullInt64
+	err = conn.QueryRowContext(ctx,
+		`DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'`+kunciAppLock+`', @LockMode = N'Exclusive', @LockOwner = N'Session', @LockTimeout = 0; SELECT @r`).Scan(&kode)
+	if err != nil {
+		_ = conn.Close()
+		log.Println("[INAPROC PENARIKAN WARN] tidak bisa memastikan kunci penarikan di database:", err)
+		return nil, nil
+	}
+	if kode.Valid && kode.Int64 < 0 {
+		_ = conn.Close()
+		return nil, ErrPenarikanSibuk
+	}
+	return conn, nil
+}
+
+func (m *PenarikInaproc) lepasKunciDB(conn *sql.Conn) {
+	if conn == nil {
+		return
+	}
+	ctx, cancel := bgCtx()
+	defer cancel()
+	if _, err := conn.ExecContext(ctx, `EXEC sp_releaseapplock @Resource = N'`+kunciAppLock+`', @LockOwner = N'Session'`); err != nil {
+		log.Println("[INAPROC PENARIKAN WARN] gagal melepas kunci penarikan:", err)
+	}
+	_ = conn.Close() // menutup koneksi juga melepas kunci sesi
+}
+
+// MulaiEksklusif dipakai sinkron di halaman lama (satu dataset) supaya tidak berjalan bersamaan dengan antrean penarikan maupun sinkron lama
+// lainnya: menulis tabel yang sama bersamaan membuat salah satunya gagal atau saling menimpa. Mengembalikan fungsi pelepas, atau
+// ErrPenarikanSibuk.
+func (m *PenarikInaproc) MulaiEksklusif() (func(), error) {
+	m.mu.Lock()
+	if m.aktif != nil || m.sinkronLama {
+		m.mu.Unlock()
+		return nil, ErrPenarikanSibuk
+	}
+	m.sinkronLama = true
+	m.mu.Unlock()
+
+	conn, err := m.ambilKunciDB()
+	if err != nil {
+		m.mu.Lock()
+		m.sinkronLama = false
+		m.mu.Unlock()
+		return nil, err
+	}
+	return func() {
+		m.lepasKunciDB(conn)
+		m.mu.Lock()
+		m.sinkronLama = false
+		m.mu.Unlock()
+		kosongkanCacheAnalitik()
+	}, nil
+}
+
+// TahanOtomatis menahan penarikan otomatis sampai t (pemutus beruntun atau gangguan Inaproc).
+func (m *PenarikInaproc) TahanOtomatis(sampai time.Time) {
+	m.mu.Lock()
+	if sampai.After(m.tahanOtomatis) {
+		m.tahanOtomatis = sampai
+	}
+	m.mu.Unlock()
+}
+
+// otomatisDitahanSampai: sampai kapan penarikan otomatis ditahan (nol = tidak).
+func (m *PenarikInaproc) otomatisDitahanSampai() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tahanOtomatis
 }
 
 // ubah menerapkan perubahan pada info tugas di bawah kunci.
@@ -288,6 +403,7 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 		m.lepas(run)
 	}()
 
+	gagalBeruntun := 0
 	for i, t := range run.tugas {
 		switch {
 		case ctx.Err() != nil:
@@ -304,9 +420,10 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 		})
 		m.tandaiBerjalan(t.info.ID)
 
-		hasil, err := m.jalankanDenganUlang(ctx, run, t)
+		hasil, err := m.jalankanTugas(ctx, run, t)
 		switch {
 		case err == nil:
+			gagalBeruntun = 0
 			catatan := ""
 			if hasil.TotalGagal > 0 {
 				catatan = fmt.Sprintf("%d baris gagal disimpan", hasil.TotalGagal)
@@ -319,13 +436,20 @@ func (m *PenarikInaproc) eksekusi(ctx context.Context, run *antreanAktif) {
 			pesan := err.Error()
 			if errors.As(err, &g) {
 				pesan = g.Pesan
-				// Token ditolak atau tidak ada: sisanya pasti ikut ditolak, jadi tidak dicoba satu per satu.
-				if g.Status == http.StatusUnauthorized || g.Status == http.StatusForbidden || g.Status == http.StatusServiceUnavailable {
+				// Token ditolak atau tidak ada: sisanya pasti ikut ditolak, jadi tidak dicoba satu per satu. 503 dari Inaproc sendiri
+				// (layanan tidak tersedia) bukan soal token; itu ditangani pemutus beruntun di bawah.
+				if g.Status == http.StatusUnauthorized || g.Status == http.StatusForbidden || (g.Status == http.StatusServiceUnavailable && !g.Hulu) {
 					run.galat = "Dilewati: Inaproc menolak akses (" + pesan + ")"
 				}
 			}
 			m.akhiri(t, PenarikanGagal, HasilSinkron{}, pesan)
 			log.Printf("[INAPROC PENARIKAN] %s (%s) gagal: %s", t.info.Dataset, t.info.Parameter, pesan)
+			gagalBeruntun++
+			if run.galat == "" && ambangPemutus > 0 && gagalBeruntun >= ambangPemutus {
+				run.galat = fmt.Sprintf("Dilewati: %d tugas gagal berturut-turut, Inaproc atau jaringan sedang bermasalah. Penarikan dilanjutkan otomatis setelah jeda %s", gagalBeruntun, jedaPemutus)
+				m.TahanOtomatis(time.Now().Add(jedaPemutus))
+				log.Printf("[INAPROC PENARIKAN] pemutus beruntun: %d kegagalan berturut-turut, antrean dihentikan dan penarikan otomatis ditahan %s", gagalBeruntun, jedaPemutus)
+			}
 		}
 
 		if i < len(run.tugas)-1 && ctx.Err() == nil && run.galat == "" {
@@ -340,8 +464,12 @@ func (m *PenarikInaproc) statusTugas(t *tugasAktif) string {
 	return t.info.Status
 }
 
-// jalankanDenganUlang menjalankan satu tugas; ditolak batas laju (429) dicoba ulang setelah jeda yang makin panjang.
-func (m *PenarikInaproc) jalankanDenganUlang(ctx context.Context, run *antreanAktif, t *tugasAktif) (HasilSinkron, error) {
+// jalankanTugas menjalankan satu tugas. Sebelum mulai, ditunggu sampai kuota per jam cukup untuk perkiraan jumlah permintaannya (dari
+// penarikan sukses terakhir tugas yang sama), supaya penarikan tidak berhenti di tengah karena kuota habis, khususnya dataset RUP/non-tender
+// lama yang menghapus data lama lebih dulu. Gangguan sementara per halaman (429, 5xx, jaringan) dicoba ulang di klien Inaproc
+// (inaproc_klien.go), jadi penarikan dilanjutkan dari halaman yang gagal; di sini tidak ada pengulangan seluruh tugas. Tugas yang tetap
+// gagal dicatat dan dicoba ulang oleh kebijakan percobaan (inaproc_penarikan_jadwal.go).
+func (m *PenarikInaproc) jalankanTugas(ctx context.Context, run *antreanAktif, t *tugasAktif) (HasilSinkron, error) {
 	terakhirTulis := time.Time{}
 	kabar := func(pesan string) {
 		m.ubah(t, func(i *TugasInfo) { i.Pesan = pesan })
@@ -352,20 +480,26 @@ func (m *PenarikInaproc) jalankanDenganUlang(ctx context.Context, run *antreanAk
 		terakhirTulis = time.Now()
 		m.tulisPesan(t.info.ID, pesan)
 	}
+	ctx = denganKabar(ctx, kabar)
 
-	for percobaan := 1; ; percobaan++ {
-		m.ubah(t, func(i *TugasInfo) { i.Percobaan = percobaan })
-		hasil, err := m.jalankan(ctx, t.Tugas, run.oleh.ID, kabar)
-		var g *GalatSinkron
-		if err == nil || !errors.As(err, &g) || g.Status != http.StatusTooManyRequests || percobaan > len(jedaUlang429) {
-			return hasil, err
-		}
-		jeda := jedaUlang429[percobaan-1]
-		kabar(fmt.Sprintf("Inaproc membatasi laju permintaan (429). Mencoba lagi dalam %s (percobaan ulang %d dari %d)", jeda.Round(time.Second), percobaan, len(jedaUlang429)))
-		if !tidur(ctx, jeda) {
-			return HasilSinkron{}, &GalatSinkron{Status: statusDibatalkan, Pesan: "Dibatalkan"}
-		}
+	if err := batas().Pastikan(ctx, m.perkiraanPermintaan(ctx, t.Tugas)); err != nil {
+		return HasilSinkron{}, &GalatSinkron{Status: statusDibatalkan, Pesan: "Dibatalkan"}
 	}
+	return m.jalankan(ctx, t.Tugas, run.oleh.ID, kabar)
+}
+
+// perkiraanPermintaan: jumlah permintaan yang dibutuhkan tugas ini, dari jumlah halaman penarikan suksesnya yang terakhir (dengan
+// cadangan 30% dan satu permintaan uji); tanpa riwayat dipakai 30.
+func (m *PenarikInaproc) perkiraanPermintaan(ctx context.Context, t Tugas) int {
+	const bawaan = 30
+	var halaman sql.NullInt64
+	err := m.db.QueryRowContext(ctx,
+		`SELECT TOP 1 halaman FROM inaproc_penarikan WHERE dataset = @p1 AND parameter = @p2 AND status = @p3 AND halaman IS NOT NULL ORDER BY id DESC`,
+		t.Dataset.ID, potong(t.Dataset.Ringkas(t.Perm), 200), PenarikanSukses).Scan(&halaman)
+	if err != nil || !halaman.Valid || halaman.Int64 < 1 {
+		return bawaan
+	}
+	return int(halaman.Int64)*13/10 + 2
 }
 
 // akhiri menandai tugas selesai di memori dan di riwayat.
@@ -393,10 +527,13 @@ func (m *PenarikInaproc) enqueue(batchID string, t Tugas, pemicu, oleh string) (
 	ctx, cancel := bgCtx()
 	defer cancel()
 	var id int64
+	// permintaan: isian tugas sebagai JSON, supaya tugas yang gagal bisa dicoba ulang persis sama (termasuk yang bukan bagian rencana otomatis).
+	perm, _ := json.Marshal(t.Perm)
 	err := m.db.QueryRowContext(ctx,
-		`INSERT INTO inaproc_penarikan (batch_id, dataset, parameter, pemicu, status, dijalankan_oleh)
-		 OUTPUT INSERTED.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6)`,
-		batchID, t.Dataset.ID, potong(t.Dataset.Ringkas(t.Perm), 200), pemicu, PenarikanAntri, nullIfEmpty(potong(oleh, 100))).Scan(&id)
+		`INSERT INTO inaproc_penarikan (batch_id, dataset, parameter, pemicu, status, dijalankan_oleh, percobaan, permintaan)
+		 OUTPUT INSERTED.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8)`,
+		batchID, t.Dataset.ID, potong(t.Dataset.Ringkas(t.Perm), 200), pemicu, PenarikanAntri, nullIfEmpty(potong(oleh, 100)),
+		percobaanKe(t), string(perm)).Scan(&id)
 	return id, err
 }
 
@@ -608,6 +745,11 @@ func (m *PenarikInaproc) RingkasTabel(ctx context.Context) map[string]RingkasanT
 // InitInaprocPenarikan menyiapkan pengelola dan penjadwal penarikan otomatis; dipanggil sekali saat server dimulai, setelah koneksi
 // database tersedia.
 func InitInaprocPenarikan() {
+	terapkanKebijakan()
+	// Pembatas permintaan bersama: hitungan kuota satu jam terakhir dimuat dari database (dan disimpan berkala), jadi kuota yang sudah
+	// terpakai sebelum server dimulai ulang tetap diperhitungkan.
+	aturBatas(nil)
+	batas().Mulai(context.Background(), database.DB, 10*time.Second)
 	Penarik = NewPenarikInaproc(database.DB)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

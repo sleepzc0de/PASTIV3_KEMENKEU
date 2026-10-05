@@ -36,21 +36,52 @@ memeriksa tabel, kolom penyaring, kolom ringkasan, dan kolom kunci terhadap migr
   sebelum dijalankan dilakukan **uji sambungan** (satu permintaan `limit=1`); bila Inaproc menolak (token, 429), penarikan dibatalkan sebelum
   data disentuh. Kegagalan di tengah penarikan dataset ini tetap meninggalkan data parsial sampai penarikan berikutnya. Pembatalan baru
   berlaku setelah dataset itu selesai.
-- **429 (batas laju)**: tugas dicoba ulang tiga kali dengan jeda 45 detik, 2 menit, 5 menit. **401/403/503** (token ditolak/kosong): sisa antrean
-  dilewati, tidak dicoba satu per satu.
-- Setiap tugas dicatat di `inaproc_penarikan` (status, baris, halaman, percobaan, pesan) dan di `inaproc_sync_log` (dipakai kartu aktivitas lama).
-  Antrean yang menggantung karena server dimulai ulang ditandai gagal saat server naik.
+- **401/403** (token ditolak) dan token kosong: sisa antrean dilewati, tidak dicoba satu per satu.
+- Setiap tugas dicatat di `inaproc_penarikan` (status, baris, halaman, percobaan, pesan, dan isian tugas sebagai JSON) dan di `inaproc_sync_log`
+  (dipakai kartu aktivitas lama). Antrean yang menggantung karena server dimulai ulang ditandai **dibatalkan** (bukan gagal) saat server naik,
+  jadi tidak menghabiskan kesempatan percobaan.
+
+## Penarikan yang stabil (batas Inaproc, percobaan ulang, tanpa tabrakan)
+
+**Batas permintaan Inaproc**: 1.000 permintaan per 60 detik dan kuota 5.000 permintaan yang direset tiap jam. Semua panggilan ke Inaproc (antrean,
+penjadwal, sinkron halaman lama, tampilan langsung) lewat satu pembatas (`inaproc_batas.go`, `inaproc_klien.go`):
+
+- Jendela geser 60 detik dan 60 menit, dengan batas sedikit di bawah batas Inaproc (`INAPROC_BATAS_PER_MENIT` 800, `INAPROC_BATAS_PER_JAM` 4.500).
+  Jendela geser lebih ketat daripada jendela tetap, jadi aman bagaimanapun Inaproc mereset kuotanya. Bila jatah habis, penarikan **menunggu** (tidak gagal).
+- Hitungan per menit disimpan di `inaproc_kuota_menit` (ditulis tiap 10 detik, ditambahkan sebagai selisih), jadi kuota yang sudah terpakai tidak
+  "terlupa" saat server dimulai ulang atau dua salinan backend hidup bersamaan saat deploy.
+- Sebelum tugas dimulai, kuota **dipesan** sebesar perkiraan (halaman penarikan suksesnya yang terakhir + 30%, bawaan 30) supaya penarikan tidak
+  berhenti di tengah, khususnya dataset lama yang menghapus data lebih dulu.
+- **429**: semua pemanggil ikut ditahan; `Retry-After` dipakai bila ada, bila tidak jedanya naik bertahap (65 detik, 5, 15, 60 menit) untuk 429
+  berulang dalam 30 menit. Per halaman: 429 dicoba 4 kali, 5xx/galat jaringan 3 kali (jeda 3 dan 10 detik), lalu dilanjutkan dari **halaman yang
+  gagal** (bukan dari awal). Koneksi HTTP dipakai ulang.
+- Tampilan langsung (halaman per-dataset lama) satu kali coba dan tidak menggantung; bila kuota habis dijawab 429 seketika.
+
+**Kebijakan gagal tarik** (manual maupun otomatis; `inaproc_penarikan_jadwal.go`, dibaca dari riwayat sehingga bertahan saat server dimulai ulang):
+
+- Tugas yang gagal dicoba ulang otomatis, paling banyak **3 kali** per siklus (`INAPROC_MAKS_PERCOBAAN`), dengan jarak minimal 10 menit. Percobaan
+  ulang tidak menunggu jendela jam.
+- Setelah 3 kali gagal, tugas **istirahat 8 jam** (`INAPROC_ISTIRAHAT_JAM`), lalu boleh ditarik lagi dan siklus baru dimulai. Tugas di rencana
+  otomatis ditarik lagi otomatis; tugas manual di luar rencana (mis. per kode) tidak dicoba otomatis lagi setelah istirahat.
+- Hanya status gagal yang dihitung; dibatalkan, dilewati, dan terhenti karena server mulai ulang tidak. Satu penarikan sukses (manual atau otomatis)
+  menutup siklus. Halaman Penarikan Data menampilkan tugas yang sedang menunggu percobaan ulang atau istirahat.
+- **Pemutus beruntun**: 5 tugas gagal berturut-turut menghentikan antrean (sisanya dilewati) dan menahan penarikan otomatis 30 menit, supaya
+  kesempatan tidak habis percuma saat Inaproc atau jaringan sedang bermasalah.
+
+**Tidak saling tabrakan**: hanya satu antrean berjalan di satu waktu; kunci aplikasi SQL Server (`sp_getapplock`) menutup celah bila ada dua
+salinan backend (mis. saat deploy); sinkron di halaman lama (satu dataset) dijaga middleware `SinkronEksklusif` dan dijawab 409 selagi antrean
+berjalan, begitu pula sebaliknya.
 - Non-admin tidak melihat isi galat mentah maupun nama pemicu (bisa memuat alamat/potongan respons Inaproc).
 
 ## Penarikan otomatis
 
-Penjadwal berjalan di dalam server (cek tiap 15 menit, pertama 2 menit setelah server mulai) dan membaca pengaturan dari database tiap putaran,
+Penjadwal berjalan di dalam server (cek tiap 5 menit, pertama 2 menit setelah server mulai) dan membaca pengaturan dari database tiap putaran,
 jadi perubahan dari halaman berlaku tanpa memulai ulang server.
 
 - Bawaan: aktif, **tiap 2 hari**, mulai antara **01.00 dan 05.00 WIB**, tahun berjalan dan satu tahun sebelumnya, jeda 2 detik, semua dataset otomatis
   (29 dataset, 56 tugas per putaran).
-- Sebuah tugas jatuh tempo bila **penarikan otomatis** suksesnya yang terakhir lebih tua dari interval (penarikan manual tidak menggeser jadwal)
-  dan percobaan otomatis terakhirnya (apa pun hasilnya) lebih dari 6 jam lalu.
+- Sebuah tugas reguler jatuh tempo bila **penarikan otomatis** suksesnya yang terakhir lebih tua dari interval (penarikan manual tidak menggeser
+  jadwal) dan hanya dimulai di jendela jam. Tugas yang gagal mengikuti kebijakan percobaan ulang di atas.
 - Hanya berjalan bila `INAPROC_TOKEN` terisi dan tidak ada antrean lain yang berjalan.
 - Pengaturan tersimpan di `inaproc_penarikan_pengaturan` (satu baris). Selama belum pernah disimpan, nilai bawaan dari env:
 
@@ -60,6 +91,8 @@ jadi perubahan dari halaman berlaku tanpa memulai ulang server.
 | `INAPROC_AUTO_INTERVAL_HARI` | 1-30 | `2` |
 | `INAPROC_AUTO_JAM_MULAI` / `INAPROC_AUTO_JAM_AKHIR` | jendela jam WIB (0-23); sama = sepanjang hari | `1` / `5` |
 | `INAPROC_AUTO_JUMLAH_TAHUN` | 1-5 tahun (berjalan + sebelumnya) | `2` |
+| `INAPROC_BATAS_PER_MENIT` / `INAPROC_BATAS_PER_JAM` | batas permintaan ke Inaproc (di bawah 1.000 per 60 detik dan 5.000 per jam) | `800` / `4500` |
+| `INAPROC_MAKS_PERCOBAAN` / `INAPROC_ISTIRAHAT_JAM` | percobaan per siklus (1-10) dan lama istirahat (1-72 jam) | `3` / `8` |
 
 ## Ekspor
 
@@ -85,6 +118,8 @@ peserta tunggal 30%/50%, addendum 15%/30%, median proses 60 hari, efisiensi 2%/8
 ## Tabel
 
 Migrasi `045_create_inaproc_penarikan.sql`: `inaproc_penarikan` (riwayat tugas) dan `inaproc_penarikan_pengaturan` (pengaturan otomatis).
+Migrasi `046_inaproc_penarikan_kuota_percobaan.sql`: kolom `permintaan` (isian tugas) dan indeks pada `inaproc_penarikan`, serta `inaproc_kuota_menit`
+(hitungan permintaan per menit).
 
 ## Pengujian
 
@@ -101,4 +136,6 @@ Migrasi `045_create_inaproc_penarikan.sql`: `inaproc_penarikan` (riwayat tugas) 
 - `total` pada paket e-purchasing V6 dianggap nilai per order; `kd_rup` dianggap satu kode per baris.
 - Dataset rujukan (penyedia, komoditas, distributor, produk penyedia) hanya terisi lewat penarikan per kode; nama di grafik E-Katalog muncul
   bila sudah ditarik, selebihnya kode.
-- Dataset RUP/non-tender lama belum seatomik dataset generik (lihat di atas).
+- Dataset RUP/non-tender lama belum seatomik dataset generik (lihat di atas); kuotanya dipesan di muka dan penarikan gagalnya dicoba ulang oleh kebijakan percobaan.
+- Hitungan kuota hanya mencakup permintaan dari aplikasi ini. Bila token yang sama dipakai pihak lain, Inaproc bisa menjawab 429 lebih awal; itu
+  ditangani jeda bersama dan percobaan ulang.

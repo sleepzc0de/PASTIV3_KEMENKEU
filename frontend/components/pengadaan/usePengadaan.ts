@@ -5,6 +5,7 @@ import {
   AnalitikResponse,
   DataHalaman,
   PenarikanAktif,
+  PenarikanKuota,
   PenarikanStatus,
   PenyaringData,
   getAnalitik,
@@ -18,6 +19,8 @@ const POLL_MS = 2000;
 
 export interface PenarikanState extends AsyncState<PenarikanStatus> {
   aktif: PenarikanAktif | null;
+  // Kuota terbaru: dari status penuh, diperbarui tiap polling selama ada antrean.
+  kuota: PenarikanKuota | null;
   // Dipanggil setelah penarikan dimulai (respons start) supaya pembacaan berkala langsung berjalan tanpa menunggu muat ulang penuh.
   setAktif: (a: PenarikanAktif | null) => void;
 }
@@ -27,6 +30,7 @@ export interface PenarikanState extends AsyncState<PenarikanStatus> {
 export function usePenarikan(onSelesai: () => void): PenarikanState {
   const [data, setData] = useState<PenarikanStatus | null>(null);
   const [aktif, setAktifState] = useState<PenarikanAktif | null>(null);
+  const [kuotaTerbaru, setKuotaTerbaru] = useState<PenarikanKuota | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -44,6 +48,7 @@ export function usePenarikan(onSelesai: () => void): PenarikanState {
         if (batal) return;
         setData(res.data);
         setAktifState(res.data.aktif);
+        setKuotaTerbaru(res.data.kuota);
         sebelumnyaAktif.current = res.data.aktif !== null;
         setError(null);
       })
@@ -68,6 +73,7 @@ export function usePenarikan(onSelesai: () => void): PenarikanState {
         .then((res) => {
           if (batal) return;
           setAktifState(res.data.aktif);
+          setKuotaTerbaru(res.data.kuota);
           if (res.data.aktif === null && sebelumnyaAktif.current) {
             sebelumnyaAktif.current = false;
             setTick((t) => t + 1);
@@ -89,7 +95,7 @@ export function usePenarikan(onSelesai: () => void): PenarikanState {
     setAktifState(a);
   }, []);
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { data, isLoading, error, reload, aktif, setAktif };
+  return { data, isLoading, error, reload, aktif, setAktif, kuota: kuotaTerbaru ?? data?.kuota ?? null };
 }
 
 export interface HalamanData {
