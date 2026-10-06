@@ -643,40 +643,14 @@ func ListDigitalisasiData(c *gin.Context) {
 		per = dgPageMax
 	}
 
-	var where []string
-	var args []interface{}
+	whereSQL, args, _, pesan := dgFilter(c, ds)
+	if pesan != "" {
+		utils.ErrorResponse(c, http.StatusBadRequest, pesan)
+		return
+	}
 	param := func(v interface{}) string {
 		args = append(args, v)
 		return fmt.Sprintf("@p%d", len(args))
-	}
-	if q := strings.TrimSpace(c.Query("q")); q != "" {
-		if len([]rune(q)) > 100 {
-			utils.ErrorResponse(c, http.StatusBadRequest, "Kata kunci terlalu panjang")
-			return
-		}
-		ph := param("%" + escapeLike(q) + "%")
-		parts := make([]string, len(ds.SearchColumns))
-		for i, col := range ds.SearchColumns {
-			parts[i] = qc(col) + " LIKE " + ph + " ESCAPE '\\'"
-		}
-		where = append(where, "("+strings.Join(parts, " OR ")+")")
-	}
-	for _, f := range []struct{ param, col string }{
-		{"ue1", ds.Roles.UE1}, {"provinsi", ds.Roles.Provinsi}, {"kondisi", ds.Roles.Kondisi},
-	} {
-		if v := strings.TrimSpace(c.Query(f.param)); v != "" && f.col != "" {
-			where = append(where, qc(f.col)+" = "+param(v))
-		}
-	}
-	if v := strings.TrimSpace(c.Query("jenis_satker")); v != "" && ds.Key == "satker" {
-		where = append(where, "[Jenis_Satker] = "+param(v))
-	}
-	if c.Query("tanpa_koordinat") == "1" && ds.Geo {
-		where = append(where, "[Latitude] IS NULL")
-	}
-	whereSQL := ""
-	if len(where) > 0 {
-		whereSQL = " WHERE " + strings.Join(where, " AND ")
 	}
 
 	var total int64

@@ -163,6 +163,38 @@ func TestXLSXIsiDanTipeSel(t *testing.T) {
 	}
 }
 
+// FormatKolom: kolom desimal dengan format khusus (mis. koordinat 7 desimal) tidak kehilangan ketelitian tampilannya; kolom desimal lain tetap #,##0.00.
+func TestXLSXFormatKolomKhusus(t *testing.T) {
+	src := &sumberUji{baris: [][]interface{}{
+		{"A", -6.2088141, 106.8456, 1234567.891},
+		{"B", 0.5, nil, 2.0},
+	}}
+	var buf bytes.Buffer
+	n, err := XLSX(&buf, Opsi{NamaSheet: "Uji", FormatKolom: map[int]string{1: "0.0000000", 2: "0.0000000"}}, []string{"nama", "lintang", "bujur", "nilai"}, src)
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	f, err := excelize.OpenReader(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for sel, want := range map[string]string{
+		"B2": "-6.2088141",  // 7 desimal, tidak dibulatkan ke dua
+		"C2": "106.8456000", // 7 desimal
+		"B3": "0.5000000",
+		"D2": "1,234,567.89", // kolom tanpa format khusus tetap #,##0.00
+	} {
+		if v, _ := f.GetCellValue("Uji", sel); v != want {
+			t.Errorf("%s tampil %q, want %q", sel, v, want)
+		}
+	}
+	// Nilainya sendiri tidak berubah.
+	if v, _ := f.GetCellValue("Uji", "B2", excelize.Options{RawCellValue: true}); v != "-6.2088141" {
+		t.Errorf("B2 mentah = %q", v)
+	}
+}
+
 // Teks yang diawali "=" harus tetap teks di Excel (bukan rumus yang dihitung).
 func TestXLSXTeksRumusTidakMenjadiRumus(t *testing.T) {
 	src := &sumberUji{baris: [][]interface{}{{"=1+1", "@SUM(A1)"}}}

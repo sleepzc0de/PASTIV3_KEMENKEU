@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Search, SearchX } from "lucide-react";
-import { DGDatasetKey, DGListData, DGRow, listDGData } from "@/lib/api";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, FileType, Loader2, Search, SearchX } from "lucide-react";
+import { DGDatasetKey, DGListData, DGRow, FormatEkspor, eksporDigitalisasi, listDGData } from "@/lib/api";
 import { Alert } from "@/components/ui/Alert";
+import { TombolUnduh } from "@/components/ui/TombolUnduh";
+import { useToast } from "@/components/ui/Toast";
 import { formatNumber } from "../sldk/asset";
+import { simpanBlob } from "../sapa/download";
 import { Segmented, SelectField } from "./controls";
 import { DATASET_LABEL, DATASET_SHORT, TABLE_COLUMNS, TITLE_COLUMN, formatCell } from "./digitalisasi";
 import { errorMessage } from "./useDigitalisasi";
 
 const DATASETS: DGDatasetKey[] = ["tanah", "gedung_kantor_utama", "gedung_lainnya", "rusunara", "rumah_negara", "mess_rumah_negara", "satker"];
 const PER_PAGE = 25;
+const BATAS_PDF = 5000; // sama dengan laporan.MaksBarisPDF di backend
 
 export interface DataPreset {
   nonce: number;
@@ -25,6 +29,8 @@ interface Props {
 }
 
 export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
+  const toast = useToast();
+  const [mengunduh, setMengunduh] = useState<FormatEkspor | null>(null);
   const [dataset, setDataset] = useState<DGDatasetKey>("tanah");
   const [q, setQ] = useState("");
   const [qApplied, setQApplied] = useState("");
@@ -107,6 +113,28 @@ export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
   };
 
   const hasFilter = Boolean(qApplied || ue1 || provinsi || kondisi || jenisSatker || tanpaKoordinat);
+
+  // Unduh mengikuti pencarian dan filter yang sedang berlaku (yang dipakai daftar di layar), tanpa halaman.
+  const unduh = async (format: FormatEkspor) => {
+    setMengunduh(format);
+    try {
+      const { blob, disposition } = await eksporDigitalisasi(dataset, {
+        q: qApplied || undefined,
+        ue1: ue1 || undefined,
+        provinsi: provinsi || undefined,
+        kondisi: kondisi || undefined,
+        jenis_satker: jenisSatker || undefined,
+        tanpa_koordinat: tanpaKoordinat ? "1" : undefined,
+        format,
+      });
+      simpanBlob(blob, disposition, `digitalisasi-${dataset.replace(/_/g, "-")}.${format}`);
+      toast.success(`Berkas ${format.toUpperCase()} diunduh.`);
+    } catch (err) {
+      toast.error(err instanceof Error && !("response" in err) ? err.message : errorMessage(err, "Gagal membuat berkas unduhan"));
+    } finally {
+      setMengunduh(null);
+    }
+  };
   // Hasil dari dataset lain (saat berganti) tidak boleh dipakai untuk menggambar tabel dataset ini.
   const current = data && data.dataset === dataset ? data : null;
   const cols = TABLE_COLUMNS[dataset];
@@ -186,10 +214,47 @@ export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
 
       {current && (
         <div className={`space-y-3 transition-opacity ${isLoading ? "opacity-60" : ""}`} aria-busy={isLoading}>
-          <p aria-live="polite" className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">{formatNumber(current.total, 0)}</span> {DATASET_LABEL[dataset].toLowerCase()}
-            {current.total > 0 && <span className="text-slate-400"> · menampilkan {formatNumber(from, 0)}–{formatNumber(to, 0)}</span>}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <p aria-live="polite" className="text-sm text-slate-600">
+              <span className="font-semibold text-slate-900">{formatNumber(current.total, 0)}</span> {DATASET_LABEL[dataset].toLowerCase()}
+              {current.total > 0 && <span className="text-slate-400"> · menampilkan {formatNumber(from, 0)}–{formatNumber(to, 0)}</span>}
+            </p>
+            <div role="group" aria-label={`Unduh ${DATASET_LABEL[dataset].toLowerCase()}`} className="flex flex-wrap items-center gap-2">
+              <TombolUnduh
+                format="xlsx"
+                label="Excel"
+                ikon={FileSpreadsheet}
+                sibuk={mengunduh}
+                nonaktif={current.total === 0 || isLoading}
+                onKlik={unduh}
+                judul="Unduh semua kolom sebagai Excel (.xlsx)"
+              />
+              <TombolUnduh
+                format="csv"
+                label="CSV"
+                ikon={FileText}
+                sibuk={mengunduh}
+                nonaktif={current.total === 0 || isLoading}
+                onKlik={unduh}
+                judul="Unduh semua kolom sebagai CSV (pemisah titik koma, untuk Excel Indonesia)"
+              />
+              <TombolUnduh
+                format="pdf"
+                label="PDF"
+                ikon={FileType}
+                sibuk={mengunduh}
+                nonaktif={current.total === 0 || isLoading}
+                onKlik={unduh}
+                judul={`Unduh ringkasan sebagai PDF (maksimum ${formatNumber(BATAS_PDF, 0)} baris)`}
+              />
+            </div>
+          </div>
+          {current.total > 0 && (
+            <p className="-mt-1 text-xs text-slate-400">
+              Unduhan mengikuti pencarian dan filter di atas ({formatNumber(current.total, 0)} baris). Excel dan CSV memuat semua kolom; PDF memuat kolom ringkasan dan
+              dibatasi {formatNumber(BATAS_PDF, 0)} baris.
+            </p>
+          )}
 
           {current.rows.length === 0 ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-10 text-center">

@@ -51,6 +51,7 @@ func dgRouter(role string) *gin.Engine {
 	g := r.Group("/dg")
 	g.GET("/ringkasan", GetDigitalisasiRingkasan)
 	g.GET("/peta", GetDigitalisasiPeta)
+	g.GET("/ekspor/:dataset", EksporDigitalisasiData)
 	g.GET("/data/:dataset", ListDigitalisasiData)
 	g.GET("/data/:dataset/:id", GetDigitalisasiDetail)
 	g.GET("/sinkronisasi", GetDigitalisasiSinkronisasi)
