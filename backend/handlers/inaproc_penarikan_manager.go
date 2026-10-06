@@ -135,8 +135,6 @@ type PenarikInaproc struct {
 
 	mu    sync.Mutex
 	aktif *antreanAktif
-	// sinkronLama: sinkron dari halaman lama (satu dataset) sedang berjalan; antrean tidak boleh mulai bersamaan dengannya.
-	sinkronLama bool
 	// tahanOtomatis: penarikan otomatis ditahan sampai saat ini (setelah pemutus beruntun).
 	tahanOtomatis time.Time
 }
@@ -222,7 +220,7 @@ func (m *PenarikInaproc) Start(tugas []Tugas, pemicu string, oleh Oleh, jeda tim
 	}
 
 	m.mu.Lock()
-	if m.aktif != nil || m.sinkronLama {
+	if m.aktif != nil {
 		m.mu.Unlock()
 		return InfoAktif{}, ErrPenarikanSibuk
 	}
@@ -323,34 +321,6 @@ func (m *PenarikInaproc) lepasKunciDB(conn *sql.Conn) {
 		log.Println("[INAPROC PENARIKAN WARN] gagal melepas kunci penarikan:", err)
 	}
 	_ = conn.Close() // menutup koneksi juga melepas kunci sesi
-}
-
-// MulaiEksklusif dipakai sinkron di halaman lama (satu dataset) supaya tidak berjalan bersamaan dengan antrean penarikan maupun sinkron lama
-// lainnya: menulis tabel yang sama bersamaan membuat salah satunya gagal atau saling menimpa. Mengembalikan fungsi pelepas, atau
-// ErrPenarikanSibuk.
-func (m *PenarikInaproc) MulaiEksklusif() (func(), error) {
-	m.mu.Lock()
-	if m.aktif != nil || m.sinkronLama {
-		m.mu.Unlock()
-		return nil, ErrPenarikanSibuk
-	}
-	m.sinkronLama = true
-	m.mu.Unlock()
-
-	conn, err := m.ambilKunciDB()
-	if err != nil {
-		m.mu.Lock()
-		m.sinkronLama = false
-		m.mu.Unlock()
-		return nil, err
-	}
-	return func() {
-		m.lepasKunciDB(conn)
-		m.mu.Lock()
-		m.sinkronLama = false
-		m.mu.Unlock()
-		kosongkanCacheAnalitik()
-	}, nil
 }
 
 // TahanOtomatis menahan penarikan otomatis sampai t (pemutus beruntun atau gangguan Inaproc).

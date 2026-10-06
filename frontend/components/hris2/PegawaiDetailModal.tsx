@@ -6,7 +6,7 @@ import axios from "axios";
 import { searchPegawaiByNIP } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Alert } from "@/components/ui/Alert";
-import { DetailGroup, DetailField } from "@/components/inaproc/DetailEntry";
+import { DetailGroup, DetailField } from "@/components/ui/DetailEntry";
 import { PegawaiAvatar } from "@/components/hris2/PegawaiAvatar";
 import { CopyButton } from "@/components/hris2/CopyButton";
 import { normalizeDetail, namaLengkap, PegawaiDetail } from "@/components/hris2/pegawai";

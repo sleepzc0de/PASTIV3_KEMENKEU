@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
 	"pasti-v3-backend/utils"
@@ -70,14 +69,6 @@ func getInt64(m map[string]interface{}, keys ...string) interface{} {
 		}
 	}
 	return nil
-}
-
-func mapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // parseInaprocTime mencoba beberapa format tanggal karena API Inaproc tidak
@@ -160,46 +151,6 @@ func logInaprocSync(endpoint, kodeKLPD, tahun, jenisPaket, status string, totalS
 // ============================================================
 // Endpoint 1: History Kaji Ulang RUP
 // ============================================================
-
-func GetHistoryKajiUlang(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	jenisPaket := c.Query("jenis_paket")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if jenisPaket != "" {
-		params.Set("jenis_paket", jenisPaket)
-	}
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/history-kaji-ulang", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 func forwardInaprocResponse(c *gin.Context, body []byte, statusCode int) {
 	if statusCode != http.StatusOK {
@@ -401,89 +352,9 @@ func upsertKajiUlang(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalKajiUlang(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	jenisPaket := c.Query("jenis_paket")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT datamart_id, tahun_anggaran, kd_klpd, nama_klpd, jenis_klpd,
-		kd_satker, kd_satker_str, nama_satker, kd_rup_lama, kd_rup_baru,
-		jenis_paket, jenis_revisi, alasan_kajiulang, tgl_kaji_ulang, synced_at
-		FROM inaproc_history_kaji_ulang WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-	argIdx := 2
-
-	if tahun != "" {
-		query += fmt.Sprintf(" AND tahun_anggaran = @p%d", argIdx)
-		args = append(args, tahun)
-		argIdx++
-	}
-	if jenisPaket != "" {
-		query += fmt.Sprintf(" AND jenis_paket = @p%d", argIdx)
-		args = append(args, jenisPaket)
-		argIdx++
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Endpoint 2: Paket Anggaran Penyedia
 // ============================================================
-
-func GetPaketAnggaranPenyedia(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-anggaran-penyedia", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-anggaran:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketAnggaranRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -670,69 +541,9 @@ func upsertPaketAnggaran(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalPaketAnggaran(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, kd_rup_lokal,
-		kd_kegiatan, kd_subkegiatan, kd_komponen, mak, pagu, sumber_dana, asal_dana,
-		status_aktif_rup, status_delete_rup, status_umumkan_rup,
-		tahun_anggaran, tahun_anggaran_dana, synced_at
-		FROM inaproc_paket_anggaran_penyedia WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Riwayat sinkronisasi (dipakai semua endpoint Inaproc)
 // ============================================================
-
-func GetSyncHistory(c *gin.Context) {
-	rows, err := database.DB.Query(`
-		SELECT TOP 20 endpoint, kode_klpd, tahun, ISNULL(jenis_paket, ''), total_rows_synced, status,
-		       ISNULL(error_message, ''), started_at, finished_at
-		FROM inaproc_sync_log
-		ORDER BY finished_at DESC`)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil riwayat sinkronisasi")
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses riwayat sinkronisasi")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil riwayat sinkronisasi", results)
-}
 
 // getBoolStr mengonversi field boolean yang dikirim API sebagai string
 // ("true"/"false") menjadi *bool untuk disimpan sebagai BIT di database.
@@ -773,46 +584,6 @@ func getBoolAny(m map[string]interface{}, keys ...string) interface{} {
 // ============================================================
 // Endpoint 3: Paket Penyedia
 // ============================================================
-
-func GetPaketPenyedia(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	status := c.Query("status")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if status != "" {
-		params.Set("status", status)
-	}
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-penyedia", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-penyedia:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketPenyediaRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -1042,50 +813,6 @@ func upsertPaketPenyedia(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalPaketPenyedia(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	status := c.Query("status")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, nama_paket,
-		pagu, metode_pengadaan, jenis_pengadaan, status_umumkan_rup, nama_ppk,
-		tgl_awal_pemilihan, tgl_akhir_pemilihan, tahun_anggaran, synced_at
-		FROM inaproc_paket_penyedia WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-	argIdx := 2
-
-	if tahun != "" {
-		query += fmt.Sprintf(" AND tahun_anggaran = @p%d", argIdx)
-		args = append(args, tahun)
-		argIdx++
-	}
-	if status != "" {
-		query += fmt.Sprintf(" AND status_umumkan_rup = @p%d", argIdx)
-		args = append(args, status)
-		argIdx++
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // getInt64FromAny mengonversi field numerik yang mungkin dikirim sebagai
 // string ATAU float64 oleh API (tidak konsisten antar endpoint Inaproc).
 func getInt64FromAny(m map[string]interface{}, key string) interface{} {
@@ -1119,46 +846,6 @@ func getInt64FromAny(m map[string]interface{}, key string) interface{} {
 // ============================================================
 // Endpoint 4: Paket Swakelola
 // ============================================================
-
-func GetPaketSwakelola(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	status := c.Query("status")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if status != "" {
-		params.Set("status", status)
-	}
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-swakelola", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-swakelola:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketSwakelolaRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -1305,88 +992,9 @@ func upsertPaketSwakelola(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalPaketSwakelola(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	status := c.Query("status")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_satker, kd_rup, nama_klpd, nama_satker, nama_paket,
-		tahun_anggaran, status, synced_at
-		FROM inaproc_paket_swakelola WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-	argIdx := 2
-
-	if tahun != "" {
-		query += fmt.Sprintf(" AND tahun_anggaran = @p%d", argIdx)
-		args = append(args, tahun)
-		argIdx++
-	}
-	if status != "" {
-		query += fmt.Sprintf(" AND status = @p%d", argIdx)
-		args = append(args, status)
-		argIdx++
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Endpoint 5: Program Master
 // ============================================================
-
-func GetProgramMaster(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/program-master", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request program-master:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncProgramMasterRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -1535,80 +1143,9 @@ func upsertProgramMaster(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalProgramMaster(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, kd_program, kd_program_str,
-		nama_program, pagu_program, tahun_anggaran, is_deleted, synced_at
-		FROM inaproc_program_master WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Endpoint 6: Paket Swakelola Terumumkan
 // ============================================================
-
-func GetPaketSwakelolaTerumumkan(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-swakelola-terumumkan", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-swakelola-terumumkan:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketSwakelolaTerumumkanRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -1787,81 +1324,9 @@ func upsertPaketSwakelolaTerumumkan(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalPaketSwakelolaTerumumkan(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, nama_paket,
-		pagu, nama_ppk, status_umumkan_rup, tgl_awal_pelaksanaan_kontrak, tgl_akhir_pelaksanaan_kontrak,
-		tahun_anggaran, synced_at
-		FROM inaproc_paket_swakelola_terumumkan WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Endpoint 7: Paket Penyedia Terumumkan
 // ============================================================
-
-func GetPaketPenyediaTerumumkan(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-penyedia-terumumkan", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-penyedia-terumumkan:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketPenyediaTerumumkanRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -2067,81 +1532,9 @@ func upsertPaketPenyediaTerumumkan(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalPaketPenyediaTerumumkan(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, nama_paket,
-		pagu, metode_pengadaan, status_umumkan_rup, nama_ppk,
-		tgl_awal_pemilihan, tgl_akhir_pemilihan, tahun_anggaran, synced_at
-		FROM inaproc_paket_penyedia_terumumkan WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // Endpoint 8: Paket Anggaran Swakelola
 // ============================================================
-
-func GetPaketAnggaranSwakelola(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/rup/paket-anggaran-swakelola", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request paket-anggaran-swakelola:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncPaketAnggaranSwakelolaRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -2303,43 +1696,6 @@ func insertPaketAnggaranSwakelola(row map[string]interface{}) error {
 		tahunAnggaran, tahunAnggaranDana,
 	)
 	return err
-}
-
-func ListLocalPaketAnggaranSwakelola(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCode)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, nama_klpd, kd_satker, nama_satker, kd_rup, kd_rup_lokal,
-		kd_kegiatan, kd_subkegiatan, kd_komponen, mak, pagu, sumber_dana, asal_dana,
-		status_aktif_rup, status_delete_rup, status_umumkan_rup,
-		tahun_anggaran, tahun_anggaran_dana, synced_at
-		FROM inaproc_paket_anggaran_swakelola WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
 }
 
 // generateInaprocRowHash: hash generik dari seluruh isi baris JSON, dipakai

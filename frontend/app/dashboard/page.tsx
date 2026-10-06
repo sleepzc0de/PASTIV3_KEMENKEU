@@ -1,72 +1,73 @@
 "use client";
 
-import { AlertCircle, RefreshCcw } from "lucide-react";
-import { useDashboard } from "@/lib/dashboard-context";
-import { WelcomeBanner } from "@/components/dashboard/WelcomeBanner";
-import { ProfileCard } from "@/components/dashboard/ProfileCard";
-import { QuickAccess } from "@/components/dashboard/QuickAccess";
-import { RecentPages } from "@/components/dashboard/RecentPages";
-import { SyncActivityCard } from "@/components/dashboard/SyncActivityCard";
-import { Button } from "@/components/ui/Button";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Building2, LayoutDashboard, ShoppingCart } from "lucide-react";
+import { DasborAset } from "@/components/dashboard/DasborAset";
+import { DasborWorkspace } from "@/components/pengadaan/DasborWorkspace";
+import { PageShell } from "@/components/ui/PageHeader";
+import { Tabs } from "@/components/ui/Tabs";
 
-export default function DashboardPage() {
-  const { profile, isLoadingProfile, refetchProfile } = useDashboard();
+type KunciTab = "aset" | "pengadaan";
 
-  if (isLoadingProfile) {
-    return (
-      <div role="status" aria-label="Memuat dashboard" className="w-full space-y-6">
-        <Skeleton className="h-52 rounded-3xl" />
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <div className="space-y-4 xl:col-span-2">
-            <Skeleton className="h-5 w-40" />
-            <div className="grid gap-3 sm:grid-cols-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-[84px] rounded-2xl" />
-              ))}
-            </div>
-          </div>
-          <Skeleton className="h-80 rounded-2xl" />
-        </div>
-      </div>
-    );
-  }
+const TABS: { key: KunciTab; label: string; icon: typeof Building2 }[] = [
+  { key: "aset", label: "Aset", icon: Building2 },
+  { key: "pengadaan", label: "Pengadaan", icon: ShoppingCart },
+];
 
-  if (!profile) {
-    return (
-      <div className="card flex w-full flex-col items-center gap-3 px-6 py-16 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500">
-          <AlertCircle className="h-7 w-7" />
-        </div>
-        <div>
-          <h1 className="text-base font-semibold text-slate-900">Data profil tidak dapat dimuat</h1>
-          <p className="mt-1 text-sm text-slate-500">Periksa koneksi Anda, lalu coba lagi.</p>
-        </div>
-        <Button onClick={refetchProfile} fullWidth={false} icon={<RefreshCcw className="h-4 w-4" />}>
-          Coba Lagi
-        </Button>
-      </div>
-    );
-  }
+const dariQuery = (v: string | null): KunciTab => (v === "pengadaan" ? "pengadaan" : "aset");
 
-  const isAdmin = ["admin", "superadmin"].includes(profile.role);
+// Dashboard: dua dasbor analitik yang saling terpisah. Aset dihitung dari data Digitalisasi Aset (disalin dari SLDK); Pengadaan dari data Pengadaan
+// Terpadu (disalin dari Inaproc). Tab dipilih lewat ?tab= supaya bisa dibagikan dan tombol Kembali bekerja.
+function IsiDashboard() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [tab, setTab] = useState<KunciTab>(dariQuery(params.get("tab")));
+  // Tab dimuat saat pertama dibuka lalu tetap terpasang (disembunyikan): pindah tab tidak menghitung ulang dan filter dasbor tidak hilang.
+  const [dibuka, setDibuka] = useState<Record<KunciTab, boolean>>({ aset: true, pengadaan: dariQuery(params.get("tab")) === "pengadaan" });
+
+  // Alamat berubah dari luar (Kembali/Maju, tautan dari halaman lain): tab mengikuti.
+  useEffect(() => {
+    const t = dariQuery(params.get("tab"));
+    setTab(t);
+    setDibuka((d) => (d[t] ? d : { ...d, [t]: true }));
+  }, [params]);
+
+  const pilih = useCallback(
+    (t: KunciTab) => {
+      setTab(t);
+      setDibuka((d) => (d[t] ? d : { ...d, [t]: true }));
+      router.replace(t === "aset" ? "/dashboard" : "/dashboard?tab=pengadaan", { scroll: false });
+    },
+    [router]
+  );
 
   return (
-    <div className="w-full space-y-6">
-      <WelcomeBanner profile={profile} />
-
-      <RecentPages role={profile.role} />
-
-      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <QuickAccess role={profile.role} />
-        </div>
-
-        <div className="order-last space-y-6 xl:order-none xl:col-span-1">
-          <ProfileCard profile={profile} />
-          {isAdmin && <SyncActivityCard />}
-        </div>
+    <div className="space-y-5">
+      <Tabs tabs={TABS} value={tab} onChange={pilih} label="Dashboard" idPrefix="db" />
+      <div role="tabpanel" id="db-panel-aset" aria-labelledby="db-tab-aset" hidden={tab !== "aset"}>
+        <DasborAset />
       </div>
+      {dibuka.pengadaan && (
+        <div role="tabpanel" id="db-panel-pengadaan" aria-labelledby="db-tab-pengadaan" hidden={tab !== "pengadaan"}>
+          <DasborWorkspace />
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <PageShell
+      title="Dashboard"
+      icon={LayoutDashboard}
+      description="Gambaran aset dan pengadaan dalam satu tempat, lengkap dengan wawasan analitik. Dashboard Aset dibaca dari data Digitalisasi Aset (disalin dari SLDK); Dashboard Pengadaan dari data Pengadaan Terpadu (disalin dari Inaproc)."
+      bare
+    >
+      <Suspense fallback={<div role="status" aria-label="Memuat dashboard" className="h-64 animate-pulse rounded-2xl bg-slate-100" />}>
+        <IsiDashboard />
+      </Suspense>
+    </PageShell>
   );
 }

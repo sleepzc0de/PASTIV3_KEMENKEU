@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/utils"
 )
@@ -28,42 +26,6 @@ import (
 // error, sesuaikan value-nya sesuai kode KLPD Kemenkeu yang valid untuk
 // modul Tender (tanyakan ke tim pengelola Inaproc kalau perlu).
 const kemenkeuKLPDCodeTender = "K10"
-
-func GetJadwalTahapanNonTender(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/jadwal-tahapan-non-tender", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request jadwal-tahapan-non-tender:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncJadwalTahapanNonTenderRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -193,80 +155,9 @@ func insertJadwalTahapanNonTender(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalJadwalTahapanNonTender(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_nontender, kd_satker, kd_satker_str,
-		nama_akt, nama_tahapan, tahun_anggaran, tgl_awal, tgl_akhir, synced_at
-		FROM inaproc_jadwal_tahapan_non_tender WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // TENDER Endpoint 2: Jadwal Tahapan Tender
 // ============================================================
-
-func GetJadwalTahapanTender(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/jadwal-tahapan-tender", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request jadwal-tahapan-tender:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
-}
 
 type syncJadwalTahapanTenderRequest struct {
 	KodeKLPD string `json:"kode_klpd"`
@@ -393,41 +284,6 @@ func insertJadwalTahapanTender(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalJadwalTahapanTender(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_tender, kd_satker, kd_satker_str,
-		nama_akt, nama_tahapan, tahun_anggaran, tgl_awal, tgl_akhir, synced_at
-		FROM inaproc_jadwal_tahapan_tender WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // TENDER Endpoint 3: Non Tender E-Kontrak
 // ============================================================
@@ -442,42 +298,6 @@ func ListLocalJadwalTahapanTender(c *gin.Context) {
 var nonTenderEkontrakKnownFields = []string{
 	"kd_klpd", "kd_tender", "tahun_anggaran", "nama_paket", "alamat_satker",
 	"bapbast_history_json", "spmkspp_history_json", "penilaian_kinerja_penyedia",
-}
-
-func GetNonTenderEkontrak(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-ekontrak", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request non-tender-ekontrak:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
 }
 
 type syncNonTenderEkontrakRequest struct {
@@ -635,41 +455,6 @@ func insertNonTenderEkontrak(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalNonTenderEkontrak(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_tender, tahun_anggaran, nama_paket, alamat_satker,
-		bapbast_history_json, spmkspp_history_json, penilaian_kinerja_penyedia, synced_at
-		FROM inaproc_non_tender_ekontrak WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // TENDER Endpoint 4: Non Tender E-Kontrak Kontrak
 // ============================================================
@@ -725,42 +510,6 @@ func buildNonTenderEkontrakKontrakInsertSQL() string {
 	}
 	return "INSERT INTO inaproc_non_tender_ekontrak_kontrak (" + strings.Join(cols, ", ") +
 		") VALUES (" + strings.Join(placeholders, ", ") + ")"
-}
-
-func GetNonTenderEkontrakKontrak(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-ekontrak-kontrak", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request non-tender-ekontrak-kontrak:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
 }
 
 type syncNonTenderEkontrakKontrakRequest struct {
@@ -906,41 +655,6 @@ func insertNonTenderEkontrakKontrak(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalNonTenderEkontrakKontrak(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_nontender, tahun_anggaran, no_kontrak, nama_paket,
-		nama_penyedia, nilai_kontrak, status_kontrak, tgl_kontrak, synced_at
-		FROM inaproc_non_tender_ekontrak_kontrak WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}
-
 // ============================================================
 // TENDER Endpoint 5: Non Tender Pengumuman
 // ============================================================
@@ -991,42 +705,6 @@ func buildNonTenderPengumumanInsertSQL() string {
 	}
 	return "INSERT INTO inaproc_non_tender_pengumuman (" + strings.Join(cols, ", ") +
 		") VALUES (" + strings.Join(placeholders, ", ") + ")"
-}
-
-func GetNonTenderPengumuman(c *gin.Context) {
-	cfg := config.Cfg
-	if cfg.InaprocToken == "" {
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Integrasi Inaproc belum dikonfigurasi (token kosong)")
-		return
-	}
-
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limitStr := c.DefaultQuery("limit", "50")
-	cursor := c.Query("cursor")
-
-	if tahun == "" {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Parameter 'tahun' wajib diisi")
-		return
-	}
-
-	limit := clampLimit(limitStr)
-
-	params := url.Values{}
-	params.Set("kode_klpd", kodeKLPD)
-	params.Set("tahun", tahun)
-	params.Set("limit", strconv.Itoa(limit))
-	if cursor != "" {
-		params.Set("cursor", cursor)
-	}
-
-	body, statusCode, err := callInaprocEndpointInteraktif("/api/v1/tender/non-tender-pengumuman", params)
-	if err != nil {
-		log.Println("[INAPROC ERROR] gagal request non-tender-pengumuman:", err)
-		utils.ErrorResponse(c, http.StatusBadGateway, "Gagal menghubungi API Inaproc (timeout/jaringan)")
-		return
-	}
-	forwardInaprocResponse(c, body, statusCode)
 }
 
 type syncNonTenderPengumumanRequest struct {
@@ -1151,37 +829,3 @@ func insertNonTenderPengumuman(row map[string]interface{}) error {
 	return err
 }
 
-func ListLocalNonTenderPengumuman(c *gin.Context) {
-	kodeKLPD := c.DefaultQuery("kode_klpd", kemenkeuKLPDCodeTender)
-	tahun := c.Query("tahun")
-	limit := clampLimit(c.DefaultQuery("limit", "50"))
-
-	query := `SELECT row_key, kd_klpd, kd_nontender, tahun_anggaran, kd_rup, nama_paket, nama_satker,
-		mtd_pemilihan, pagu, hps, status_nontender, tgl_pengumuman_nontender, synced_at
-		FROM inaproc_non_tender_pengumuman WHERE kd_klpd = @p1`
-	args := []interface{}{kodeKLPD}
-
-	if tahun != "" {
-		query += " AND tahun_anggaran = @p2"
-		args = append(args, tahun)
-	}
-
-	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
-
-	rows, err := database.DB.Query(query, args...)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
-		return
-	}
-	defer rows.Close()
-
-	results, err := rowsToMaps(rows)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memproses data lokal")
-		return
-	}
-	if results == nil {
-		results = []map[string]interface{}{}
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data lokal", gin.H{"results": results, "count": len(results)})
-}

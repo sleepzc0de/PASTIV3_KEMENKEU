@@ -1,7 +1,5 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
-
 // ============================================================
 // TENDER Endpoint 6: Non Tender Selesai
 // ============================================================
@@ -29,6 +27,3 @@ var nonTenderSelesai = newEndpointDatar(endpointDatar{
 		mtd_pemilihan, nama_penyedia, pagu, hps, nilai_kontrak, status_nontender, tgl_selesai_nontender, synced_at`,
 })
 
-func GetNonTenderSelesai(c *gin.Context)       { nonTenderSelesai.Get(c) }
-func SyncNonTenderSelesai(c *gin.Context)      { nonTenderSelesai.Sync(c) }
-func ListLocalNonTenderSelesai(c *gin.Context) { nonTenderSelesai.ListLocal(c) }

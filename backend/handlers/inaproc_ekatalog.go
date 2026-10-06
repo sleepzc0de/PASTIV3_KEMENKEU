@@ -1,7 +1,5 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
-
 // Endpoint E-Katalog V5 archive (/api/v1/ekatalog-archive/...): respons datar berhalaman cursor, ditangani oleh endpointDatar
 // (inaproc_tender_datar.go) seperti endpoint Tender. Bedanya ada pada penyaringnya:
 //   - instansi-satker: kode_klpd saja (tanpa tahun).
@@ -27,10 +25,6 @@ var ekatalogInstansiSatker = newEndpointDatar(endpointDatar{
 	KolomDaftar: `row_key, kd_klpd, nama_klpd, jenis_klpd, kd_satker, kd_satker_str, nama_satker, synced_at`,
 })
 
-func GetEkatalogInstansiSatker(c *gin.Context)       { ekatalogInstansiSatker.Get(c) }
-func SyncEkatalogInstansiSatker(c *gin.Context)      { ekatalogInstansiSatker.Sync(c) }
-func ListLocalEkatalogInstansiSatker(c *gin.Context) { ekatalogInstansiSatker.ListLocal(c) }
-
 // ============================================================
 // E-Katalog Endpoint 2: Komoditas Detail
 // ============================================================
@@ -45,10 +39,6 @@ var ekatalogKomoditas = newEndpointDatar(endpointDatar{
 	Teks:        []string{"kd_komoditas", "nama_komoditas", "Jenis_Katalog", "kd_instansi_katalog", "nama_instansi_katalog"},
 	KolomDaftar: `row_key, kd_komoditas, nama_komoditas, Jenis_Katalog, kd_instansi_katalog, nama_instansi_katalog, synced_at`,
 })
-
-func GetEkatalogKomoditas(c *gin.Context)       { ekatalogKomoditas.Get(c) }
-func SyncEkatalogKomoditas(c *gin.Context)      { ekatalogKomoditas.Sync(c) }
-func ListLocalEkatalogKomoditas(c *gin.Context) { ekatalogKomoditas.ListLocal(c) }
 
 // ============================================================
 // E-Katalog Endpoint 3: Paket E-Purchasing
@@ -75,10 +65,6 @@ var ekatalogPaket = newEndpointDatar(endpointDatar{
 		kuantitas, total_harga, status_paket, paket_status_str, tanggal_buat_paket, synced_at`,
 })
 
-func GetEkatalogPaket(c *gin.Context)       { ekatalogPaket.Get(c) }
-func SyncEkatalogPaket(c *gin.Context)      { ekatalogPaket.Sync(c) }
-func ListLocalEkatalogPaket(c *gin.Context) { ekatalogPaket.ListLocal(c) }
-
 // ============================================================
 // E-Katalog Endpoint 4: Penyedia Detail
 // ============================================================
@@ -98,10 +84,6 @@ var ekatalogPenyedia = newEndpointDatar(endpointDatar{
 		no_telp_penyedia, email_penyedia, synced_at`,
 })
 
-func GetEkatalogPenyedia(c *gin.Context)       { ekatalogPenyedia.Get(c) }
-func SyncEkatalogPenyedia(c *gin.Context)      { ekatalogPenyedia.Sync(c) }
-func ListLocalEkatalogPenyedia(c *gin.Context) { ekatalogPenyedia.ListLocal(c) }
-
 // ============================================================
 // E-Katalog Endpoint 5: Penyedia Distributor Detail
 // ============================================================
@@ -118,6 +100,3 @@ var ekatalogDistributor = newEndpointDatar(endpointDatar{
 	KolomDaftar: `row_key, kd_penyedia_distributor, nama_distributor, npwp_distributor, no_telp_distributor, email_distributor, synced_at`,
 })
 
-func GetEkatalogDistributor(c *gin.Context)       { ekatalogDistributor.Get(c) }
-func SyncEkatalogDistributor(c *gin.Context)      { ekatalogDistributor.Sync(c) }
-func ListLocalEkatalogDistributor(c *gin.Context) { ekatalogDistributor.ListLocal(c) }

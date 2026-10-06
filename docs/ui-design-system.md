@@ -14,7 +14,7 @@ Tampilan PASTI V3 dibangun di atas satu sistem desain kecil supaya semua halaman
 | Animasi | `animate-fade-up`, `fade-in`, `scale-in`, `slide-in-right`, `drawer-in`, `shimmer`, `grow-x`, `pop-in` (semua `backwards`, tanpa menyisakan transform), kurva `ease-smooth`. |
 | Font | Tumpukan font sistem (Inter bila terpasang, lalu Segoe UI Variable/SF/Roboto). Tidak ada unduhan font, jadi aman di jaringan yang membatasi akses luar. |
 
-Bila warna merek diganti, ubah palet `blue` **dan** konstanta `BAR` di `frontend/components/sldk/charts.tsx` (grafik memakai hex).
+Bila warna merek diganti, ubah palet `blue` **dan** konstanta `BAR` di `frontend/components/ui/charts.tsx` (grafik memakai hex).
 
 ## globals.css
 
@@ -43,6 +43,10 @@ Bila warna merek diganti, ubah palet `blue` **dan** konstanta `BAR` di `frontend
 
 - `components/layout/Sidebar.tsx`: kelompok menu otomatis (Menu / Modul / Administrasi) dari `lib/navigation.ts`, submenu buka-tutup
   halus, ikon-saja saat diciutkan, drawer di ponsel. Menu anak mengikuti pembatasan role.
+- Struktur menu (`lib/navigation.ts`, satu-satunya sumber): **Dashboard** (`/dashboard`), grup **Aset** (Digitalisasi Aset, SAPA), grup **Pengadaan**
+  (Pengadaan Terpadu), lalu menu administrasi (Cari Pegawai, Manajemen Pengguna) khusus admin. `NavItem.halaman` memuat halaman milik sebuah menu yang
+  tidak punya baris sendiri di sidebar (Pengaturan SAPA, dibuka dari tombol di halaman SAPA); halaman itu tetap muncul di Ctrl+K dan remah roti, dan
+  menu induknya aktif di sana. Alamat menu lama dialihkan lewat `redirects()` di `next.config.ts`.
 - `components/layout/Navbar.tsx`: remah roti (dari `breadcrumbsFor`), tombol cari menu, menu pengguna (profil, beranda, keluar).
 - `components/layout/CommandPalette.tsx`: **Ctrl/Cmd + K** dari halaman mana pun; ketik sebagian nama menu lalu Enter; halaman yang baru
   dibuka tampil lebih dulu (disimpan di `localStorage`, tidak dikirim ke server).
@@ -52,7 +56,7 @@ Bila warna merek diganti, ubah palet `blue` **dan** konstanta `BAR` di `frontend
 
 ## Menambah halaman baru
 
-1. Tambahkan menu di `lib/navigation.ts` (otomatis muncul di sidebar, Akses Cepat, pencarian menu, dan remah roti).
+1. Tambahkan menu di `lib/navigation.ts` (otomatis muncul di sidebar, pencarian menu, dan remah roti).
 2. Bungkus halaman dengan `<PageShell title icon description>` (atau `PageHeader` + kartu sendiri).
 3. Gunakan `useToast()` untuk umpan balik singkat, `ConfirmDialog` untuk tindakan merusak, `EmptyState`/`Skeleton*` untuk keadaan kosong dan memuat.
 

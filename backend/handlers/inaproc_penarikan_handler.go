@@ -368,23 +368,3 @@ func PutInaprocPenarikanPengaturan(c *gin.Context) {
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Pengaturan penarikan otomatis disimpan", gin.H{"pengaturan": tersimpan, "otomatis": info})
 }
-
-// SinkronEksklusif membungkus rute sinkron di halaman lama (satu dataset): sinkron itu tidak boleh berjalan bersamaan dengan antrean
-// penarikan atau sinkron lain, karena keduanya menulis tabel yang sama dan memakai kuota Inaproc yang sama. Bila penarikan lain sedang
-// berjalan, dijawab 409.
-func SinkronEksklusif() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if Penarik == nil {
-			c.Next()
-			return
-		}
-		lepas, err := Penarik.MulaiEksklusif()
-		if err != nil {
-			utils.ErrorResponse(c, http.StatusConflict, "Penarikan data lain sedang berjalan. Tunggu sampai selesai (lihat halaman Penarikan Data) lalu coba lagi.")
-			c.Abort()
-			return
-		}
-		defer lepas()
-		c.Next()
-	}
-}

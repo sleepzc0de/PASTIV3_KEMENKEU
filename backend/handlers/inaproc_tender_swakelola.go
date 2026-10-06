@@ -1,7 +1,5 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
-
 // ============================================================
 // TENDER Endpoint 9: Pencatatan Swakelola
 // ============================================================
@@ -25,10 +23,6 @@ var pencatatanSwakelola = newEndpointDatar(endpointDatar{
 		pagu, total_realisasi, status_swakelola_pct, status_swakelola_pct_ket, tgl_selesai_paket, synced_at`,
 })
 
-func GetPencatatanSwakelola(c *gin.Context)       { pencatatanSwakelola.Get(c) }
-func SyncPencatatanSwakelola(c *gin.Context)      { pencatatanSwakelola.Sync(c) }
-func ListLocalPencatatanSwakelola(c *gin.Context) { pencatatanSwakelola.ListLocal(c) }
-
 // ============================================================
 // TENDER Endpoint 10: Pencatatan Swakelola Realisasi
 // ============================================================
@@ -50,6 +44,3 @@ var pencatatanSwakelolaRealisasi = newEndpointDatar(endpointDatar{
 		nilai_realisasi, tgl_realisasi, synced_at`,
 })
 
-func GetPencatatanSwakelolaRealisasi(c *gin.Context)       { pencatatanSwakelolaRealisasi.Get(c) }
-func SyncPencatatanSwakelolaRealisasi(c *gin.Context)      { pencatatanSwakelolaRealisasi.Sync(c) }
-func ListLocalPencatatanSwakelolaRealisasi(c *gin.Context) { pencatatanSwakelolaRealisasi.ListLocal(c) }

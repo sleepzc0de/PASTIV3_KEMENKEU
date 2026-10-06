@@ -23,7 +23,7 @@ import (
 //   - mencoba ulang gangguan sementara per halaman (galat jaringan dan 5xx tiga kali dengan jeda bertambah; 429 empat kali dengan menunggu
 //     jeda bersama) sehingga satu halaman yang gagal tidak menggugurkan seluruh penarikan dan penarikan dilanjutkan dari halaman itu.
 //
-// Permintaan interaktif (tampilan langsung di halaman lama) tidak boleh menggantung: satu kali coba, menunggu giliran paling lama beberapa
+// Permintaan interaktif (tampilan langsung, kini hanya lewat handler lama yang tidak terpasang di rute) tidak boleh menggantung: satu kali coba, menunggu giliran paling lama beberapa
 // detik, dan bila kuota sedang habis dijawab 429 sintetis yang diteruskan apa adanya ke pengguna.
 
 const (

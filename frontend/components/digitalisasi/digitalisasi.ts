@@ -1,7 +1,7 @@
 // Fungsi bantu murni untuk fitur Digitalisasi Aset (tanpa React dan tanpa alias "@/", supaya bisa dites dengan Node).
 
 import type { DGAgg, DGColumn, DGCount, DGDatasetKey, DGProvinsi, DGSyncStatus, DGUE1 } from "@/lib/api";
-import { formatNumber } from "../sldk/asset";
+import { formatNumber } from "../../lib/dasbor.ts";
 
 export const ASSET_KEYS: DGDatasetKey[] = ["tanah", "gedung_kantor_utama", "gedung_lainnya", "rusunara", "rumah_negara", "mess_rumah_negara"];
 

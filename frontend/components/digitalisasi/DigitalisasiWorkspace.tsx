@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { BarChart3, Map, RefreshCw, Table2 } from "lucide-react";
 import { DGDatasetKey } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
@@ -9,6 +10,7 @@ import { DigitalisasiData, DataPreset } from "./DigitalisasiData";
 import { DigitalisasiOverview } from "./DigitalisasiOverview";
 import { MapPanel } from "./MapPanel";
 import type { MapFocus } from "./MapView";
+import { DATASET_LABEL } from "./digitalisasi";
 import { RecordDetailModal } from "./RecordDetailModal";
 import { SyncPanel } from "./SyncPanel";
 import { useDGOverview, useDGSync } from "./useDigitalisasi";
@@ -22,16 +24,29 @@ const TABS: { key: TabKey; label: string; icon: typeof Map }[] = [
   { key: "sinkronisasi", label: "Sinkronisasi", icon: RefreshCw },
 ];
 
+// Tautan dari halaman lain (mis. Dashboard Aset): ?tab=data&dataset=tanah&tanpa_koordinat=1 membuka tab Data pada dataset itu dengan filter terpasang.
+function awalDariAlamat(params: URLSearchParams): { tab: TabKey; preset?: DataPreset } {
+  const t = params.get("tab");
+  const tab = TABS.some((x) => x.key === t) ? (t as TabKey) : "ringkasan";
+  const ds = params.get("dataset");
+  if (tab === "data" && ds && ds in DATASET_LABEL) {
+    return { tab, preset: { nonce: 1, dataset: ds as DGDatasetKey, tanpaKoordinat: params.get("tanpa_koordinat") === "1" } };
+  }
+  return { tab };
+}
+
 export function DigitalisasiWorkspace() {
   const { profile } = useDashboard();
   const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
 
-  const [tab, setTab] = useState<TabKey>("ringkasan");
+  const params = useSearchParams();
+  const [awal] = useState(() => awalDariAlamat(params));
+  const [tab, setTab] = useState<TabKey>(awal.tab);
   // Tab dimuat saat pertama dibuka lalu tetap terpasang (disembunyikan): peta dan hasil pencarian tidak hilang saat pindah tab.
-  const [visited, setVisited] = useState<Record<TabKey, boolean>>({ ringkasan: true, peta: false, data: false, sinkronisasi: false });
+  const [visited, setVisited] = useState<Record<TabKey, boolean>>({ ringkasan: true, peta: awal.tab === "peta", data: awal.tab === "data", sinkronisasi: awal.tab === "sinkronisasi" });
   // Dinaikkan setiap sinkronisasi selesai supaya ringkasan, peta, dan daftar memuat data yang baru.
   const [version, setVersion] = useState(0);
-  const [dataPreset, setDataPreset] = useState<DataPreset | undefined>();
+  const [dataPreset, setDataPreset] = useState<DataPreset | undefined>(awal.preset);
   const [mapFocus, setMapFocus] = useState<MapFocus | null>(null);
   const [detail, setDetail] = useState<{ dataset: DGDatasetKey; id: number } | null>(null);
 
