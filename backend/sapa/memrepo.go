@@ -16,10 +16,9 @@ import (
 type MemRepo struct {
 	mu sync.Mutex
 
-	Pengguna []PeranRow            // daftar pengguna yang bisa diberi peran
-	Satker   map[string]SatkerInfo // kode 18 digit -> satker (data Digitalisasi Aset)
+	Nama   map[string]string     // userID -> nama lengkap
+	Satker map[string]SatkerInfo // kode 18 digit -> satker (data Digitalisasi Aset)
 
-	peran                       map[string]PeranInfo
 	kasus                       map[int64]*KasusInfo
 	tahap                       map[int64]map[string]TahapRow
 	dokumen                     map[int64]*memDok
@@ -42,61 +41,18 @@ type memTpl struct {
 
 func NewMemRepo() *MemRepo {
 	return &MemRepo{
-		Satker: map[string]SatkerInfo{}, peran: map[string]PeranInfo{}, kasus: map[int64]*KasusInfo{},
+		Nama: map[string]string{}, Satker: map[string]SatkerInfo{}, kasus: map[int64]*KasusInfo{},
 		tahap: map[int64]map[string]TahapRow{}, dokumen: map[int64]*memDok{}, template: map[string][]*memTpl{},
 		refUE1: map[string]RefUE1{}, urut: map[int]int{},
 	}
 }
 
-func (m *MemRepo) PeranPengguna(_ context.Context, userID string) (*PeranInfo, error) {
+// NamaPengguna: nama yang didaftarkan lewat Nama (peta userID -> nama); kosong bila tidak ada.
+func (m *MemRepo) NamaPengguna(_ context.Context, userID string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if p, ok := m.peran[userID]; ok {
-		return &p, nil
-	}
-	return nil, nil
+	return m.Nama[userID], nil
 }
-
-func (m *MemRepo) DaftarPeran(_ context.Context, q string, limit int) ([]PeranRow, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	q = strings.ToLower(q)
-	out := []PeranRow{}
-	for _, u := range m.Pengguna {
-		if q != "" && !strings.Contains(strings.ToLower(u.Username+" "+u.Nama+" "+u.Email), q) {
-			continue
-		}
-		if p, ok := m.peran[u.UserID]; ok {
-			u.Peran, u.KodeSatker, u.KodeUE1 = p.Peran, p.KodeSatker, p.KodeUE1
-		}
-		out = append(out, u)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-	return out, nil
-}
-
-func (m *MemRepo) SimpanPeran(_ context.Context, userID, peran, kodeSatker, kodeUE1, _ string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.Pengguna) > 0 {
-		ada := false
-		for _, u := range m.Pengguna {
-			ada = ada || u.UserID == userID
-		}
-		if !ada {
-			return ErrTidakDitemukan
-		}
-	}
-	if peran == "" {
-		delete(m.peran, userID)
-		return nil
-	}
-	m.peran[userID] = PeranInfo{Peran: peran, KodeSatker: kodeSatker, KodeUE1: kodeUE1}
-	return nil
-}
-
 func (m *MemRepo) BuatPenjualan(_ context.Context, in BuatInput) (KasusInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -151,8 +107,12 @@ func (m *MemRepo) DaftarPenjualan(_ context.Context, sc Scope, f FilterDaftar) (
 		case sc.TidakAda:
 			continue
 		case sc.Semua:
-		case sc.Kode18 != "":
-			if k.KodeSatker != sc.Kode18 {
+		case sc.Kode6 != "":
+			if Kode6Dari(k.KodeSatker) != sc.Kode6 {
+				continue
+			}
+		case sc.Kanwil9 != "":
+			if Kanwil9Dari(k.KodeSatker) != sc.Kanwil9 {
 				continue
 			}
 		case sc.KodeUE1 != "":
@@ -404,6 +364,31 @@ func (m *MemRepo) HapusJenisBMN(_ context.Context, nama string) error {
 	}
 	r.Jenis = out
 	return nil
+}
+
+// SatkerDenganKode6: satker pada Satker (kode 18 digit) yang kode 6 digitnya sama; induk (akhiran 000) lebih dulu, lalu menurut kode.
+func (m *MemRepo) SatkerDenganKode6(_ context.Context, kode6 string) ([]SatkerInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []SatkerInfo{}
+	for kode18, s := range m.Satker {
+		if Kode6Dari(kode18) == kode6 {
+			out = append(out, s)
+		}
+	}
+	induk := func(s SatkerInfo) int {
+		if len(Kode18(s.Kode)) == 18 && Kode18(s.Kode)[15:] == "000" {
+			return 0
+		}
+		return 1
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if induk(out[i]) != induk(out[j]) {
+			return induk(out[i]) < induk(out[j])
+		}
+		return out[i].Kode < out[j].Kode
+	})
+	return out, nil
 }
 
 func (m *MemRepo) CariSatker(_ context.Context, kode18 string) (*SatkerInfo, error) {

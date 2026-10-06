@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, Search, Loader2, CheckCircle2 } from "lucide-react";
-import { SapaHalaman, SapaRingkasan, SapaSatkerRef, cariSapaSatker, createSapaPenjualan, listSapaPenjualan } from "@/lib/sapa";
+import { SapaHalaman, SapaRingkasan, SapaSatkerRef, SapaSaya, cariSapaSatker, createSapaPenjualan, listSapaPenjualan } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { formatDateTime } from "@/lib/dasbor";
@@ -68,7 +68,7 @@ export function PenjualanList() {
         <div className="text-sm text-slate-600">
           Masuk sebagai <span className="font-semibold text-slate-900">{saya.nama}</span>{" "}
           {saya.admin ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Admin</span> : <PeranBadge peran={saya.peran} />}
-          {saya.peran === "satker" && saya.kode_satker && <span className="ml-2 font-mono text-xs text-slate-500">{saya.kode_satker}</span>}
+          {!saya.admin && kodeCakupan(saya) && <span className="ml-2 font-mono text-xs text-slate-500">{kodeCakupan(saya)}</span>}
         </div>
         {saya.boleh_membuat && (
           <PrimaryButton onClick={() => setBuatBaru(true)}>
@@ -156,7 +156,7 @@ export function PenjualanList() {
         </div>
       )}
 
-      {buatBaru && <BuatUsulanModal onClose={() => setBuatBaru(false)} kodeAwal={saya.peran === "satker" && !saya.admin ? saya.kode_satker : ""} kunci={saya.peran === "satker" && !saya.admin} />}
+      {buatBaru && <BuatUsulanModal onClose={() => setBuatBaru(false)} saya={saya} />}
     </div>
   );
 }
@@ -217,9 +217,22 @@ function BarisUsulan({ u, sayaPeran, admin }: { u: SapaRingkasan; sayaPeran: str
   );
 }
 
-function BuatUsulanModal({ onClose, kodeAwal, kunci }: { onClose: () => void; kodeAwal: string; kunci: boolean }) {
+// Kode peran aplikasi yang membatasi usulan pengguna: 6 digit (Satker), 9 digit (Kanwil), atau 5 digit (UE1).
+function kodeCakupan(saya: SapaSaya): string {
+  if (saya.peran === "satker") return saya.kode_satker6;
+  if (saya.peran === "kanwil") return saya.kode_kanwil;
+  if (saya.peran === "ue1") return saya.kode_ue1;
+  return "";
+}
+
+function BuatUsulanModal({ onClose, saya }: { onClose: () => void; saya: SapaSaya }) {
   const router = useRouter();
-  const [kode, setKode] = useState(bersihKodeSatker(kodeAwal));
+  // Peran Satker hanya boleh membuat usulan untuk satkernya (kode 6 digit). Kode lengkap diisi dari data aset bila ada; bila satkernya belum ada di
+  // data aset, kodenya diketik dan backend memastikan karakter ke-10 sampai ke-15 sama dengan kode peran.
+  const batasSatker = saya.peran === "satker" && !saya.admin;
+  const pilihan = batasSatker ? saya.satker_pilihan : [];
+  const kunci = batasSatker && pilihan.length === 1;
+  const [kode, setKode] = useState(bersihKodeSatker(batasSatker ? saya.kode_satker : ""));
   const [ref, setRef] = useState<SapaSatkerRef | null>(null);
   const [mencari, setMencari] = useState(false);
   const [galatCari, setGalatCari] = useState<string | null>(null);
@@ -277,8 +290,29 @@ function BuatUsulanModal({ onClose, kodeAwal, kunci }: { onClose: () => void; ko
           inputMode="numeric"
           maxLength={24}
           disabled={kunci}
-          hint={kunci ? "Usulan hanya dapat dibuat untuk satker Anda." : "Tempel kode satker; akhiran KP dibuang otomatis."}
+          hint={
+            kunci
+              ? "Usulan hanya dapat dibuat untuk satker Anda."
+              : batasSatker
+                ? `Kode harus memuat kode satker Anda (${saya.kode_satker6}) pada karakter ke-10 sampai ke-15. Akhiran KP dibuang otomatis.`
+                : "Tempel kode satker; akhiran KP dibuang otomatis."
+          }
         />
+        {pilihan.length > 1 && (
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Pilih satker Anda">
+            {pilihan.map((p) => (
+              <button
+                key={p.kode}
+                type="button"
+                onClick={() => setKode(bersihKodeSatker(p.kode))}
+                aria-pressed={kode === bersihKodeSatker(p.kode)}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-left text-xs text-slate-700 hover:bg-slate-50 aria-pressed:border-blue-500 aria-pressed:bg-blue-50"
+              >
+                <span className="font-mono">{bersihKodeSatker(p.kode)}</span> <span className="text-slate-500">{p.nama}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {lengkap && mencari && (
           <p className="inline-flex items-center gap-2 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

@@ -2,15 +2,14 @@ package sapa
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
 // Repo adalah penyimpanan data SAPA. Implementasi SQL ada di store.go; tes memakai implementasi dalam memori.
 type Repo interface {
-	// pengguna dan hak akses
-	PeranPengguna(ctx context.Context, userID string) (*PeranInfo, error) // nil bila pengguna tidak dikenal
-	DaftarPeran(ctx context.Context, q string, limit int) ([]PeranRow, error)
-	SimpanPeran(ctx context.Context, userID, peran, kodeSatker, kodeUE1, oleh string) error // peran kosong = hapus
+	// pengguna: peran dan cakupan datanya berasal dari peran data aplikasi (paket peran), bukan dari SAPA
+	NamaPengguna(ctx context.Context, userID string) (string, error) // nama lengkap; kosong bila pengguna tidak dikenal
 
 	// usulan penjualan
 	BuatPenjualan(ctx context.Context, in BuatInput) (KasusInfo, error)
@@ -36,7 +35,8 @@ type Repo interface {
 	DaftarRefUE1(ctx context.Context) ([]RefUE1, error)
 	SimpanRefUE1(ctx context.Context, r RefUE1, oleh string) error
 	HapusRefUE1(ctx context.Context, kode string) error
-	CariSatker(ctx context.Context, kode18 string) (*SatkerInfo, error) // dari data Digitalisasi Aset; nil bila tidak ada
+	CariSatker(ctx context.Context, kode18 string) (*SatkerInfo, error)        // dari data Digitalisasi Aset; nil bila tidak ada
+	SatkerDenganKode6(ctx context.Context, kode6 string) ([]SatkerInfo, error) // satker (induk lebih dulu) berkode 6 digit itu pada data Digitalisasi Aset
 
 	// jenis BMN dan satuan jumlahnya (diatur admin)
 	AmbilRefBMN(ctx context.Context) (RefBMN, error) // semua, termasuk yang nonaktif
@@ -46,32 +46,12 @@ type Repo interface {
 	HapusJenisBMN(ctx context.Context, nama string) error
 }
 
-// PeranInfo: peran SAPA seorang pengguna beserta cakupannya. Nama diisi dari data pengguna bila tersedia; Peran kosong
-// berarti pengguna ada tetapi belum ditetapkan perannya.
-type PeranInfo struct {
-	Nama       string `json:"nama,omitempty"`
-	Peran      string `json:"peran"`
-	KodeSatker string `json:"kode_satker,omitempty"`
-	KodeUE1    string `json:"kode_ue1,omitempty"`
-}
-
-// PeranRow: satu baris daftar pengguna untuk penetapan peran (admin).
-type PeranRow struct {
-	UserID     string `json:"user_id"`
-	Username   string `json:"username"`
-	Nama       string `json:"nama"`
-	Email      string `json:"email"`
-	PeranApp   string `json:"peran_app"`
-	Peran      string `json:"peran"`
-	KodeSatker string `json:"kode_satker"`
-	KodeUE1    string `json:"kode_ue1"`
-}
-
-// Scope membatasi daftar usulan yang boleh dilihat.
+// Scope membatasi daftar usulan yang boleh dilihat. Kode-kodenya berasal dari kode satker lengkap pada usulan.
 type Scope struct {
 	Semua    bool
-	Kode18   string // usulan milik satker ini
-	KodeUE1  string // usulan di bawah UE1 ini
+	Kode6    string // usulan milik satker ini (karakter ke-10 sampai ke-15 kode satker)
+	Kanwil9  string // usulan di bawah Kanwil ini (9 karakter pertama kode satker)
+	KodeUE1  string // usulan di bawah UE1 ini (5 karakter pertama)
 	TidakAda bool   // tidak boleh melihat apa pun
 }
 
@@ -83,12 +63,14 @@ func ScopeDari(i Identitas) Scope {
 		return Scope{Semua: true}
 	}
 	switch i.Peran {
-	case PeranSatker:
-		return Scope{Kode18: Kode18(i.KodeSatker)}
-	case PeranUE1:
-		return Scope{KodeUE1: i.KodeUE1}
-	case PeranKanwil:
+	case PeranPenggunaBarang:
 		return Scope{Semua: true}
+	case PeranSatker:
+		return Scope{Kode6: strings.TrimSpace(i.KodeSatker)}
+	case PeranUE1:
+		return Scope{KodeUE1: strings.TrimSpace(i.KodeUE1)}
+	case PeranKanwil:
+		return Scope{Kanwil9: strings.TrimSpace(i.KodeKanwil)}
 	}
 	return Scope{TidakAda: true}
 }

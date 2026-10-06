@@ -52,23 +52,39 @@ type Layanan struct{ Repo Repo }
 
 // ---------------------------------------------------------------- identitas
 
-// IdentitasDari melengkapi identitas (pengguna aplikasi) dengan peran SAPA-nya. nama dipakai bila data pengguna tidak
-// memuat nama lengkap.
-func (l *Layanan) IdentitasDari(ctx context.Context, userID, nama string, admin bool) (Identitas, error) {
-	id := Identitas{UserID: userID, Nama: nama, Admin: admin}
-	p, err := l.Repo.PeranPengguna(ctx, userID)
+// IdentitasDari menyusun identitas pengguna dari peran data aplikasi yang sedang berlaku (pa; lihat paket peran): Satker (kode 6 digit), Kanwil (9 digit),
+// UE1 (5 digit), Pengguna Barang, atau admin/superadmin. SAPA tidak menetapkan peran sendiri. nama dipakai bila data pengguna tidak memuat nama lengkap.
+func (l *Layanan) IdentitasDari(ctx context.Context, userID, nama string, pa PeranAplikasi) (Identitas, error) {
+	id := Identitas{UserID: userID, Nama: nama, Admin: pa.Admin}
+	n, err := l.Repo.NamaPengguna(ctx, userID)
 	if err != nil {
 		return id, err
 	}
-	if p != nil {
-		id.Peran, id.KodeSatker, id.KodeUE1 = p.Peran, p.KodeSatker, p.KodeUE1
-		if p.Nama != "" {
-			id.Nama = p.Nama
-		}
+	if n != "" {
+		id.Nama = n
+	}
+	kode := strings.TrimSpace(pa.Kode)
+	switch strings.TrimSpace(pa.Peran) {
+	case PeranSatker:
+		id.Peran, id.KodeSatker = PeranSatker, kode
+	case PeranKanwil:
+		id.Peran, id.KodeKanwil = PeranKanwil, kode
+	case PeranUE1:
+		id.Peran, id.KodeUE1 = PeranUE1, kode
+	case PeranPenggunaBarang:
+		id.Peran = PeranPenggunaBarang
 	}
 	return id, nil
 }
 
+// SatkerSaya: satker pada data Digitalisasi Aset yang kode 6 digitnya sama dengan peran Satker pengguna (induk lebih dulu), untuk menyiapkan kode satker
+// lengkap saat membuat usulan. Kosong bagi peran lain.
+func (l *Layanan) SatkerSaya(ctx context.Context, id Identitas) ([]SatkerInfo, error) {
+	if id.Peran != PeranSatker || strings.TrimSpace(id.KodeSatker) == "" {
+		return []SatkerInfo{}, nil
+	}
+	return l.Repo.SatkerDenganKode6(ctx, strings.TrimSpace(id.KodeSatker))
+}
 // ---------------------------------------------------------------- usulan: membuat dan melihat
 
 // judul: huruf awal setiap kata kapital, sisanya kecil ("KOTA JAKARTA" -> "Kota Jakarta").
@@ -665,44 +681,6 @@ func (l *Layanan) khususAdmin(id Identitas) error {
 		return ErrTidakBerhak
 	}
 	return nil
-}
-
-func (l *Layanan) DaftarPeran(ctx context.Context, id Identitas, q string) ([]PeranRow, error) {
-	if err := l.khususAdmin(id); err != nil {
-		return nil, err
-	}
-	return l.Repo.DaftarPeran(ctx, strings.TrimSpace(q), 50)
-}
-
-// AturPeran menetapkan peran SAPA seorang pengguna; peran kosong menghapus penetapan.
-func (l *Layanan) AturPeran(ctx context.Context, id Identitas, userID, peran, kodeSatker, kodeUE1 string) error {
-	if err := l.khususAdmin(id); err != nil {
-		return err
-	}
-	userID, peran = strings.TrimSpace(userID), strings.TrimSpace(peran)
-	if !reGUID.MatchString(userID) {
-		return validasi("Pengguna wajib dipilih")
-	}
-	kodeSatker, kodeUE1 = Kode18(kodeSatker), strings.TrimSpace(kodeUE1)
-	switch peran {
-	case "":
-		kodeSatker, kodeUE1 = "", ""
-	case PeranSatker:
-		if !reKode18.MatchString(kodeSatker) {
-			return validasi("Peran Satuan Kerja membutuhkan kode satker 18 digit")
-		}
-		kodeUE1 = ""
-	case PeranUE1:
-		if !reUE1.MatchString(kodeUE1) {
-			return validasi("Peran Unit Eselon I membutuhkan kode UE1 5 digit")
-		}
-		kodeSatker = ""
-	case PeranKanwil:
-		kodeSatker, kodeUE1 = "", ""
-	default:
-		return validasi("Peran tidak dikenal")
-	}
-	return l.Repo.SimpanPeran(ctx, userID, peran, kodeSatker, kodeUE1, id.Nama)
 }
 
 func (l *Layanan) DaftarRefUE1(ctx context.Context, id Identitas) ([]RefUE1, error) {

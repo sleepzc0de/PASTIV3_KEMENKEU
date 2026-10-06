@@ -105,9 +105,14 @@ export function adalahUUID(s: string): boolean {
 // (dipakai admin, yang boleh mengerjakan semua peran).
 export type Lihat = "saya" | "semua" | SapaPeran;
 
-// Pengguna biasa langsung fokus ke tahap perannya; admin melihat seluruh alur dan boleh menyaring per peran.
-export function lihatAwal(admin: boolean): Lihat {
-  return admin ? "semua" : "saya";
+// Hanya Satker, Kanwil, dan UE1 yang punya tahap sendiri; Pengguna Barang (dan admin) tidak.
+export function punyaTahap(peran: string): boolean {
+  return peran === "satker" || peran === "kanwil" || peran === "ue1";
+}
+
+// Pengguna berperan langsung fokus ke tahap perannya; admin dan Pengguna Barang (tanpa tahap sendiri) melihat seluruh alur dan boleh menyaring per peran.
+export function lihatAwal(admin: boolean, peran = "satker"): Lihat {
+  return admin || !punyaTahap(peran) ? "semua" : "saya";
 }
 
 // Tahap yang ditampilkan untuk sudut pandang tertentu. Tanpa peran (tidak seharusnya terjadi) semua tahap ditampilkan,
@@ -115,7 +120,7 @@ export function lihatAwal(admin: boolean): Lihat {
 export function tahapDilihat<T extends { peran: string }>(tahap: T[], lihat: Lihat, peranSaya: string): T[] {
   if (lihat === "semua") return tahap;
   const peran = lihat === "saya" ? peranSaya : lihat;
-  if (!peran) return tahap;
+  if (!peran || !punyaTahap(peran)) return tahap;
   return tahap.filter((t) => t.peran === peran);
 }
 
@@ -180,6 +185,7 @@ export const PERAN_LABEL: Record<SapaPeran, string> = {
   satker: "Satuan Kerja",
   kanwil: "Kantor Wilayah",
   ue1: "Unit Eselon I",
+  pengguna_barang: "Pengguna Barang",
 };
 
 export function peranLabel(p: string): string {

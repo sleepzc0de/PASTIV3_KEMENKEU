@@ -8,8 +8,8 @@ import (
 )
 
 // RegisterSapa memasang rute SAPA (Sistem Administrasi Pengelolaan Aset) pada grup yang sudah memakai autentikasi.
-// Hak akses per usulan dan per tahap diperiksa di paket sapa menurut peran SAPA pengguna; pengaturan (template, peran,
-// referensi UE1) dan buka-ulang tahap khusus admin/superadmin. Dipisah dari SetupRoutes agar tabel rute ini bisa diuji.
+// Hak akses per usulan dan per tahap diperiksa di paket sapa menurut peran data pengguna di aplikasi (Satker, Kanwil, UE1, Pengguna Barang, admin);
+// SAPA tidak menetapkan peran sendiri. Pengaturan (template, BMN, sebutan Sekretaris UE1) dan buka-ulang tahap khusus admin/superadmin. Dipisah dari SetupRoutes agar tabel rute ini bisa diuji.
 func RegisterSapa(g *gin.RouterGroup) {
 	g.GET("/saya", handlers.GetSapaSaya)
 	g.GET("/referensi/satker", handlers.GetSapaSatker)
@@ -38,8 +38,6 @@ func RegisterSapa(g *gin.RouterGroup) {
 	admin.GET("/template", handlers.ListSapaTemplate)
 	admin.POST("/template/:kunci", handlers.UploadSapaTemplate)
 	admin.GET("/template/:kunci/unduh", handlers.DownloadSapaTemplate)
-	admin.GET("/peran", handlers.ListSapaPeran)
-	admin.PUT("/peran/:userId", handlers.SetSapaPeran)
 	admin.GET("/bmn", handlers.ListSapaBMN)
 	admin.PUT("/bmn/satuan", handlers.SaveSapaSatuanBMN)
 	admin.DELETE("/bmn/satuan", handlers.DeleteSapaSatuanBMN)

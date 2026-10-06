@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"pasti-v3-backend/config"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/sapa"
 )
 
@@ -66,6 +66,7 @@ type lingkunganPegawai struct {
 	repo     *sapa.MemRepo
 	prov     string // jenis akun pengguna uji
 	tokenErr error
+	peran    peran.Efektif // peran data aplikasi yang berlaku bagi pengguna uji (dipasang seperti oleh middleware autentikasi)
 }
 
 const guidPeg = "00000000-0000-4000-8000-0000000000aa"
@@ -78,10 +79,9 @@ func siapkanPegawai(t *testing.T) *lingkunganPegawai {
 	t.Cleanup(func() { config.Cfg = oldCfg })
 
 	e := &lingkunganPegawai{t: t, hris: newHRISPalsu(t), repo: sapa.NewMemRepo(), prov: "sso"}
-	e.repo.Pengguna = []sapa.PeranRow{{UserID: guidPeg, Username: "budi", Nama: "Budi"}}
-	if err := e.repo.SimpanPeran(context.Background(), guidPeg, sapa.PeranSatker, "015010199409294002", "", "seed"); err != nil {
-		t.Fatal(err)
-	}
+	e.repo.Nama[guidPeg] = "Budi"
+	// Pengguna uji berperan Satker (kode satker 6 digit, dari peran data aplikasi); SAPA tidak menetapkan peran sendiri.
+	e.peran = peran.Selesaikan("user", []peran.Baris{{ID: 1, Peran: peran.Satker, Kode: "409294"}}, false)
 	t.Cleanup(GunakanSapaLayanan(&sapa.Layanan{Repo: e.repo}))
 	t.Cleanup(GunakanHRIS2(
 		func() string { return e.hris.srv.URL },
@@ -98,7 +98,7 @@ func siapkanPegawai(t *testing.T) *lingkunganPegawai {
 	e.r.Use(func(c *gin.Context) {
 		c.Set("user_id", guidPeg)
 		c.Set("username", "budi")
-		c.Set("role", "user")
+		peran.Pasang(c, e.peran)
 		c.Next()
 	})
 	e.r.GET("/sapa/pegawai", SearchSapaPegawai)
@@ -223,9 +223,9 @@ func TestCariPegawaiMembatasiJumlah(t *testing.T) {
 }
 
 func TestPegawaiHakAksesDanGalat(t *testing.T) {
-	// Tanpa peran SAPA: ditolak sebelum HRIS2 dipanggil.
+	// Tanpa peran data di aplikasi: ditolak sebelum HRIS2 dipanggil.
 	e := siapkanPegawai(t)
-	_ = e.repo.SimpanPeran(context.Background(), guidPeg, "", "", "", "seed")
+	e.peran = peran.Selesaikan("user", nil, false)
 	e.hris.cari = func(w http.ResponseWriter, r *http.Request) { tulis(w, 200, `{"data":[]}`) }
 	e.hris.detail = e.hris.cari
 	for _, p := range []string{"/sapa/pegawai?q=budi", "/sapa/pegawai/198001012005011001"} {

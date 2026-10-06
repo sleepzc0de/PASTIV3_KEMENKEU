@@ -14,7 +14,7 @@ Migrasi: `053_create_user_roles.sql`. Kode: `backend/peran/` (logika dan penyimp
 | **Satker** | `user_roles`, kode 6 digit | Satu satker | Tidak |
 
 Role akun lama `admin` tetap ada (akun yang mengelola pengguna, sinkronisasi, dan penarikan) dan melihat seluruh data seperti Super Admin; perannya bukan salah satu dari lima di atas.
-Peran SAPA (`sapa_peran`: satker/kanwil/ue1) masih terpisah dan tidak berubah.
+Fitur **SAPA** tidak punya peran sendiri lagi: peran Satker, Kanwil, UE1, dan Pengguna Barang di SAPA adalah peran data yang sedang aktif di sini (tabel lama `sapa_peran` tidak dibaca lagi; migrasi 054 menyalinnya ke `user_roles`). Lihat [sapa.md](sapa.md#peran-sapa-dan-hak-akses).
 
 ## Kode: satu kode satker lengkap memuat semua tingkat
 
@@ -72,4 +72,3 @@ Pemilih peran ada di menu pengguna (kanan atas) bila pengguna punya lebih dari s
 
 - Pembatasan **data Pengadaan lengkap** per satker (butuh pemetaan `kd_satker_str` ke UE1/Kanwil di semua tabel Inaproc dan penanganan tabel tanpa kolom itu).
 - Pemberian peran otomatis saat login SSO dari `kode_satker` (sengaja belum: format klaimnya belum terverifikasi; sementara lewat saran satu klik).
-- Penyatuan dengan peran SAPA.

@@ -117,15 +117,36 @@ func TestKodeSatker(t *testing.T) {
 	if KodeUE1Dari("01") != "" {
 		t.Error("kode terlalu pendek harus menghasilkan kosong")
 	}
+	// kode satker 6 digit = karakter ke-10 sampai ke-15; kode Kanwil = 9 karakter pertama
+	for kode, want := range map[string][2]string{
+		"015010199409294002KP": {"409294", "015010199"},
+		"015040199119091000":   {"119091", "015040199"},
+		" 015040199119091 ":    {"119091", "015040199"},
+		"01504019911909":       {"", "015040199"}, // 14 karakter: satker belum lengkap
+		"015040199":            {"", "015040199"},
+		"01504":                {"", ""},
+		"":                     {"", ""},
+	} {
+		if got := Kode6Dari(kode); got != want[0] {
+			t.Errorf("Kode6Dari(%q) = %q, want %q", kode, got, want[0])
+		}
+		if got := Kanwil9Dari(kode); got != want[1] {
+			t.Errorf("Kanwil9Dari(%q) = %q, want %q", kode, got, want[1])
+		}
+	}
 }
 
+// Hak akses menurut peran data aplikasi: Satker (6 digit), Kanwil (9 digit), UE1 (5 digit), Pengguna Barang (lihat saja), admin, dan tanpa peran.
 func TestHakAkses(t *testing.T) {
-	kasus := Kasus{KodeSatker: "015010199409294002", KodeUE1: "01501"}
-	lain := Kasus{KodeSatker: "015040199119091000", KodeUE1: "01504"}
+	kasus := Kasus{KodeSatker: "015010199409294002", KodeUE1: "01501"}    // UE1 01501, Kanwil 015010199, satker 409294
+	sekanwil := Kasus{KodeSatker: "015010199777888000", KodeUE1: "01501"} // satker lain pada Kanwil dan UE1 yang sama
+	seUE1 := Kasus{KodeSatker: "015010299555666000", KodeUE1: "01501"}    // Kanwil lain pada UE1 yang sama
+	lain := Kasus{KodeSatker: "015040199119091000", KodeUE1: "01504"}     // UE1, Kanwil, dan satker lain
 	admin := Identitas{Admin: true}
-	satker := Identitas{Peran: PeranSatker, KodeSatker: "015010199409294002KP"}
+	satker := Identitas{Peran: PeranSatker, KodeSatker: "409294"}
 	ue1 := Identitas{Peran: PeranUE1, KodeUE1: "01501"}
-	kanwil := Identitas{Peran: PeranKanwil}
+	kanwil := Identitas{Peran: PeranKanwil, KodeKanwil: "015010199"}
+	barang := Identitas{Peran: PeranPenggunaBarang}
 	tanpaPeran := Identitas{}
 
 	tahap := func(k string) Tahap { tp, _, _ := TahapByKunci(k); return tp }
@@ -138,15 +159,23 @@ func TestHakAkses(t *testing.T) {
 		want bool
 	}{
 		{"admin melihat semua", admin, lain, true},
-		{"satker melihat usulan satkernya (kode ber-KP)", satker, kasus, true},
+		{"pengguna barang melihat semua", barang, lain, true},
+		{"satker melihat usulan satkernya", satker, kasus, true},
+		{"satker tidak melihat satker lain di Kanwil yang sama", satker, sekanwil, false},
 		{"satker tidak melihat satker lain", satker, lain, false},
 		{"UE1 melihat usulan di bawahnya", ue1, kasus, true},
+		{"UE1 melihat semua Kanwil di bawahnya", ue1, seUE1, true},
 		{"UE1 tidak melihat UE1 lain", ue1, lain, false},
-		{"kanwil melihat semua (v1)", kanwil, lain, true},
+		{"kanwil melihat usulan di bawah Kanwil-nya", kanwil, kasus, true},
+		{"kanwil melihat satker lain pada Kanwil-nya", kanwil, sekanwil, true},
+		{"kanwil tidak melihat Kanwil lain walau UE1 sama", kanwil, seUE1, false},
+		{"kanwil tidak melihat UE1 lain", kanwil, lain, false},
 		{"tanpa peran tidak melihat apa pun", tanpaPeran, kasus, false},
 		{"satker tanpa kode satker tidak melihat", Identitas{Peran: PeranSatker}, kasus, false},
 		{"UE1 tanpa kode tidak melihat", Identitas{Peran: PeranUE1}, kasus, false},
+		{"kanwil tanpa kode tidak melihat", Identitas{Peran: PeranKanwil}, kasus, false},
 		{"peran asing tidak melihat", Identitas{Peran: "tamu"}, kasus, false},
+		{"usulan dengan kode satker terlalu pendek tidak terlihat oleh satker", satker, Kasus{KodeSatker: "0150101", KodeUE1: "01501"}, false},
 	}
 	for _, c := range cases {
 		if got := Terlihat(c.id, c.k); got != c.want {
@@ -154,7 +183,7 @@ func TestHakAkses(t *testing.T) {
 		}
 	}
 
-	// BolehBertindak: perannya harus sama dengan peran tahap.
+	// BolehBertindak: perannya harus sama dengan peran tahap; Pengguna Barang tidak punya tahap.
 	acts := []struct {
 		nama  string
 		id    Identitas
@@ -168,6 +197,8 @@ func TestHakAkses(t *testing.T) {
 		{"UE1 tidak boleh tahap satker", ue1, TahapNDSatker, false},
 		{"kanwil meneliti tiket", kanwil, TahapSimanKanwil, true},
 		{"admin boleh semua", admin, TahapNDUE1, true},
+		{"pengguna barang tidak mengerjakan tahap apa pun", barang, TahapSimanKanwil, false},
+		{"pengguna barang tidak boleh tahap satker", barang, TahapTim, false},
 		{"tanpa peran tidak boleh", tanpaPeran, TahapTim, false},
 	}
 	for _, c := range acts {
@@ -178,19 +209,34 @@ func TestHakAkses(t *testing.T) {
 	if BolehBertindak(satker, lain, tahap(TahapNDSatker)) {
 		t.Error("satker tidak boleh bertindak pada usulan satker lain")
 	}
+	if BolehBertindak(kanwil, seUE1, tahap(TahapSimanKanwil)) {
+		t.Error("kanwil tidak boleh bertindak pada usulan Kanwil lain")
+	}
 
-	// BolehMembuat
+	// BolehMembuat: hanya Satker untuk satkernya sendiri (kode 6 digit), termasuk anak satkernya (kode 6 digit sama); admin untuk satker mana pun.
 	if err := BolehMembuat(satker, "015010199409294002"); err != nil {
 		t.Errorf("satker membuat untuk satkernya: %v", err)
 	}
+	if err := BolehMembuat(satker, "015010199409294001KP"); err != nil {
+		t.Errorf("satker membuat untuk anak satkernya (kode 6 digit sama): %v", err)
+	}
+	if err := BolehMembuat(satker, "015010199777888000"); err == nil {
+		t.Error("satker tidak boleh membuat untuk satker lain pada Kanwil yang sama")
+	}
 	if err := BolehMembuat(satker, "015040199119091000"); err == nil {
 		t.Error("satker tidak boleh membuat untuk satker lain")
+	}
+	if err := BolehMembuat(satker, "0150101"); err == nil {
+		t.Error("kode satker terlalu pendek tidak boleh dipakai membuat usulan")
 	}
 	if err := BolehMembuat(ue1, "015010199409294002"); err == nil {
 		t.Error("UE1 tidak boleh membuat usulan")
 	}
 	if err := BolehMembuat(kanwil, "015010199409294002"); err == nil {
 		t.Error("kanwil tidak boleh membuat usulan")
+	}
+	if err := BolehMembuat(barang, "015010199409294002"); err == nil {
+		t.Error("pengguna barang tidak boleh membuat usulan")
 	}
 	if err := BolehMembuat(admin, "015040199119091000"); err != nil {
 		t.Errorf("admin boleh: %v", err)
@@ -203,5 +249,36 @@ func TestHakAkses(t *testing.T) {
 	}
 	if err := Akses(admin); err != nil {
 		t.Errorf("Akses admin: %v", err)
+	}
+	if err := Akses(barang); err != nil {
+		t.Errorf("Akses pengguna barang: %v", err)
+	}
+	for nama, id := range map[string]Identitas{"satker tanpa kode": {Peran: PeranSatker}, "ue1 tanpa kode": {Peran: PeranUE1}, "kanwil tanpa kode": {Peran: PeranKanwil}} {
+		if err := Akses(id); err == nil || err == ErrTanpaPeran {
+			t.Errorf("Akses %s = %v, want galat yang menyebut kode belum ada", nama, err)
+		}
+	}
+}
+
+// Cakupan daftar usulan menurut peran.
+func TestScopeDari(t *testing.T) {
+	for _, c := range []struct {
+		nama string
+		id   Identitas
+		want Scope
+	}{
+		{"admin", Identitas{Admin: true}, Scope{Semua: true}},
+		{"pengguna barang", Identitas{Peran: PeranPenggunaBarang}, Scope{Semua: true}},
+		{"satker", Identitas{Peran: PeranSatker, KodeSatker: " 409294 "}, Scope{Kode6: "409294"}},
+		{"kanwil", Identitas{Peran: PeranKanwil, KodeKanwil: "015010199"}, Scope{Kanwil9: "015010199"}},
+		{"ue1", Identitas{Peran: PeranUE1, KodeUE1: "01501"}, Scope{KodeUE1: "01501"}},
+		{"tanpa peran", Identitas{}, Scope{TidakAda: true}},
+		{"satker tanpa kode", Identitas{Peran: PeranSatker}, Scope{TidakAda: true}},
+		{"kanwil tanpa kode", Identitas{Peran: PeranKanwil}, Scope{TidakAda: true}},
+		{"peran asing", Identitas{Peran: "tamu"}, Scope{TidakAda: true}},
+	} {
+		if got := ScopeDari(c.id); got != c.want {
+			t.Errorf("ScopeDari(%s) = %+v, want %+v", c.nama, got, c.want)
+		}
 	}
 }

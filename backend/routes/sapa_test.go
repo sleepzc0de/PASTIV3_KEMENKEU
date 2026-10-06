@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"pasti-v3-backend/handlers"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/sapa"
 )
 
@@ -32,17 +33,23 @@ const (
 	gKanwil = "00000000-0000-4000-8000-000000000004"
 	gUE1    = "00000000-0000-4000-8000-000000000005"
 	gTanpa  = "00000000-0000-4000-8000-000000000006"
+	gBarang = "00000000-0000-4000-8000-000000000007"
+	gKwlLn  = "00000000-0000-4000-8000-000000000008"
 )
 
-type pengguna struct{ id, nama, roleApp string }
+// pengguna uji: role akun, ditambah peran data aplikasi (peran + kode) yang menjadi peran SAPA-nya. SAPA tidak menetapkan peran sendiri: Satker 6 digit
+// (karakter ke-10 sampai ke-15 kode satker), Kanwil 9 digit (9 karakter pertama), UE1 5 digit, Pengguna Barang, atau admin.
+type pengguna struct{ id, nama, roleApp, peran, kode string }
 
 var daftarPengguna = map[string]pengguna{
-	"admin":  {gAdmin, "admin", "admin"},
-	"satkA":  {gSatkA, "satker.a", "user"},
-	"satkB":  {gSatkB, "satker.b", "user"},
-	"kanwil": {gKanwil, "kanwil", "user"},
-	"ue1":    {gUE1, "ue1", "user"},
-	"tanpa":  {gTanpa, "tanpa", "user"},
+	"admin":      {gAdmin, "admin", "admin", "", ""},
+	"satkA":      {gSatkA, "satker.a", "user", "satker", "409294"},       // kodeA
+	"satkB":      {gSatkB, "satker.b", "user", "satker", "119091"},       // kodeB
+	"kanwil":     {gKanwil, "kanwil", "user", "kanwil", "015010199"},     // Kanwil kodeA
+	"kanwilLain": {gKwlLn, "kanwil.lain", "user", "kanwil", "015040199"}, // Kanwil kodeB
+	"ue1":        {gUE1, "ue1", "user", "ue1", "01501"},
+	"barang":     {gBarang, "pengguna.barang", "user", "pengguna_barang", ""},
+	"tanpa":      {gTanpa, "tanpa", "user", "", ""},
 }
 
 type lingkungan struct {
@@ -57,7 +64,7 @@ func siapkan(t *testing.T, repoWrap func(*sapa.MemRepo) sapa.Repo) *lingkungan {
 	repo := sapa.NewMemRepo()
 	repo.Satker[kodeA] = sapa.SatkerInfo{Kode: kodeA + "KP", Nama: "KPKNL Jakarta I", KabKota: "KOTA JAKARTA PUSAT", KodeUE1: "01501"}
 	for _, p := range daftarPengguna {
-		repo.Pengguna = append(repo.Pengguna, sapa.PeranRow{UserID: p.id, Username: p.nama, Nama: p.nama, PeranApp: p.roleApp})
+		repo.Nama[p.id] = p.nama
 	}
 	ctx := context.Background()
 	must := func(err error) {
@@ -65,10 +72,6 @@ func siapkan(t *testing.T, repoWrap func(*sapa.MemRepo) sapa.Repo) *lingkungan {
 			t.Fatal(err)
 		}
 	}
-	must(repo.SimpanPeran(ctx, gSatkA, sapa.PeranSatker, kodeA, "", "seed"))
-	must(repo.SimpanPeran(ctx, gSatkB, sapa.PeranSatker, kodeB, "", "seed"))
-	must(repo.SimpanPeran(ctx, gKanwil, sapa.PeranKanwil, "", "", "seed"))
-	must(repo.SimpanPeran(ctx, gUE1, sapa.PeranUE1, "", "01501", "seed"))
 	must(repo.SimpanRefUE1(ctx, sapa.RefUE1{Kode: "01501", Nama: "Ditjen Contoh", Sekretaris: "Sekretaris Direktorat Jenderal Contoh"}, "seed"))
 
 	var rp sapa.Repo = repo
@@ -87,7 +90,12 @@ func siapkan(t *testing.T, repoWrap func(*sapa.MemRepo) sapa.Repo) *lingkungan {
 		}
 		c.Set("user_id", p.id)
 		c.Set("username", p.nama)
-		c.Set("role", p.roleApp)
+		// Peran yang berlaku seperti dipasang middleware autentikasi (peran data aplikasi yang aktif).
+		var baris []peran.Baris
+		if p.peran != "" {
+			baris = []peran.Baris{{ID: 1, Peran: p.peran, Kode: p.kode}}
+		}
+		peran.Pasang(c, peran.Selesaikan(p.roleApp, baris, false))
 		c.Next()
 	})
 	RegisterSapa(g)
@@ -173,8 +181,18 @@ func TestSapaSaya(t *testing.T) {
 	if len(d["jenis_tim"].([]interface{})) != 4 || len(d["bentuk"].([]interface{})) != 4 || len(d["item_dokumen"].([]interface{})) != len(sapa.DaftarItemDokumen) {
 		t.Errorf("pilihan formulir = %v %v %v", d["jenis_tim"], d["bentuk"], d["item_dokumen"])
 	}
-	if d := e.harap(e.kirim("kanwil", "GET", "/saya", nil, ""), 200).data(); d["boleh_membuat"] != false || d["punya_akses"] != true {
+	// Kode satker lengkap (18 digit) untuk peran Satker diturunkan dari data Digitalisasi Aset menurut kode 6 digit perannya.
+	if d["kode_satker6"] != "409294" || len(d["satker_pilihan"].([]interface{})) != 1 {
+		t.Errorf("satker saya = %v %v", d["kode_satker6"], d["satker_pilihan"])
+	}
+	if d := e.harap(e.kirim("kanwil", "GET", "/saya", nil, ""), 200).data(); d["boleh_membuat"] != false || d["punya_akses"] != true || d["peran"] != "kanwil" || d["kode_kanwil"] != "015010199" {
 		t.Errorf("saya kanwil = %v", d)
+	}
+	if d := e.harap(e.kirim("ue1", "GET", "/saya", nil, ""), 200).data(); d["peran"] != "ue1" || d["kode_ue1"] != "01501" || d["boleh_membuat"] != false {
+		t.Errorf("saya ue1 = %v", d)
+	}
+	if d := e.harap(e.kirim("barang", "GET", "/saya", nil, ""), 200).data(); d["peran"] != "pengguna_barang" || d["peran_label"] != "Pengguna Barang" || d["punya_akses"] != true || d["boleh_membuat"] != false || d["admin"] != false {
+		t.Errorf("saya pengguna barang = %v", d)
 	}
 	if d := e.harap(e.kirim("admin", "GET", "/saya", nil, ""), 200).data(); d["admin"] != true || d["boleh_membuat"] != true {
 		t.Errorf("saya admin = %v", d)
@@ -186,11 +204,11 @@ func TestSapaRuteAdminDijaga(t *testing.T) {
 	id := e.buatUsulan()
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/template"}, {"POST", "/template/nd_satker"}, {"GET", "/template/nd_satker/unduh"},
-		{"GET", "/peran"}, {"PUT", "/peran/" + gSatkA}, {"GET", "/ref-ue1"}, {"PUT", "/ref-ue1/01501"}, {"DELETE", "/ref-ue1/01501"},
+		{"GET", "/ref-ue1"}, {"PUT", "/ref-ue1/01501"}, {"DELETE", "/ref-ue1/01501"},
 		{"GET", "/bmn"}, {"PUT", "/bmn/satuan"}, {"DELETE", "/bmn/satuan?nama=unit"}, {"PUT", "/bmn/jenis"}, {"DELETE", "/bmn/jenis?nama=Tanah"},
 		{"POST", fmt.Sprintf("/penjualan/%s/tahap/tim/buka-ulang", id)},
 	} {
-		for _, u := range []string{"satkA", "kanwil", "ue1", "tanpa"} {
+		for _, u := range []string{"satkA", "kanwil", "ue1", "barang", "tanpa"} {
 			if j := e.kirim(u, c.method, c.path, []byte("{}"), ""); j.kode != http.StatusForbidden {
 				t.Errorf("%s %s oleh %s: status %d, want 403", c.method, c.path, u, j.kode)
 			}
@@ -391,22 +409,44 @@ func TestSapaUnggahDanUnduhTemplate(t *testing.T) {
 	e.harap(e.kirim("admin", "GET", "/template/ba_penelitian/unduh", nil, ""), http.StatusConflict) // tidak ada template
 }
 
-func TestSapaPeranDanReferensiUE1(t *testing.T) {
+// SAPA tidak lagi menetapkan peran sendiri: rute peran SAPA sudah dicabut (admin pun mendapat 404), dan peran di SAPA mengikuti peran data aplikasi.
+func TestSapaTidakAdaLagiPemberianPeranSendiri(t *testing.T) {
 	e := siapkan(t, nil)
-	e.harap(e.json("admin", "PUT", "/peran/"+gTanpa, map[string]string{"peran": "satker", "kode_satker": kodeA + "KP"}), 200)
-	if d := e.harap(e.kirim("tanpa", "GET", "/saya", nil, ""), 200).data(); d["peran"] != "satker" || d["kode_satker"] != kodeA {
-		t.Errorf("peran setelah ditetapkan = %v", d)
-	}
-	e.harap(e.json("admin", "PUT", "/peran/"+gTanpa, map[string]string{"peran": "satker", "kode_satker": "1"}), http.StatusBadRequest)
-	e.harap(e.json("admin", "PUT", "/peran/"+gTanpa, map[string]string{"peran": "tamu"}), http.StatusBadRequest)
-	e.harap(e.json("admin", "PUT", "/peran/bukan-guid", map[string]string{"peran": "kanwil"}), http.StatusBadRequest)
-	e.harap(e.json("admin", "PUT", "/peran/00000000-0000-4000-8000-0000000000ff", map[string]string{"peran": "kanwil"}), http.StatusNotFound)
-	e.harap(e.json("admin", "PUT", "/peran/"+gTanpa, map[string]string{"peran": ""}), 200)
+	e.harap(e.kirim("admin", "GET", "/peran", nil, ""), http.StatusNotFound)
+	e.harap(e.json("admin", "PUT", "/peran/"+gTanpa, map[string]string{"peran": "satker", "kode_satker": kodeA}), http.StatusNotFound)
+	// Pengguna tanpa peran data di aplikasi tetap tidak bisa masuk.
 	e.harap(e.kirim("tanpa", "GET", "/penjualan", nil, ""), http.StatusForbidden)
-	if l := e.harap(e.kirim("admin", "GET", "/peran?q=satker", nil, ""), 200).m["data"].([]interface{}); len(l) != 2 {
-		t.Errorf("daftar peran = %v", l)
-	}
+}
 
+// Cakupan menurut peran data aplikasi: Satker satkernya, Kanwil Kanwil-nya, UE1 UE1-nya, Pengguna Barang semuanya (lihat saja), admin semuanya.
+func TestSapaCakupanDanHakMengikutiPeranAplikasi(t *testing.T) {
+	e := siapkan(t, nil)
+	id := e.buatUsulan() // satkA membuat usulan untuk kodeA (UE1 01501, Kanwil 015010199, satker 409294)
+	base := "/penjualan/" + id
+
+	for _, u := range []string{"satkA", "kanwil", "ue1", "barang", "admin"} {
+		e.harap(e.kirim(u, "GET", base, nil, ""), 200)
+		if l := e.harap(e.kirim(u, "GET", "/penjualan", nil, ""), 200).data(); l["total"] != float64(1) {
+			t.Errorf("daftar %s = %v, want 1 usulan", u, l)
+		}
+	}
+	// Satker lain dan Kanwil lain (walau UE1-nya berbeda) tidak melihatnya: 404, tanpa membocorkan keberadaannya.
+	for _, u := range []string{"satkB", "kanwilLain"} {
+		e.harap(e.kirim(u, "GET", base, nil, ""), http.StatusNotFound)
+		if l := e.harap(e.kirim(u, "GET", "/penjualan", nil, ""), 200).data(); l["total"] != float64(0) {
+			t.Errorf("daftar %s = %v, want kosong", u, l)
+		}
+	}
+	// Pengguna Barang melihat semuanya tetapi tidak mengerjakan tahap apa pun dan tidak membuat usulan.
+	e.harap(e.json("barang", "PUT", base+"/tahap/tim", map[string]string{"alasan": "x"}), http.StatusForbidden)
+	e.harap(e.json("barang", "POST", base+"/tahap/tim/lewati", map[string]string{"catatan": "dilewati oleh pengguna barang"}), http.StatusForbidden)
+	e.harap(e.json("barang", "POST", "/penjualan", map[string]string{"kode_satker": kodeA}), http.StatusForbidden)
+	// Kanwil lain tidak bisa mengerjakan tahap Kanwil pada usulan di luar Kanwil-nya.
+	e.harap(e.json("kanwilLain", "POST", base+"/tahap/siman_kanwil/selesai", map[string]string{"catatan": "ok"}), http.StatusNotFound)
+}
+
+func TestSapaReferensiUE1(t *testing.T) {
+	e := siapkan(t, nil)
 	e.harap(e.json("admin", "PUT", "/ref-ue1/01502", map[string]string{"nama": "Ditjen Lain", "sekretaris": "Sekretaris Ditjen Lain"}), 200)
 	e.harap(e.json("admin", "PUT", "/ref-ue1/1", map[string]string{"nama": "X", "sekretaris": "Y"}), http.StatusBadRequest)
 	if l := e.harap(e.kirim("admin", "GET", "/ref-ue1", nil, ""), 200).m["data"].([]interface{}); len(l) != 2 {

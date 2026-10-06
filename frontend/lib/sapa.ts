@@ -2,7 +2,8 @@ import { api } from "./api";
 
 // SAPA (Sistem Administrasi Pengelolaan Aset): tipe data dan fungsi API untuk alur Penjualan.
 
-export type SapaPeran = "satker" | "kanwil" | "ue1";
+// Peran di SAPA diturunkan dari peran data aplikasi (tidak ditetapkan di SAPA): Satker, Kanwil, UE1 mengerjakan tahap perannya; Pengguna Barang hanya melihat.
+export type SapaPeran = "satker" | "kanwil" | "ue1" | "pengguna_barang";
 export type SapaStatusTahap = "belum" | "draft" | "selesai" | "dilewati";
 
 export interface SapaTahapDef {
@@ -28,7 +29,10 @@ export interface SapaSaya {
   admin: boolean;
   peran: SapaPeran | "";
   peran_label: string;
-  kode_satker: string;
+  kode_satker: string; // peran Satker: kode satker lengkap (18 digit) yang cocok dengan kode 6 digit perannya, bila ada di data aset; selain itu kosong
+  kode_satker6: string; // peran Satker: kode satker 6 digit dari peran aplikasi
+  satker_pilihan: { kode: string; nama: string }[]; // satker pada data aset yang cocok dengan kode 6 digit itu (induk lebih dulu)
+  kode_kanwil: string; // peran Kanwil: kode 9 digit
   kode_ue1: string;
   punya_akses: boolean;
   alasan?: string;
@@ -220,17 +224,6 @@ export interface SapaHasilUnggah {
   peringatan: string[];
 }
 
-export interface SapaPeranRow {
-  user_id: string;
-  username: string;
-  nama: string;
-  email: string;
-  peran_app: string;
-  peran: SapaPeran | "";
-  kode_satker: string;
-  kode_ue1: string;
-}
-
 export interface SapaRefUE1 {
   kode: string;
   nama: string;
@@ -315,16 +308,6 @@ export async function uploadSapaTemplate(kunci: string, berkas: File, catatan: s
   if (catatan.trim()) form.append("catatan", catatan.trim());
   // Content-Type dikosongkan supaya browser memasang batas multipart sendiri.
   const res = await api.post<SapaRes<SapaHasilUnggah>>(`/sapa/template/${kunci}`, form, { headers: { "Content-Type": undefined } });
-  return res.data;
-}
-
-export async function listSapaPeran(q: string) {
-  const res = await api.get<SapaRes<SapaPeranRow[]>>("/sapa/peran", { params: { q } });
-  return res.data;
-}
-
-export async function setSapaPeran(userId: string, body: { peran: SapaPeran | ""; kode_satker: string; kode_ue1: string }) {
-  const res = await api.put<SapaRes<null>>(`/sapa/peran/${userId}`, body);
   return res.data;
 }
 

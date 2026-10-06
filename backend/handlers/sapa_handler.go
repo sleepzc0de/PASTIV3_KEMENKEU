@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/sapa"
 	"pasti-v3-backend/utils"
 )
@@ -47,9 +48,11 @@ func sapaAdmin(c *gin.Context) bool {
 	return r == "admin" || r == "superadmin"
 }
 
-// sapaIdentitas membaca identitas pengguna beserta peran SAPA-nya. Nama pengguna dipakai bila nama lengkap tidak ada.
+// sapaIdentitas membaca identitas pengguna beserta perannya. SAPA tidak menetapkan peran sendiri: peran dan kodenya adalah peran data aplikasi yang sedang
+// aktif (Satker, Kanwil, UE1, Pengguna Barang, atau admin/superadmin), dipasang middleware autentikasi. Nama pengguna dipakai bila nama lengkap tidak ada.
 func sapaIdentitas(c *gin.Context, ctx context.Context) (sapa.Identitas, bool) {
-	id, err := sapaLayanan().IdentitasDari(ctx, c.GetString("user_id"), c.GetString("username"), sapaAdmin(c))
+	pa := sapa.PeranAplikasi{Admin: sapaAdmin(c), Peran: c.GetString(peran.KunciGinPeran), Kode: peran.DariGin(c).Kode}
+	id, err := sapaLayanan().IdentitasDari(ctx, c.GetString("user_id"), c.GetString("username"), pa)
 	if err != nil {
 		sapaGagal(c, "identitas", err)
 		return id, false
@@ -57,7 +60,7 @@ func sapaIdentitas(c *gin.Context, ctx context.Context) (sapa.Identitas, bool) {
 	return id, true
 }
 
-// sapaMasuk memastikan pengguna boleh memakai SAPA (admin, atau sudah ditetapkan perannya).
+// sapaMasuk memastikan pengguna boleh memakai SAPA (admin, atau sudah diberi peran data di aplikasi).
 func sapaMasuk(c *gin.Context, ctx context.Context) (sapa.Identitas, bool) {
 	id, ok := sapaIdentitas(c, ctx)
 	if !ok {
@@ -138,7 +141,8 @@ func sapaBody(c *gin.Context) ([]byte, bool) {
 
 // ---------------------------------------------------------------- pengguna
 
-// GET /sapa/saya: peran SAPA pengguna, hak membuat usulan, dan definisi tahap alur Penjualan.
+// GET /sapa/saya: peran pengguna di SAPA (dari peran data aplikasi), hak membuat usulan, dan definisi tahap alur Penjualan. Bagi peran Satker, kode_satker
+// adalah kode satker lengkap (18 digit) yang cocok dengan kode 6 digit perannya, bila ada di data Digitalisasi Aset; satker_pilihan memuat semua yang cocok.
 func GetSapaSaya(c *gin.Context) {
 	ctx, cancel := sapaCtx(c)
 	defer cancel()
@@ -146,9 +150,18 @@ func GetSapaSaya(c *gin.Context) {
 	if !ok {
 		return
 	}
+	pilihan, err := sapaLayanan().SatkerSaya(ctx, id)
+	if err != nil {
+		sapaGagal(c, "satker saya", err)
+		return
+	}
+	kode18 := ""
+	if len(pilihan) > 0 {
+		kode18 = sapa.Kode18(pilihan[0].Kode) // induk lebih dulu
+	}
 	out := gin.H{
 		"nama": id.Nama, "admin": id.Admin, "peran": id.Peran, "peran_label": sapa.PeranLabel(id.Peran),
-		"kode_satker": id.KodeSatker, "kode_ue1": id.KodeUE1,
+		"kode_satker": kode18, "kode_satker6": id.KodeSatker, "satker_pilihan": pilihan, "kode_kanwil": id.KodeKanwil, "kode_ue1": id.KodeUE1,
 		"punya_akses": true, "boleh_membuat": false, "tahap": sapa.TahapPenjualan,
 		// Pilihan isian formulir; dari satu sumber dengan validasi di backend supaya tidak pernah berbeda.
 		"jenis_tim": sapa.JenisTimValid, "bentuk": sapa.BentukValid, "item_dokumen": sapa.DaftarItemDokumen,
@@ -474,44 +487,6 @@ func DownloadSapaTemplate(c *gin.Context) {
 		return
 	}
 	sapaKirimBerkas(c, nama, berkas)
-}
-
-func ListSapaPeran(c *gin.Context) {
-	ctx, cancel := sapaCtx(c)
-	defer cancel()
-	id, ok := sapaIdentitas(c, ctx)
-	if !ok {
-		return
-	}
-	list, err := sapaLayanan().DaftarPeran(ctx, id, c.Query("q"))
-	if err != nil {
-		sapaGagal(c, "daftar peran", err)
-		return
-	}
-	utils.SuccessResponse(c, http.StatusOK, "OK", list)
-}
-
-func SetSapaPeran(c *gin.Context) {
-	ctx, cancel := sapaCtx(c)
-	defer cancel()
-	id, ok := sapaIdentitas(c, ctx)
-	if !ok {
-		return
-	}
-	var in struct {
-		Peran      string `json:"peran"`
-		KodeSatker string `json:"kode_satker"`
-		KodeUE1    string `json:"kode_ue1"`
-	}
-	if err := c.ShouldBindJSON(&in); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Permintaan tidak valid")
-		return
-	}
-	if err := sapaLayanan().AturPeran(ctx, id, c.Param("userId"), in.Peran, in.KodeSatker, in.KodeUE1); err != nil {
-		sapaGagal(c, "atur peran", err)
-		return
-	}
-	utils.SuccessResponse(c, http.StatusOK, "Peran SAPA disimpan", nil)
 }
 
 func ListSapaRefUE1(c *gin.Context) {

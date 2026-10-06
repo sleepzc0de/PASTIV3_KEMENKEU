@@ -14,7 +14,7 @@ import { EksternalPanel } from "./EksternalPanel";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton, TextAreaField } from "./fields";
 import { NDSatkerForm, NDUE1Form } from "./NDForms";
 import { useSapa } from "./SapaGate";
-import { ErrorInfo, Lihat, errorInfo, errorStatus, formatTanggal, giliranSaatIni, lihatAwal, peranLabel, tahapDilihat } from "./sapa";
+import { ErrorInfo, Lihat, errorInfo, errorStatus, formatTanggal, giliranSaatIni, lihatAwal, peranLabel, punyaTahap, tahapDilihat } from "./sapa";
 import { BAForm, TimForm } from "./TimForm";
 
 // Halaman satu usulan penjualan: linimasa 10 tahap. Tampilan mengikuti peran: pengguna Satker/Kanwil/UE1 langsung melihat
@@ -23,7 +23,7 @@ import { BAForm, TimForm } from "./TimForm";
 // (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
 export function PenjualanDetail({ id }: { id: string }) {
   const saya = useSapa();
-  const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin));
+  const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin, saya.peran));
   const [detail, setDetail] = useState<SapaDetail | null>(null);
   const [error, setError] = useState<{ message: string; hilang: boolean } | null>(null);
   const aktif = useRef(true);
@@ -96,7 +96,8 @@ export function PenjualanDetail({ id }: { id: string }) {
         admin={saya.admin}
         onLihatSemua={() => setLihat("semua")}
         lihat={lihat}
-        tahapSayaTuntas={detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
+        tahapSayaTuntas={punyaTahap(saya.peran) && detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
+        hanyaMelihat={!saya.admin && !punyaTahap(saya.peran)}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -123,9 +124,9 @@ export function PenjualanDetail({ id }: { id: string }) {
   );
 }
 
-// Pemilih sudut pandang. Pengguna biasa: tahap peran sendiri atau semua; admin: semua atau per peran.
+// Pemilih sudut pandang. Pengguna berperan: tahap peran sendiri atau semua; admin dan Pengguna Barang (tanpa tahap sendiri): semua atau per peran.
 function PilihTampilan({ lihat, onChange, saya }: { lihat: Lihat; onChange: (l: Lihat) => void; saya: SapaSaya }) {
-  if (saya.admin) {
+  if (saya.admin || !punyaTahap(saya.peran)) {
     return (
       <Segmented<Lihat>
         label="Tahap yang ditampilkan"
@@ -160,12 +161,14 @@ function GiliranBanner({
   lihat,
   onLihatSemua,
   tahapSayaTuntas,
+  hanyaMelihat,
 }: {
   giliran: ReturnType<typeof giliranSaatIni>;
   admin: boolean;
   lihat: Lihat;
   onLihatSemua: () => void;
   tahapSayaTuntas: boolean; // semua tahap milik peran pengguna sudah selesai/dilewati
+  hanyaMelihat: boolean; // peran tanpa tahap sendiri (Pengguna Barang): hanya memantau
 }) {
   if (giliran.jenis === "selesai") {
     return <NoticeBox tone="ok">Seluruh tahap usulan ini sudah selesai.</NoticeBox>;
@@ -176,6 +179,13 @@ function GiliranBanner({
         {admin ? "Tahap berjalan: " : "Giliran Anda: "}
         <span className="font-semibold">{giliran.label}</span>
         {admin && <span className="text-xs"> (dikerjakan oleh {peranLabel(giliran.peran ?? "")})</span>}
+      </NoticeBox>
+    );
+  }
+  if (hanyaMelihat) {
+    return (
+      <NoticeBox tone="info">
+        Saat ini giliran <span className="font-semibold">{peranLabel(giliran.peran ?? "")}</span>: {giliran.label}. Peran Anda hanya dapat melihat usulan.
       </NoticeBox>
     );
   }

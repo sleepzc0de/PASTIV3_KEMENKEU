@@ -8,7 +8,7 @@ export default function SapaPengaturanPage() {
     <PageShell
       title="Pengaturan SAPA"
       icon={Settings2}
-      description="Template dokumen Word, peran pengguna di SAPA, dan referensi Unit Eselon I. Khusus admin."
+      description="Template dokumen Word, jenis dan satuan BMN, dan referensi Unit Eselon I. Khusus admin. Peran pengguna diatur di Manajemen Pengguna."
     >
       <SapaGate adminOnly>
         <PengaturanSapa />

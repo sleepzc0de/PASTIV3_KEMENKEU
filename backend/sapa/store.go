@@ -58,75 +58,21 @@ func (s *Store) withTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// ---------------------------------------------------------------- peran
+// ---------------------------------------------------------------- pengguna
 
-func (s *Store) PeranPengguna(ctx context.Context, userID string) (*PeranInfo, error) {
-	var nama string
-	var peran, satker, ue1 sql.NullString
-	err := s.DB.QueryRowContext(ctx,
-		`SELECT u.full_name, p.peran, p.kode_satker, p.kode_ue1
-		   FROM users u LEFT JOIN sapa_peran p ON p.user_id = u.id
-		  WHERE u.id = @p1`, userID).Scan(&nama, &peran, &satker, &ue1)
+// NamaPengguna: nama lengkap pengguna aplikasi; kosong bila tidak dikenal. Peran dan cakupan datanya tidak dibaca di sini, melainkan dari peran
+// data aplikasi yang sedang aktif (paket peran, dipasang middleware autentikasi).
+func (s *Store) NamaPengguna(ctx context.Context, userID string) (string, error) {
+	var nama sql.NullString
+	err := s.DB.QueryRowContext(ctx, `SELECT full_name FROM users WHERE id = @p1`, userID).Scan(&nama)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return "", nil
 	}
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &PeranInfo{Nama: nama, Peran: str(peran), KodeSatker: str(satker), KodeUE1: str(ue1)}, nil
+	return str(nama), nil
 }
-
-func (s *Store) DaftarPeran(ctx context.Context, q string, limit int) ([]PeranRow, error) {
-	if limit < 1 || limit > 200 {
-		limit = 50
-	}
-	pola := "%" + likeEscape(q) + "%"
-	rows, err := s.DB.QueryContext(ctx,
-		`SELECT TOP (@p2) CONVERT(NVARCHAR(36), u.id), u.username, u.full_name, u.email, u.role,
-		        ISNULL(p.peran, ''), ISNULL(p.kode_satker, ''), ISNULL(p.kode_ue1, '')
-		   FROM users u LEFT JOIN sapa_peran p ON p.user_id = u.id
-		  WHERE u.is_active = 1
-		    AND (@p1 = '' OR u.username LIKE @p3 OR u.full_name LIKE @p3 OR u.email LIKE @p3)
-		  ORDER BY u.full_name, u.username`, q, limit, pola)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []PeranRow{}
-	for rows.Next() {
-		var r PeranRow
-		if err := rows.Scan(&r.UserID, &r.Username, &r.Nama, &r.Email, &r.PeranApp, &r.Peran, &r.KodeSatker, &r.KodeUE1); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) SimpanPeran(ctx context.Context, userID, peran, kodeSatker, kodeUE1, oleh string) error {
-	return s.withTx(ctx, func(tx *sql.Tx) error {
-		var ada int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM users WHERE id = @p1`, userID).Scan(&ada); err != nil {
-			return err
-		}
-		if ada == 0 {
-			return ErrTidakDitemukan
-		}
-		if peran == "" {
-			_, err := tx.ExecContext(ctx, `DELETE FROM sapa_peran WHERE user_id = @p1`, userID)
-			return err
-		}
-		_, err := tx.ExecContext(ctx,
-			`UPDATE sapa_peran WITH (UPDLOCK, SERIALIZABLE)
-			    SET peran = @p2, kode_satker = @p3, kode_ue1 = @p4, diubah_oleh = @p5, diubah_pada = SYSUTCDATETIME()
-			  WHERE user_id = @p1;
-			 IF @@ROWCOUNT = 0
-			     INSERT INTO sapa_peran (user_id, peran, kode_satker, kode_ue1, diubah_oleh) VALUES (@p1, @p2, @p3, @p4, @p5);`,
-			userID, peran, nullStr(kodeSatker), nullStr(kodeUE1), oleh)
-		return err
-	})
-}
-
 // ---------------------------------------------------------------- usulan
 
 // UUID dibaca sebagai teks (CONVERT) lalu dibakukan ke huruf kecil di scanKasus: driver mengembalikan UNIQUEIDENTIFIER
@@ -215,8 +161,10 @@ func (s *Store) DaftarPenjualan(ctx context.Context, sc Scope, f FilterDaftar) (
 	}
 	switch {
 	case sc.Semua:
-	case sc.Kode18 != "":
-		where = append(where, "p.kode_satker = "+arg(sc.Kode18))
+	case sc.Kode6 != "":
+		where = append(where, "SUBSTRING(p.kode_satker, 10, 6) = "+arg(sc.Kode6))
+	case sc.Kanwil9 != "":
+		where = append(where, "LEFT(p.kode_satker, 9) = "+arg(sc.Kanwil9))
 	case sc.KodeUE1 != "":
 		where = append(where, "p.kode_ue1 = "+arg(sc.KodeUE1))
 	default:
@@ -549,6 +497,31 @@ func (s *Store) SimpanRefUE1(ctx context.Context, r RefUE1, oleh string) error {
 func (s *Store) HapusRefUE1(ctx context.Context, kode string) error {
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM sapa_ref_ue1 WHERE kode = @p1`, kode)
 	return err
+}
+
+// SatkerDenganKode6: satker pada data Digitalisasi Aset yang kode satker 6 digitnya (karakter ke-10 sampai ke-15) sama; induk (akhiran 000) lebih dulu.
+// Dipakai menyiapkan kode satker lengkap pengguna berperan Satker.
+func (s *Store) SatkerDenganKode6(ctx context.Context, kode6 string) ([]SatkerInfo, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT Kode_Satker, Nama_Satker, KabKota_Satker, Provinsi_Satker, Kode_UE1
+		   FROM DIGITALISASI_SATKER
+		  WHERE Kode_Satker IS NOT NULL AND LEN(Kode_Satker) >= 15 AND SUBSTRING(Kode_Satker, 10, 6) = @p1
+		  ORDER BY CASE WHEN SUBSTRING(Kode_Satker, 16, 3) = '000' THEN 0 ELSE 1 END, Kode_Satker`, kode6)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SatkerInfo{}
+	for rows.Next() {
+		var si SatkerInfo
+		var nama, kab, prov, ue1 sql.NullString
+		if err := rows.Scan(&si.Kode, &nama, &kab, &prov, &ue1); err != nil {
+			return nil, err
+		}
+		si.Nama, si.KabKota, si.Provinsi, si.KodeUE1 = str(nama), str(kab), str(prov), str(ue1)
+		out = append(out, si)
+	}
+	return out, rows.Err()
 }
 
 // CariSatker mencari satker pada data Digitalisasi Aset. Kode satker di sana berakhiran "KP" (18 digit + KP),
