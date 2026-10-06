@@ -2,10 +2,14 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Tes integrasi (SQL Server sungguhan, lihat inaproc_integrasi_mssql_test.go) untuk lebar kolom teks: query skema dan migrasi 047.
@@ -51,6 +55,36 @@ func TestPengumumanDenganPokjaBanyakDenganSQLServer(t *testing.T) {
 	}
 	if nipDb != nip || namaDb != nama {
 		t.Errorf("tersimpan nip_pokja %d karakter, nama_pokja %d karakter; want %d dan %d (utuh)", len(nipDb), len(namaDb), len(nip), len(nama))
+	}
+}
+
+// Halaman Penarikan Data membaca daftar dari status penarikan dengan .length/.map, jadi daftar yang kosong harus berupa [] di JSON, bukan null
+// (irisan nil di Go menjadi null). Dulu `bermasalah` null pada server tanpa riwayat kegagalan dan halaman crash.
+func TestStatusPenarikanKirimDaftarSebagaiLarikDenganSQLServer(t *testing.T) {
+	db := dbIntegrasi(t)
+	lama := Penarik
+	Penarik = NewPenarikInaproc(db)
+	t.Cleanup(func() { Penarik = lama })
+	batasUji(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/penarikan", func(c *gin.Context) { c.Set("role", "superadmin"); GetInaprocPenarikan(c) })
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/penarikan", nil))
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	var res struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	for _, kunci := range []string{"bermasalah", "riwayat", "datasets", "kelompok", "tahun_bawaan"} {
+		if _, ok := res.Data[kunci].([]interface{}); !ok {
+			t.Errorf("data.%s = %#v, want larik (bukan null)", kunci, res.Data[kunci])
+		}
 	}
 }
 

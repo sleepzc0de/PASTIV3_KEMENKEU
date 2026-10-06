@@ -5,6 +5,15 @@ import assert from "node:assert/strict";
 //   node --test lib/pengadaan.test.mjs
 const p = await import(new URL("./pengadaan.ts", import.meta.url).href);
 
+test("daftarAman: null atau tidak ada (irisan kosong Go atau backend lebih lama) menjadi larik kosong", () => {
+  assert.deepEqual(p.daftarAman(null), []);
+  assert.deepEqual(p.daftarAman(undefined), []);
+  assert.deepEqual(p.daftarAman([]), []);
+  const isi = [{ a: 1 }];
+  assert.equal(p.daftarAman(isi), isi);
+  assert.equal(p.daftarAman(null).length, 0); // inilah yang sebelumnya melempar TypeError pada null
+});
+
 test("rupiahRingkas memakai satuan T/M/jt dengan koma desimal", () => {
   assert.equal(p.rupiahRingkas(1_250_000_000_000), "Rp 1,25 T");
   assert.equal(p.rupiahRingkas(3_400_000_000), "Rp 3,4 M");

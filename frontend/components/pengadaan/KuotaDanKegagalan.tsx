@@ -2,7 +2,7 @@
 
 import { Gauge, PauseCircle, RotateCw, ShieldCheck, TriangleAlert } from "lucide-react";
 import type { PenarikanKuota, PenarikanOtomatis, TugasBermasalah } from "@/lib/api";
-import { NadaKuota, formatAngka, kalimatKebijakan, kalimatKuota, keadaanBermasalah, labelParameter, nadaKuota, persenPakai, waktuRelatif } from "@/lib/pengadaan";
+import { NadaKuota, daftarAman, formatAngka, kalimatKebijakan, kalimatKuota, keadaanBermasalah, labelParameter, nadaKuota, persenPakai, waktuRelatif } from "@/lib/pengadaan";
 
 const WARNA_BAR: Record<NadaKuota, string> = { normal: "#3358e0", waspada: "#fab219", melambat: "#fab219", habis: "#d03b3b", ditahan: "#d03b3b" };
 
@@ -62,7 +62,8 @@ export function KartuKuota({ kuota }: { kuota: PenarikanKuota }) {
 }
 
 // Tugas yang gagal dan belum pulih: percobaan ulang terjadwal atau istirahat. Kosong = tidak ditampilkan.
-export function PanelBermasalah({ item, otomatis, isAdmin }: { item: TugasBermasalah[]; otomatis: PenarikanOtomatis; isAdmin: boolean }) {
+export function PanelBermasalah({ item: daftarMentah, otomatis, isAdmin }: { item: TugasBermasalah[] | null | undefined; otomatis: PenarikanOtomatis; isAdmin: boolean }) {
+  const item = daftarAman(daftarMentah);
   if (item.length === 0) return null;
   return (
     <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-5" aria-label="Tugas yang gagal ditarik">

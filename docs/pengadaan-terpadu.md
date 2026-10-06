@@ -161,6 +161,11 @@ menjadi `NVARCHAR(MAX)`. Idempotent.
 - 13 handler sinkron lama (RUP dan non-tender) belum punya jaring pengaman lebar kolom: baris yang gagal disimpan tetap dibuang, tetapi kini
   dihitung (`total_failed`) dan muncul di riwayat sebagai "N baris gagal disimpan", selain di log. Kolom yang terbukti sempit pada data asli dilebarkan
   lewat migrasi (048-050).
+- Daftar kosong dari backend harus berupa `[]`, bukan `null` (irisan `nil` di Go menjadi `null` di JSON). `bermasalah` pernah dikirim `null` pada server tanpa
+  riwayat kegagalan sehingga halaman Penarikan Data crash (`Cannot read properties of null (reading 'length')`) padahal di mesin yang punya kegagalan
+  tampil normal. Backend kini menginisialisasi daftarnya (`out := []TugasBermasalah{}`) dan frontend membacanya lewat `daftarAman`; kartu kuota juga
+  disembunyikan bila backend (lebih lama) tidak mengirim `kuota`. Tes integrasi memeriksa bahwa `bermasalah`, `riwayat`, `datasets`, `kelompok`, dan
+  `tahun_bawaan` selalu larik.
 - Sesi login aplikasi (cookie `pasti_access_token`) berakhir sesuai umur JWT tanpa pembaruan otomatis; penarikan yang lebih lama dari itu tetap berjalan
   di server, tetapi halaman mengarahkan ke login (401 pada polling `/inaproc/penarikan/aktif`). Masuk lagi untuk melihat kemajuannya.
 - Dataset rujukan (penyedia, komoditas, distributor, produk penyedia) hanya terisi lewat penarikan per kode; nama di grafik E-Katalog muncul

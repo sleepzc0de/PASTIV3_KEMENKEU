@@ -313,6 +313,12 @@ export function kalimatKebijakan(maks: number, istirahatJam: number): string {
   return `Tugas yang gagal dicoba ulang otomatis sampai ${maks} kali dalam sehari (jarak minimal 10 menit antar percobaan). Setelah ${maks} kali gagal, tugas istirahat ${jam} jam, lalu bisa ditarik ulang.`;
 }
 
+// daftarAman: daftar dari respons backend yang bisa saja null (irisan kosong di Go menjadi null di JSON) atau tidak ada (backend lebih lama dari
+// frontend); selalu dikembalikan sebagai larik supaya .length/.map tidak membuat halaman crash.
+export function daftarAman<T>(daftar: T[] | null | undefined): T[] {
+  return Array.isArray(daftar) ? daftar : [];
+}
+
 export type NadaBermasalah = "ulang" | "istirahat" | "manual";
 
 // Keadaan satu tugas bermasalah: percobaan ulang terjadwal, istirahat, atau di luar rencana otomatis (tidak dicoba otomatis lagi).
