@@ -177,8 +177,19 @@ type Hasil struct {
 
 	Galat map[string]string `json:"galat"`
 
+	// Batas: terisi bila dasbor hanya memuat data satker dalam cakupan peran pengguna (UE1, Kanwil, atau Satker), dan TidakTersedia menyebut bagian yang tidak
+	// dapat dibatasi per satker sehingga tidak dihitung. Keduanya kosong bagi peran yang melihat seluruh data.
+	Batas         *Batas   `json:"batas"`
+	TidakTersedia []string `json:"tidak_tersedia"`
+
 	// Sekarang: patokan waktu aturan yang bergantung bulan/hari (diisi pemanggil; tes menetapkannya).
 	Sekarang time.Time `json:"-"`
+}
+
+// Batas: cakupan data dasbor (tingkat: ue1, kanwil, atau satker; kode: kode peran).
+type Batas struct {
+	Tingkat string `json:"tingkat"`
+	Kode    string `json:"kode"`
 }
 
 // Tingkat wawasan, dari yang paling mendesak.

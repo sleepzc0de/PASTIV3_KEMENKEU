@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/laporan"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
 )
 
@@ -30,11 +32,13 @@ const (
 // Kolom teknis yang tidak ikut ekspor: kunci hash baris dan sisa field API yang belum dipetakan (JSON mentah).
 var kolomTeknis = map[string]bool{"row_key": true, "extra_json": true}
 
-// PenyaringData: penyaring tampilan dan ekspor. Kolom yang tidak dimiliki dataset diabaikan.
+// PenyaringData: penyaring tampilan dan ekspor. Kolom yang tidak dimiliki dataset diabaikan. Cakupan membatasi baris ke satker peran pengguna (nilai nol =
+// semua data, mis. untuk hitungan kelengkapan dasbor yang hanya menanyakan ada-tidaknya data).
 type PenyaringData struct {
 	KodeKLPD string
 	Tahun    string
 	Cari     string
+	Cakupan  peran.Cakupan
 }
 
 func penyaringDariQuery(c *gin.Context) PenyaringData {
@@ -42,6 +46,7 @@ func penyaringDariQuery(c *gin.Context) PenyaringData {
 		KodeKLPD: strings.TrimSpace(c.Query("kode_klpd")),
 		Tahun:    strings.TrimSpace(c.Query("tahun")),
 		Cari:     strings.TrimSpace(c.Query("cari")),
+		Cakupan:  peran.DariGin(c),
 	}
 }
 
@@ -74,6 +79,11 @@ func (d *DatasetPenarikan) where(p PenyaringData) (string, []interface{}) {
 	}
 	if d.KolomTahun != "" && p.Tahun != "" {
 		tambah(kutip(d.KolomTahun)+" = %s", p.Tahun)
+	}
+	if !p.Cakupan.SemuaData() {
+		// Dataset yang tidak dapat dibatasi tidak pernah sampai sini (ditolak pemanggil); bila sampai, kondisinya menutup semua baris.
+		kond, _ := kondisiSatkerInaproc(d.Tabel, p.Cakupan)
+		bagian = append(bagian, "("+kond+")")
 	}
 	if p.Cari != "" && len(d.KolomRingkas) > 0 {
 		args = append(args, "%"+likeAman(p.Cari)+"%")
@@ -224,18 +234,103 @@ func nilaiJSON(v interface{}) interface{} {
 
 // ---- handler ----
 
+// BolehDilihat: apakah data dataset ini boleh dibuka bagi cakupan peran. Peran yang melihat seluruh data boleh semuanya; peran terbatas hanya dataset yang
+// dapat dibatasi per satker (lihat inaproc_cakupan.go).
+func (d *DatasetPenarikan) BolehDilihat(cak peran.Cakupan) bool {
+	return cak.SemuaData() || DapatDibatasi(d.Tabel)
+}
+
 func datasetDariRute(c *gin.Context) (*DatasetPenarikan, bool) {
 	d, ok := DatasetByID(c.Param("awalan") + "/" + c.Param("nama"))
 	if !ok {
 		utils.ErrorResponse(c, http.StatusNotFound, "Dataset tidak dikenal")
+		return nil, false
 	}
-	return d, ok
+	if !d.BolehDilihat(peran.DariGin(c)) {
+		utils.ErrorResponse(c, http.StatusForbidden, "Dataset ini belum dapat dibatasi per satker, jadi tidak tersedia untuk peran Anda")
+		return nil, false
+	}
+	return d, true
 }
 
 type kolomInfo struct {
 	Nama  string `json:"nama"`
 	Label string `json:"label"`
 	Jenis string `json:"jenis"`
+}
+
+// ringkas: jumlah baris dan waktu penarikan terakhir data dataset ini dalam cakupan.
+func (d *DatasetPenarikan) ringkas(ctx context.Context, db *sql.DB, cak peran.Cakupan) (int64, *time.Time, error) {
+	q := "SELECT COUNT_BIG(*), MAX(synced_at) FROM " + kutip(d.Tabel)
+	if !cak.SemuaData() {
+		kond, _ := kondisiSatkerInaproc(d.Tabel, cak)
+		q += " WHERE " + kond
+	}
+	var n int64
+	var t sql.NullTime
+	if err := db.QueryRowContext(ctx, q).Scan(&n, &t); err != nil {
+		return 0, nil, err
+	}
+	if !t.Valid {
+		return n, nil, nil
+	}
+	x := t.Time
+	return n, &x, nil
+}
+
+// GetInaprocDataset: GET /inaproc/dataset. Daftar dataset yang boleh dibuka peran pengguna beserta jumlah barisnya dalam cakupan, untuk halaman Data & Ekspor
+// bagi peran yang dibatasi per satker (peran itu tidak memakai /inaproc/penarikan yang memuat keadaan penarikan seluruh data).
+func GetInaprocDataset(c *gin.Context) {
+	cak := peran.DariGin(c)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), dataTimeout)
+	defer cancel()
+
+	var boleh []*DatasetPenarikan
+	for _, d := range DaftarDataset {
+		if d.BolehDilihat(cak) {
+			boleh = append(boleh, d)
+		}
+	}
+	type hitungan struct {
+		n int64
+		t *time.Time
+	}
+	hasil := make([]hitungan, len(boleh))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+	for i, d := range boleh {
+		wg.Add(1)
+		go func(i int, d *DatasetPenarikan) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			n, t, err := d.ringkas(ctx, database.DB, cak)
+			if err != nil {
+				log.Println("[INAPROC DATA WARN] gagal menghitung", d.ID+":", err)
+				return
+			}
+			hasil[i] = hitungan{n, t}
+		}(i, d)
+	}
+	wg.Wait()
+
+	datasets := make([]infoDataset, 0, len(boleh))
+	for i, d := range boleh {
+		datasets = append(datasets, infoDataset{ID: d.ID, Kelompok: d.Kelompok, Subkelompok: d.Subkelompok, Nama: d.Nama, Deskripsi: d.Deskripsi, Mode: d.Mode, Otomatis: d.Otomatis,
+			PunyaKLPD: d.KolomKLPD != "", PunyaTahun: d.KolomTahun != "", Baris: hasil[i].n, DisinkronAt: hasil[i].t})
+	}
+	kelompok := make([]infoKelompok, 0, len(UrutanKelompok))
+	for _, k := range UrutanKelompok {
+		for _, d := range boleh {
+			if d.Kelompok == k {
+				kelompok = append(kelompok, infoKelompok{ID: k, Nama: NamaKelompok(k)})
+				break
+			}
+		}
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil daftar dataset", gin.H{
+		"kelompok": kelompok, "datasets": datasets, "kode_klpd": kemenkeuKLPDCode, "cakupan": cak,
+	})
 }
 
 // GetInaprocData: halaman data lokal satu dataset (kolom ringkasan) dengan penyaring kode_klpd, tahun, dan cari.
@@ -293,14 +388,19 @@ func GetInaprocData(c *gin.Context) {
 
 	data := gin.H{"dataset": d.ID, "kolom": kolom, "baris": baris, "total": total, "halaman": halaman, "per_halaman": perHalaman}
 	if d.KolomTahun != "" {
-		data["tahun_tersedia"] = d.tahunTersedia(ctx, database.DB)
+		data["tahun_tersedia"] = d.tahunTersedia(ctx, database.DB, p.Cakupan)
 	}
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data", data)
 }
 
-// tahunTersedia: tahun yang ada di tabel, terbaru dulu (kosong bila gagal dibaca).
-func (d *DatasetPenarikan) tahunTersedia(ctx context.Context, db *sql.DB) []string {
-	rows, err := db.QueryContext(ctx, "SELECT DISTINCT "+kutip(d.KolomTahun)+" FROM "+kutip(d.Tabel)+" WHERE "+kutip(d.KolomTahun)+" IS NOT NULL ORDER BY 1 DESC")
+// tahunTersedia: tahun yang ada di tabel (dalam cakupan), terbaru dulu (kosong bila gagal dibaca).
+func (d *DatasetPenarikan) tahunTersedia(ctx context.Context, db *sql.DB, cak peran.Cakupan) []string {
+	batas := ""
+	if !cak.SemuaData() {
+		kond, _ := kondisiSatkerInaproc(d.Tabel, cak)
+		batas = " AND (" + kond + ")"
+	}
+	rows, err := db.QueryContext(ctx, "SELECT DISTINCT "+kutip(d.KolomTahun)+" FROM "+kutip(d.Tabel)+" WHERE "+kutip(d.KolomTahun)+" IS NOT NULL"+batas+" ORDER BY 1 DESC")
 	if err != nil {
 		return []string{}
 	}

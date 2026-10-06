@@ -59,6 +59,12 @@ export function bolehSemuaData(info: PeranInfo | undefined | null): boolean {
   return !info || info.cakupan?.tingkat === "semua";
 }
 
+// Pengadaan terbuka bagi semua peran yang punya data: yang melihat seluruh data melihat semuanya, UE1/Kanwil/Satker melihat pengadaan satkernya. Hanya pengguna yang
+// belum diberi peran (cakupan kosong) sementara pembatasan diwajibkan yang ditolak backend. Tanpa info peran dianggap boleh (yang menentukan hanya backend).
+export function bolehLihatPengadaan(info: PeranInfo | undefined | null): boolean {
+  return !info || info.cakupan?.tingkat !== "kosong";
+}
+
 export interface OpsiPeran {
   id: number | null; // null = peran bawaan akun
   label: string;

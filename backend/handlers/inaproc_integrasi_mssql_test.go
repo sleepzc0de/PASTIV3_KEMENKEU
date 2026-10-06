@@ -14,6 +14,7 @@ import (
 
 	"pasti-v3-backend/analitik"
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/peran"
 )
 
 // Tes integrasi dengan SQL Server sungguhan: memeriksa SQL dasbor, pembaca data/ekspor, pencatatan riwayat penarikan, dan pengaturan
@@ -427,7 +428,7 @@ func TestKatalogDataDenganSQLServer(t *testing.T) {
 			break
 		}
 		src.Close()
-		d.tahunTersedia(ctx, db)
+		d.tahunTersedia(ctx, db, peran.CakupanSemua)
 	}
 }
 

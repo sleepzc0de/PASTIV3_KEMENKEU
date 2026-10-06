@@ -2,7 +2,10 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import { BarChart3, Boxes, DatabaseBackup, FileSignature, Gavel, Loader2, RefreshCw, ShoppingCart } from "lucide-react";
+import { BarChart3, Boxes, DatabaseBackup, FileSignature, Gavel, Info, Loader2, RefreshCw, ShoppingCart } from "lucide-react";
+import { TingkatCakupan } from "@/lib/api";
+import { useDashboard } from "@/lib/dashboard-context";
+import { teksCakupan } from "@/lib/peran";
 import { daftarTahun, formatWaktu, waktuRelatif } from "@/lib/pengadaan";
 import { Alert } from "@/components/ui/Alert";
 import { Tabs } from "@/components/ui/Tabs";
@@ -30,6 +33,7 @@ export function DasborWorkspace() {
   const [klpd, setKlpd] = useState("K10");
   const analitik = useAnalitik(tahunPilih, klpd, 0);
   const { data, isLoading, error } = analitik;
+  const { semuaData } = useDashboard();
 
   const hasil = data?.hasil ?? null;
   const tahunAktif = hasil?.tahun ?? tahunPilih;
@@ -90,22 +94,36 @@ export function DasborWorkspace() {
             </button>
             <Link href="/dashboard/pengadaan-terpadu/penarikan" className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100">
               <DatabaseBackup className="h-3.5 w-3.5" aria-hidden="true" />
-              Penarikan Data
+              {semuaData ? "Penarikan Data" : "Data & Ekspor"}
             </Link>
           </div>
         </div>
       </section>
 
       {error && <Alert message={error} />}
+      {hasil?.batas && (
+        <p role="note" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            Menampilkan pengadaan satker dalam cakupan Anda ({teksCakupan({ tingkat: hasil.batas.tingkat as TingkatCakupan, kode: hasil.batas.kode })}), dihubungkan lewat kode satker pada data Inaproc dan
+            data aset; satker yang belum ada di data aset tidak terlihat oleh UE1 dan Kanwil. Paket E-Katalog dihubungkan lewat kode RUP, jadi paket tanpa kode RUP tidak ikut.
+            {hasil.tidak_tersedia && hasil.tidak_tersedia.length > 0 ? ` Tidak dihitung bagi peran Anda (tidak punya kode satker): ${hasil.tidak_tersedia.join("; ")}.` : ""}
+          </span>
+        </p>
+      )}
       {!hasil && !error && <div role="status" aria-label="Memuat dasbor pengadaan" className="h-64 animate-pulse rounded-2xl bg-slate-100" />}
 
       {hasil && (
         <div className={isLoading ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={isLoading}>
           {kosongSemua ? (
             <KartuKosong
-              judul={`Belum ada data pengadaan untuk ${hasil.kode_klpd} tahun ${hasil.tahun}`}
-              isi="Dasbor dihitung dari salinan data Inaproc di PASTI. Tarik data Pengadaan, Tender, dan E-Katalog lebih dulu (manual atau lewat penarikan otomatis), lalu kembali ke sini."
-              tautan={{ href: "/dashboard/pengadaan-terpadu/penarikan", label: "Buka halaman Penarikan Data" }}
+              judul={hasil.batas ? `Belum ada data pengadaan satker Anda untuk ${hasil.kode_klpd} tahun ${hasil.tahun}` : `Belum ada data pengadaan untuk ${hasil.kode_klpd} tahun ${hasil.tahun}`}
+              isi={
+                hasil.batas
+                  ? "Tidak ada pengadaan dengan kode satker dalam cakupan Anda pada KLPD dan tahun ini. Coba tahun atau KLPD lain, atau hubungi admin bila datanya seharusnya ada."
+                  : "Dasbor dihitung dari salinan data Inaproc di PASTI. Tarik data Pengadaan, Tender, dan E-Katalog lebih dulu (manual atau lewat penarikan otomatis), lalu kembali ke sini."
+              }
+              tautan={{ href: "/dashboard/pengadaan-terpadu/penarikan", label: semuaData ? "Buka halaman Penarikan Data" : "Buka halaman Data & Ekspor" }}
             />
           ) : (
             <div className="space-y-5">

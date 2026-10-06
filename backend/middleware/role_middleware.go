@@ -36,7 +36,20 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 func RequireCakupanSemua() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !peran.DariGin(c).SemuaData() {
-			utils.ErrorResponse(c, http.StatusForbidden, "Data ini hanya tersedia bagi peran yang melihat seluruh data. Untuk peran Anda, gunakan tab Satker di Dashboard.")
+			utils.ErrorResponse(c, http.StatusForbidden, "Keadaan dan pengaturan penarikan data hanya tersedia bagi peran yang melihat seluruh data. Data pengadaan satker Anda ada di menu Pengadaan dan Dashboard.")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireCakupanAda menolak pengguna yang belum diberi peran data sementara pembatasan diwajibkan (cakupan kosong). Dipakai pada data yang dibatasi per
+// satker: peran UE1, Kanwil, dan Satker lolos (datanya dibatasi pembaca), peran yang melihat semua data juga lolos.
+func RequireCakupanAda() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if peran.DariGin(c).Tingkat == peran.Kosong {
+			utils.ErrorResponse(c, http.StatusForbidden, "Akun Anda belum diberi peran data, sehingga belum ada data yang dapat ditampilkan. Hubungi administrator.")
 			c.Abort()
 			return
 		}

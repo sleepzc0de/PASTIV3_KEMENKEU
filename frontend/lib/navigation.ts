@@ -33,8 +33,6 @@ export interface NavGroup {
   label: string;
   icon: React.ElementType;
   roles?: string[];
-  // Hanya untuk peran yang melihat seluruh data (data Pengadaan lengkap belum bisa dibatasi per satker); disembunyikan bagi peran UE1/Kanwil/Satker.
-  hanyaSemuaData?: boolean;
   children: NavItem[];
 }
 
@@ -84,13 +82,12 @@ export const NAV_ENTRIES: NavEntry[] = [
     type: "group",
     label: "Pengadaan",
     icon: ShoppingCart,
-    hanyaSemuaData: true,
     children: [
       {
         label: "Pengadaan Terpadu",
         href: "/dashboard/pengadaan-terpadu/penarikan",
         icon: DatabaseBackup,
-        description: "Tarik data Pengadaan, Tender, dan E-Katalog dari Inaproc secara manual atau otomatis, lalu lihat dan ekspor ke Excel, CSV, atau PDF",
+        description: "Data Pengadaan, Tender, dan E-Katalog dari Inaproc (dibatasi per satker menurut peran): lihat dan ekspor ke Excel, CSV, atau PDF; admin juga menarik datanya",
         matchPrefix: true,
       },
     ],
@@ -126,12 +123,11 @@ export interface FlatNavItem extends NavItem {
 }
 
 // Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti), termasuk halaman turunan.
-export function flattenNav(role?: string, semuaData = true): FlatNavItem[] {
+export function flattenNav(role?: string): FlatNavItem[] {
   const ok = (roles?: string[]) => !roles || (role !== undefined && roles.includes(role));
   const out: FlatNavItem[] = [];
   for (const e of NAV_ENTRIES) {
     if (!ok(e.roles)) continue;
-    if (e.type === "group" && e.hanyaSemuaData && !semuaData) continue;
     if (e.type === "item") {
       out.push(e);
     } else {

@@ -33,15 +33,15 @@ const (
 	kunciAsetSQL = "SUBSTRING(Kode_Satker, 10, 6)"
 	// asetPunyaKode: kode satker aset yang bisa dibaca kunci 6 digitnya.
 	asetPunyaKode = "Kode_Satker IS NOT NULL AND LEN(Kode_Satker) >= 15"
-	// kunciInaprocSQL: kd_satker_str Inaproc yang dirapikan menjadi kunci 6 digit yang sama.
-	kunciInaprocSQL = `CASE WHEN LTRIM(RTRIM(kd_satker_str)) NOT LIKE '%[^0-9]%' AND LEN(LTRIM(RTRIM(kd_satker_str))) BETWEEN 1 AND 6
-		THEN RIGHT('000000' + LTRIM(RTRIM(kd_satker_str)), 6) ELSE LTRIM(RTRIM(kd_satker_str)) END`
 	satkerTimeout = 45 * time.Second
 
 	statusTerhubung      = "terhubung"       // punya data aset dan data pengadaan
 	statusHanyaAset      = "hanya_aset"      // ada di data aset, tidak punya pengadaan pada tahun itu
 	statusHanyaPengadaan = "hanya_pengadaan" // ada di pengadaan, tidak ditemukan di data aset (kode berbeda atau satker tanpa data BMN)
 )
+
+// kunciInaprocSQL: kd_satker_str Inaproc yang dirapikan menjadi kunci 6 digit yang sama (satu sumber dengan pembatasan data Pengadaan per satker).
+var kunciInaprocSQL = kunciSatkerInaprocKolom("kd_satker_str")
 
 type asetSatker struct {
 	Nama, KodeUE1, Jenis string

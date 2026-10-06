@@ -567,6 +567,19 @@ export async function getPenarikanStatus() {
   return res.data;
 }
 
+// Dataset yang boleh dibuka peran pengguna beserta jumlah barisnya dalam cakupan peran (untuk peran yang dibatasi per satker; tidak memuat keadaan penarikan).
+export interface DaftarDatasetPengadaan {
+  kelompok: { id: string; nama: string }[];
+  datasets: PenarikanDataset[];
+  kode_klpd: string;
+  cakupan: CakupanData;
+}
+
+export async function getDaftarDatasetPengadaan() {
+  const res = await api.get<Amplop<DaftarDatasetPengadaan>>("/inaproc/dataset");
+  return res.data;
+}
+
 // Ringan: hanya antrean yang sedang berjalan, untuk polling kemajuan.
 export async function getPenarikanAktif() {
   const res = await api.get<Amplop<{ aktif: PenarikanAktif | null; kuota: PenarikanKuota }>>("/inaproc/penarikan/aktif");
@@ -770,6 +783,9 @@ export interface AnHasil {
   dataset_kosong: string[] | null;
   terakhir_tarik: string | null;
   galat: Record<string, string> | null;
+  // Terisi bila dasbor hanya memuat pengadaan satker dalam cakupan peran (UE1, Kanwil, Satker); tidak_tersedia menyebut bagian yang tak dapat dibatasi per satker.
+  batas: { tingkat: string; kode: string } | null;
+  tidak_tersedia: string[] | null;
 }
 
 export type TingkatWawasan = "penting" | "perhatian" | "info" | "baik";

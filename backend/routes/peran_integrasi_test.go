@@ -333,11 +333,20 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 		if len(ue1List) != 1 || ue1List[0].(map[string]interface{})["kode"] != ue1A {
 			t.Errorf("ringkasan per UE1 = %v, want hanya %s", ue1List, ue1A)
 		}
-		// data Pengadaan lengkap tidak tersedia bagi peran terbatas
-		for _, path := range []string{"/inaproc/analitik", "/inaproc/penarikan", "/inaproc/data/tender/pengumuman", "/inaproc/ekspor/tender/pengumuman"} {
+		// Pengadaan: keadaan penarikan (seluruh data dan operasi admin) tertutup bagi peran terbatas; data, ekspor, dan dasbor terbuka tetapi dibatasi ke satker
+		// (isinya diuji di TestPengadaanDibatasiPerSatkerDenganSQLServer)
+		for _, path := range []string{"/inaproc/penarikan", "/inaproc/penarikan/aktif", "/inaproc/penarikan/riwayat"} {
 			if code, _, _ := panggil(t, "GET", path, budi.token, ""); code != 403 {
 				t.Errorf("GET %s oleh peran UE1 = %d, want 403", path, code)
 			}
+		}
+		for _, path := range []string{"/inaproc/analitik?kode_klpd=UJIP&tahun=2025", "/inaproc/dataset", "/inaproc/data/tender/pengumuman", "/inaproc/ekspor/tender/pengumuman?format=csv"} {
+			if code, _, _ := panggil(t, "GET", path, budi.token, ""); code != 200 {
+				t.Errorf("GET %s oleh peran UE1 = %d, want 200", path, code)
+			}
+		}
+		if code, _, _ := panggil(t, "GET", "/inaproc/data/rup/program-master", budi.token, ""); code != 403 {
+			t.Errorf("program master (tak dapat dibatasi) oleh peran UE1 = %d, want 403", code)
 		}
 		// keterhubungan: aset dalam cakupan, pengadaan hanya untuk satker yang dikenal di sana
 		_, body, _ = panggil(t, "GET", "/satker/keterhubungan?kode_klpd=UJIP&tahun=2025", budi.token, "")

@@ -143,6 +143,25 @@ func (c Cakupan) KondisiSQL(kolom string) string {
 	return "1 = 0"
 }
 
+// KondisiSatker6SQL: potongan WHERE yang membatasi kolom kode satker 6 digit (mis. kd_satker_str Inaproc yang sudah dirapikan) ke cakupan ini. Data seperti itu
+// tidak memuat UE1 atau Kanwil, jadi tingkat UE1/Kanwil memakai daftar satker data aset: kode 6 digit (karakter ke-10 sampai ke-15) satker yang kode lengkapnya
+// berawalan kode cakupan. kolomAset adalah kolom kode satker lengkap pada tabelAset (nama dari kode, bukan masukan pengguna). Satker membandingkan langsung
+// dengan kodenya. Kode diperiksa ulang sebagai angka murni (aman ditulis ke SQL tanpa parameter); kosong/tidak sah menghasilkan "1 = 0" dan semua data "1 = 1".
+func (c Cakupan) KondisiSatker6SQL(kolom, tabelAset, kolomAset string) string {
+	if !c.valid() {
+		return "1 = 0"
+	}
+	switch c.Tingkat {
+	case "", Semua:
+		return "1 = 1"
+	case TingkatSatk:
+		return fmt.Sprintf("(%s) = N'%s'", kolom, c.Kode)
+	case TingkatUE1, TingkatKwl:
+		return fmt.Sprintf("(%[1]s) IN (SELECT SUBSTRING(%[3]s, 10, 6) FROM %[2]s WHERE LEN(%[3]s) >= 15 AND LEFT(%[3]s, %[4]d) = N'%[5]s')", kolom, tabelAset, kolomAset, len(c.Kode), c.Kode)
+	}
+	return "1 = 0"
+}
+
 // BolehKodeSatker: apakah kode satker lengkap (atau awalannya, minimal sepanjang tingkat cakupan) berada dalam cakupan. Padanan KondisiSQL untuk kode
 // tunggal di Go.
 func (c Cakupan) BolehKodeSatker(kodeSatker string) bool {

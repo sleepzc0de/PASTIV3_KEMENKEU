@@ -72,20 +72,27 @@ func SetupRoutes(r *gin.Engine) {
 			referensi.PUT("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.PutRefUE1)
 			referensi.DELETE("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.DeleteRefUE1)
 		}
-		// Data Pengadaan lengkap belum bisa dibatasi per satker, jadi hanya untuk peran yang melihat seluruh data.
-		inaproc := api.Group("/inaproc", middleware.AuthRequired(), middleware.RequireCakupanSemua())
+		// Pengadaan Terpadu (Pengadaan, Tender, E-Katalog V5 dan V6). Data lokal, ekspor, dan dasbor terbuka bagi semua pengguna login dan dibatasi ke satker
+		// menurut peran aktif lewat kd_satker_str (UE1/Kanwil/Satker hanya melihat satkernya dan hanya dataset yang dapat dibatasi; lihat handlers/inaproc_cakupan.go).
+		// Keadaan penarikan memuat seluruh data dan operasi admin, jadi hanya bagi peran yang melihat seluruh data; memulai/membatalkan/mengatur khusus admin.
+		inaproc := api.Group("/inaproc", middleware.AuthRequired())
 		{
-			// Penarikan Data terpadu (Pengadaan, Tender, E-Katalog V5 dan V6): status, penarikan manual dan otomatis, data lokal, ekspor, dasbor.
-			// Membaca terbuka bagi semua pengguna login; memulai/membatalkan/mengatur khusus admin.
-			inaproc.GET("/penarikan", handlers.GetInaprocPenarikan)
-			inaproc.GET("/penarikan/aktif", handlers.GetInaprocPenarikanAktif)
-			inaproc.GET("/penarikan/riwayat", handlers.GetInaprocPenarikanRiwayat)
-			inaproc.POST("/penarikan", middleware.RequireRole("admin", "superadmin"), handlers.StartInaprocPenarikan)
-			inaproc.POST("/penarikan/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelInaprocPenarikan)
-			inaproc.PUT("/penarikan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.PutInaprocPenarikanPengaturan)
-			inaproc.GET("/data/:awalan/:nama", handlers.GetInaprocData)
-			inaproc.GET("/ekspor/:awalan/:nama", handlers.EksporInaprocData)
-			inaproc.GET("/analitik", handlers.GetInaprocAnalitik)
+			dibatasi := inaproc.Group("", middleware.RequireCakupanAda())
+			{
+				dibatasi.GET("/dataset", handlers.GetInaprocDataset)
+				dibatasi.GET("/data/:awalan/:nama", handlers.GetInaprocData)
+				dibatasi.GET("/ekspor/:awalan/:nama", handlers.EksporInaprocData)
+				dibatasi.GET("/analitik", handlers.GetInaprocAnalitik)
+			}
+			penarikan := inaproc.Group("", middleware.RequireCakupanSemua())
+			{
+				penarikan.GET("/penarikan", handlers.GetInaprocPenarikan)
+				penarikan.GET("/penarikan/aktif", handlers.GetInaprocPenarikanAktif)
+				penarikan.GET("/penarikan/riwayat", handlers.GetInaprocPenarikanRiwayat)
+				penarikan.POST("/penarikan", middleware.RequireRole("admin", "superadmin"), handlers.StartInaprocPenarikan)
+				penarikan.POST("/penarikan/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelInaprocPenarikan)
+				penarikan.PUT("/penarikan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.PutInaprocPenarikanPengaturan)
+			}
 		}
 	}
 
