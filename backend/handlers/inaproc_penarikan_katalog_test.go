@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -258,6 +259,46 @@ func TestJalankanTulisanBerhasilMelaluiHandlerLama(t *testing.T) {
 	// Uji sambungan (limit=1) lalu penarikan sungguhan (limit=1000).
 	if p.Permintaan() != 2 {
 		t.Errorf("permintaan ke Inaproc = %d, want 2", p.Permintaan())
+	}
+}
+
+// Baris yang gagal disimpan oleh handler lama (mis. kolom kurang lebar) dihitung dan dilaporkan di hasil dan riwayat, tidak hanya masuk log.
+func TestJalankanTulisanMelaporkanBarisYangGagalDisimpan(t *testing.T) {
+	p := newInaprocPalsu(t, func(r *http.Request) (int, string) {
+		return 200, `{"success":true,"data":[
+			{"kd_rup":1001,"kd_klpd":"K10","tahun_anggaran":2025,"nama_paket":"Paket satu"},
+			{"kd_rup":1002,"kd_klpd":"K10","tahun_anggaran":2025,"nama_paket":"Paket dua"},
+			{"kd_rup":1003,"kd_klpd":"K10","tahun_anggaran":2025,"nama_paket":"Paket tiga"}],
+			"meta":{"limit":1000,"has_more":false,"cursor":""}}`
+	})
+	pasangKonfigInaproc(t, p.URL, "token-uji")
+	f := pasangDBPalsu(t)
+	sisipan := 0
+	f.OnExec = func(q string, _ []driver.NamedValue) error {
+		if strings.HasPrefix(strings.TrimSpace(q), "INSERT INTO inaproc_paket_penyedia") {
+			if sisipan++; sisipan == 2 {
+				return errors.New("String or binary data would be truncated")
+			}
+		}
+		return nil
+	}
+
+	d, _ := DatasetByID("rup/paket-penyedia")
+	hasil, err := d.Jalankan(context.Background(), d.Normalisasi(PermintaanTarik{Tahun: "2025"}), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasil.TotalSinkron != 2 || hasil.TotalGagal != 1 {
+		t.Errorf("hasil = %+v, want 2 tersimpan dan 1 gagal", hasil)
+	}
+	var catatan interface{}
+	for _, ex := range f.Execs() {
+		if strings.Contains(ex.Query, "INTO inaproc_sync_log") {
+			catatan = ex.Args[6].Value
+		}
+	}
+	if s, _ := catatan.(string); !strings.Contains(s, "1 baris gagal disimpan") {
+		t.Errorf("catatan sync_log = %#v, want memuat '1 baris gagal disimpan'", catatan)
 	}
 }
 

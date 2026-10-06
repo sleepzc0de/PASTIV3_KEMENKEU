@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -103,18 +104,41 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
+var tagHTML = regexp.MustCompile(`<[^>]*>`)
+
+// ringkasBadan: isi respons sebagai satu baris pendek (tag HTML dibuang, spasi dipadatkan), untuk pesan galat dan log. Kosong bila tidak ada teks.
+func ringkasBadan(body []byte, n int) string {
+	return potong(strings.Join(strings.Fields(tagHTML.ReplaceAllString(string(body), " ")), " "), n)
+}
+
+// extractInaprocErrorMessage mengambil alasan penolakan dari respons galat Inaproc. Bentuk yang dikenali: {"error":{"message","details"}},
+// {"error":"teks"}, dan {"message":"teks"}; selain itu potongan isi responsnya ikut disertakan supaya alasan penolakan (mis. 403) terlihat
+// dan tidak hanya "status 403".
 func extractInaprocErrorMessage(body []byte, statusCode int) string {
-	var errResp struct {
-		Error struct {
+	var resp struct {
+		Error   json.RawMessage `json:"error"`
+		Message string          `json:"message"`
+	}
+	if err := json.Unmarshal(body, &resp); err == nil {
+		var obj struct {
 			Message string `json:"message"`
 			Details string `json:"details"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
-		if errResp.Error.Details != "" {
-			return errResp.Error.Message + ": " + errResp.Error.Details
 		}
-		return errResp.Error.Message
+		var teks string
+		switch {
+		case json.Unmarshal(resp.Error, &obj) == nil && obj.Message != "":
+			if obj.Details != "" {
+				return obj.Message + ": " + obj.Details
+			}
+			return obj.Message
+		case json.Unmarshal(resp.Error, &teks) == nil && teks != "":
+			return teks
+		case resp.Message != "":
+			return resp.Message
+		}
+	}
+	if s := ringkasBadan(body, 160); s != "" {
+		return fmt.Sprintf("status %d: %s", statusCode, s)
 	}
 	return fmt.Sprintf("status %d", statusCode)
 }
@@ -234,7 +258,7 @@ func SyncHistoryKajiUlang(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama history-kaji-ulang:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -289,6 +313,7 @@ func SyncHistoryKajiUlang(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertKajiUlang(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -300,8 +325,8 @@ func SyncHistoryKajiUlang(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("history-kaji-ulang", req.KodeKLPD, req.Tahun, req.JenisPaket, "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("history-kaji-ulang", req.KodeKLPD, req.Tahun, req.JenisPaket, "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // generateRowHash: dipakai karena datamart_id di dokumentasi History Kaji
@@ -485,7 +510,7 @@ func SyncPaketAnggaranPenyedia(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-anggaran-penyedia:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -542,6 +567,7 @@ func SyncPaketAnggaranPenyedia(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertPaketAnggaran(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-anggaran:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -553,8 +579,8 @@ func SyncPaketAnggaranPenyedia(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-anggaran-penyedia", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-anggaran-penyedia", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // generatePaketRowHash: kombinasi field yang secara logis unik per baris
@@ -817,7 +843,7 @@ func SyncPaketPenyedia(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-penyedia:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 500 // paket penyedia biasanya lebih banyak baris dari 2 endpoint sebelumnya
@@ -877,6 +903,7 @@ func SyncPaketPenyedia(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertPaketPenyedia(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-penyedia:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -888,8 +915,8 @@ func SyncPaketPenyedia(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-penyedia", req.KodeKLPD, req.Tahun, req.Status, "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-penyedia", req.KodeKLPD, req.Tahun, req.Status, "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // generatePaketPenyediaRowHash: hash SELURUH isi baris (bukan kombinasi
@@ -1161,7 +1188,7 @@ func SyncPaketSwakelola(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-swakelola:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -1221,6 +1248,7 @@ func SyncPaketSwakelola(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertPaketSwakelola(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-swakelola:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -1232,8 +1260,8 @@ func SyncPaketSwakelola(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-swakelola", req.KodeKLPD, req.Tahun, req.Status, "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // generatePaketSwakelolaRowHash: hash seluruh isi baris, konsisten dengan
@@ -1384,7 +1412,7 @@ func SyncProgramMaster(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama program-master:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -1446,6 +1474,7 @@ func SyncProgramMaster(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertProgramMaster(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris program-master:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -1457,8 +1486,8 @@ func SyncProgramMaster(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("program-master", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("program-master", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // generateProgramMasterRowHash: hash seluruh isi baris, konsisten dengan
@@ -1605,7 +1634,7 @@ func SyncPaketSwakelolaTerumumkan(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-swakelola-terumumkan:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -1665,6 +1694,7 @@ func SyncPaketSwakelolaTerumumkan(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertPaketSwakelolaTerumumkan(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-swakelola-terumumkan:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -1676,8 +1706,8 @@ func SyncPaketSwakelolaTerumumkan(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-swakelola-terumumkan", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-swakelola-terumumkan", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 func generatePaketSwakelolaTerumumkanRowHash(row map[string]interface{}) string {
@@ -1858,7 +1888,7 @@ func SyncPaketPenyediaTerumumkan(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-penyedia-terumumkan:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 500
@@ -1915,6 +1945,7 @@ func SyncPaketPenyediaTerumumkan(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := upsertPaketPenyediaTerumumkan(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-penyedia-terumumkan:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -1926,8 +1957,8 @@ func SyncPaketPenyediaTerumumkan(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-penyedia-terumumkan", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 func generatePaketPenyediaTerumumkanRowHash(row map[string]interface{}) string {
@@ -2140,7 +2171,7 @@ func SyncPaketAnggaranSwakelola(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama paket-anggaran-swakelola:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -2197,6 +2228,7 @@ func SyncPaketAnggaranSwakelola(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertPaketAnggaranSwakelola(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris paket-anggaran-swakelola:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -2208,8 +2240,8 @@ func SyncPaketAnggaranSwakelola(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("paket-anggaran-swakelola", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("paket-anggaran-swakelola", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 func generatePaketAnggaranSwakelolaRowHash(row map[string]interface{}) string {

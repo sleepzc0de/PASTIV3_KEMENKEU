@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -256,6 +257,7 @@ func (d *DatasetPenarikan) jalankanTulisan(ctx context.Context, p PermintaanTari
 		Message string `json:"message"`
 		Data    struct {
 			TotalSynced int `json:"total_synced"`
+			TotalFailed int `json:"total_failed"`
 			Halaman     int `json:"pages_fetched"`
 		} `json:"data"`
 	}
@@ -267,13 +269,17 @@ func (d *DatasetPenarikan) jalankanTulisan(ctx context.Context, p PermintaanTari
 		}
 		return HasilSinkron{}, &GalatSinkron{Status: kode, Pesan: pesan, Hulu: kode == http.StatusTooManyRequests}
 	}
-	return HasilSinkron{TotalSinkron: amplop.Data.TotalSynced, Halaman: amplop.Data.Halaman}, nil
+	return HasilSinkron{TotalSinkron: amplop.Data.TotalSynced, TotalGagal: amplop.Data.TotalFailed, Halaman: amplop.Data.Halaman}, nil
 }
+
+// mesinHandlerLama: satu mesin gin bersama untuk konteks buatan. gin.CreateTestContext membuat mesin baru tiap dipanggil, dan di mode debug tiap
+// mesin baru mencetak peringatan "Running in debug mode" ke log, sehingga log penuh pengulangan di tiap tugas dataset lama.
+var mesinHandlerLama = sync.OnceValue(func() *gin.Engine { return gin.New() })
 
 // panggilHandlerGin memanggil handler gin di dalam proses dengan badan JSON dan pengguna pemicu (kosong = penarikan otomatis).
 func panggilHandlerGin(h gin.HandlerFunc, badan interface{}, oleh string) (int, []byte) {
 	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
+	c := gin.CreateTestContextOnly(rec, mesinHandlerLama())
 	b, _ := json.Marshal(badan)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(b))
 	c.Request.Header.Set("Content-Type", "application/json")
