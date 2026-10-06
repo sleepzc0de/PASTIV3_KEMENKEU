@@ -6,6 +6,7 @@ import { FormatEkspor, PemisahCsv, PenarikanStatus, eksporInaprocData } from "@/
 import { formatAngka, formatPersen, formatWaktu, kelompokkanDataset } from "@/lib/pengadaan";
 import { Alert } from "@/components/ui/Alert";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TombolUnduh } from "@/components/ui/TombolUnduh";
 import { useToast } from "@/components/ui/Toast";
 import { simpanBlob } from "../sapa/download";
 import { errorMessage } from "../digitalisasi/useDigitalisasi";
@@ -258,33 +259,4 @@ function sel(v: string | number | boolean | null, jenis: "teks" | "angka" | "tan
   // Tanggal disimpan tanpa zona; tanggal tanpa jam ditulis tanggalnya saja.
   if (jenis === "tanggal") return v.endsWith(" 00:00:00") ? v.slice(0, 10) : v;
   return v;
-}
-
-function TombolUnduh({
-  format,
-  label,
-  ikon: Ikon,
-  sibuk,
-  nonaktif,
-  onKlik,
-}: {
-  format: FormatEkspor;
-  label: string;
-  ikon: typeof FileText;
-  sibuk: FormatEkspor | null;
-  nonaktif: boolean;
-  onKlik: (f: FormatEkspor) => void;
-}) {
-  const aktif = sibuk === format;
-  return (
-    <button
-      type="button"
-      onClick={() => onKlik(format)}
-      disabled={nonaktif || sibuk !== null}
-      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-55"
-    >
-      {aktif ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Ikon className="h-4 w-4" aria-hidden="true" />}
-      {aktif ? "Menyiapkan..." : label}
-    </button>
-  );
 }

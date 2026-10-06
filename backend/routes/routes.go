@@ -47,6 +47,7 @@ func SetupRoutes(r *gin.Engine) {
 		{
 			digitalisasi.GET("/ringkasan", handlers.GetDigitalisasiRingkasan)
 			digitalisasi.GET("/peta", handlers.GetDigitalisasiPeta)
+			digitalisasi.GET("/ekspor/:dataset", handlers.EksporDigitalisasiData)
 			digitalisasi.GET("/data/:dataset", handlers.ListDigitalisasiData)
 			digitalisasi.GET("/data/:dataset/:id", handlers.GetDigitalisasiDetail)
 			digitalisasi.GET("/sinkronisasi", handlers.GetDigitalisasiSinkronisasi)

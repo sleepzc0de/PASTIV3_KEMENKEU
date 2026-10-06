@@ -99,11 +99,30 @@ Nilai di luar rentang diganti bawaannya. Restart backend setelah mengubahnya.
 - Warna jenis aset tetap per jenis (tanah biru, kantor utama jingga, gedung lainnya aqua, rusunara merah muda, rumah negara
   ungu, mess kuning).
 
+## Unduh data (tab Data)
+
+Tiap dataset di tab **Data** (Tanah, Kantor Utama, Gedung Lain, Rusunara, Rumah Negara, Mess, dan Satker) punya tombol **Excel**, **CSV**, dan
+**PDF** di atas tabel. Unduhan mengikuti pencarian dan filter yang sedang berlaku di layar (kata kunci, unit eselon I, provinsi, kondisi, jenis
+satker, "belum punya koordinat"), bukan hanya halaman yang tampil. Berkas yang disaring bernama `digitalisasi-<dataset>-disaring_<tanggal>.<ext>`.
+
+- **Endpoint**: `GET /api/v1/digitalisasi/ekspor/:dataset?format=xlsx|csv|pdf` dengan penyaring yang sama dengan daftar (`q`, `ue1`, `provinsi`,
+  `kondisi`, `jenis_satker`, `tanpa_koordinat`); CSV menerima `pemisah=titik-koma|koma|tab` (bawaan titik koma, untuk Excel Indonesia). Dapat
+  dipakai semua pengguna login, sama seperti daftar. Kode: `backend/handlers/digitalisasi_ekspor.go`; penyaringnya dipakai bersama daftar
+  (`dgFilter`) sehingga keduanya tidak bisa berbeda.
+- **Excel dan CSV** memuat **semua kolom** tabel (bukan hanya kolom tabel di layar) dan waktu sinkronisasi; kolom teknis (`id`, `id_sinkron`) tidak
+  ikut. Judul kolom sama dengan yang terlihat di layar, dengan satuan (`Luas ... (m²)`, `Nilai ... (Rp)`); lintang dan bujur ditulis sebagai bilangan
+  dengan tujuh desimal. Waktu sinkronisasi (disimpan UTC) ditulis dalam **WIB**. Excel dibatasi satu sheet (1.048.575 baris); bila lebih, server
+  menyarankan CSV.
+- **PDF** memuat kolom ringkasan seperti tabel di layar (satker, uraian, kab/kota, provinsi, luas, kondisi, nilai; satker: kode, nama, jenis,
+  kab/kota, provinsi, KDJ, KDO) dan dibatasi 5.000 baris.
+- Baris dibaca dan ditulis mengalir, jadi tabel besar tidak dimuat seluruhnya ke memori (batas waktu 10 menit).
+- **Kolom pribadi** (lihat bagian berikut) tidak ikut berkas milik pengguna biasa.
+
 ## Data pribadi
 
 `DIGITALISASI_RUMAH_NEGARA.Nama_Penghuni` (nama pemakai dari `SIMAN2_M_ASET_PEMAKAI`) hanya dikirim ke admin/superadmin: tidak ikut
-daftar, detail, maupun pencarian untuk pengguna lain. Pesan galat sinkronisasi (bisa memuat nama server/tabel) juga hanya terlihat
-admin.
+daftar, detail, pencarian, maupun unduhan Excel/CSV/PDF untuk pengguna lain. Pesan galat sinkronisasi (bisa memuat nama server/tabel) juga hanya
+terlihat admin.
 
 ## Menjalankan pertama kali
 

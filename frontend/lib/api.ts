@@ -2636,10 +2636,19 @@ export async function getInaprocData(dataset: string, params: PenyaringData & { 
 export type FormatEkspor = "xlsx" | "csv" | "pdf";
 export type PemisahCsv = "titik-koma" | "koma" | "tab";
 
-// Berkas diambil lewat axios (butuh header Authorization) lalu disimpan dari blob. Galat dari server datang sebagai blob JSON; pesannya dibaca di sini.
 export async function eksporInaprocData(dataset: string, params: PenyaringData & { format: FormatEkspor; pemisah?: PemisahCsv }) {
+  return ambilBerkas(`/inaproc/ekspor/${dataset}`, params);
+}
+
+// Unduhan data Digitalisasi Aset: penyaringnya sama dengan daftar (tanpa halaman). CSV memakai pemisah titik koma (bawaan server, untuk Excel Indonesia).
+export async function eksporDigitalisasi(dataset: DGDatasetKey, params: Omit<DGListParams, "page" | "per_page"> & { format: FormatEkspor }) {
+  return ambilBerkas(`/digitalisasi/ekspor/${dataset}`, params);
+}
+
+// Berkas diambil lewat axios (butuh header Authorization) lalu disimpan dari blob. Galat dari server datang sebagai blob JSON; pesannya dibaca di sini.
+async function ambilBerkas(url: string, params: object) {
   try {
-    const res = await api.get<Blob>(`/inaproc/ekspor/${dataset}`, { params, responseType: "blob" });
+    const res = await api.get<Blob>(url, { params, responseType: "blob" });
     return { blob: res.data, disposition: String(res.headers["content-disposition"] ?? "") };
   } catch (err) {
     const data = (err as { response?: { data?: unknown } })?.response?.data;

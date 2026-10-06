@@ -29,6 +29,9 @@ type Opsi struct {
 	Subjudul  []string // baris keterangan (penyaring, waktu cetak) di PDF
 	NamaSheet string   // nama sheet Excel
 	Total     int64    // jumlah seluruh baris yang cocok (untuk keterangan PDF yang dipotong); negatif = tidak diketahui
+	// FormatKolom: format angka Excel khusus per kolom (indeks kolom mulai 0 → mis. "0.0000000") untuk nilai desimal; kolom lain memakai #,##0.00.
+	// Dipakai untuk koordinat, yang kehilangan ketelitian tampilannya bila hanya dua desimal.
+	FormatKolom map[int]string
 }
 
 // MaksBarisExcel: batas baris data satu sheet Excel (1.048.576 baris dikurangi baris judul kolom).
@@ -190,6 +193,18 @@ func XLSX(w io.Writer, o Opsi, kolom []string, src Sumber) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	styleKolom := map[int]int{} // indeks kolom → gaya angka khusus (Opsi.FormatKolom)
+	styleFormat := map[string]int{}
+	for i, format := range o.FormatKolom {
+		st, ada := styleFormat[format]
+		if !ada {
+			if st, err = f.NewStyle(&excelize.Style{CustomNumFmt: strPtr(format)}); err != nil {
+				return 0, err
+			}
+			styleFormat[format] = st
+		}
+		styleKolom[i] = st
+	}
 	styleJudul, err := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
 		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"1F3A8A"}},
@@ -253,7 +268,11 @@ func XLSX(w io.Writer, o Opsi, kolom []string, src Sumber) (int, error) {
 				}
 				sel[i] = excelize.Cell{Value: v, StyleID: st}
 			case float64:
-				sel[i] = excelize.Cell{Value: v, StyleID: styleDesimal}
+				st := styleDesimal
+				if khusus, ada := styleKolom[i]; ada {
+					st = khusus
+				}
+				sel[i] = excelize.Cell{Value: v, StyleID: st}
 			default:
 				sel[i] = v
 			}
