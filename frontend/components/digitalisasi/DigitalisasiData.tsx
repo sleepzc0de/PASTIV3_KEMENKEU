@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/Alert";
 import { TombolUnduh } from "@/components/ui/TombolUnduh";
 import { useToast } from "@/components/ui/Toast";
 import { formatNumber } from "@/lib/dasbor";
+import { useRefUE1 } from "@/lib/useRefUE1";
 import { simpanBlob } from "../sapa/download";
 import { Segmented, SelectField } from "./controls";
 import { DATASET_LABEL, DATASET_SHORT, TABLE_COLUMNS, TITLE_COLUMN, formatCell } from "./digitalisasi";
@@ -20,6 +21,7 @@ export interface DataPreset {
   nonce: number;
   dataset: DGDatasetKey;
   tanpaKoordinat?: boolean;
+  q?: string; // kata kunci awal (mis. kode satker dari Dashboard)
 }
 
 interface Props {
@@ -30,6 +32,7 @@ interface Props {
 
 export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
   const toast = useToast();
+  const refUE1 = useRefUE1();
   const [mengunduh, setMengunduh] = useState<FormatEkspor | null>(null);
   const [dataset, setDataset] = useState<DGDatasetKey>("tanah");
   const [q, setQ] = useState("");
@@ -73,6 +76,10 @@ export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
     resetFilters();
     setDataset(preset.dataset);
     setTanpaKoordinat(Boolean(preset.tanpaKoordinat));
+    if (preset.q) {
+      setQ(preset.q);
+      setQApplied(preset.q);
+    }
   }, [preset]);
 
   useEffect(() => {
@@ -164,7 +171,7 @@ export function DigitalisasiData({ version, preset, onOpenDetail }: Props) {
           />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {current?.filter.ue1 && <SelectField label="Unit eselon I" value={ue1} onChange={filter(setUe1)} options={toOptions(current.filter.ue1)} />}
+          {current?.filter.ue1 && <SelectField label="Unit eselon I" value={ue1} onChange={filter(setUe1)} options={refUE1.opsi(current.filter.ue1)} />}
           {current?.filter.provinsi && <SelectField label="Provinsi" value={provinsi} onChange={filter(setProvinsi)} options={toOptions(current.filter.provinsi)} />}
           {current?.filter.kondisi && <SelectField label="Kondisi" value={kondisi} onChange={filter(setKondisi)} options={toOptions(current.filter.kondisi)} />}
           {dataset === "satker" && (

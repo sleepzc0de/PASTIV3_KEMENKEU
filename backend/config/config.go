@@ -46,6 +46,11 @@ type Config struct {
 	SLDKDBPassword string
 	SLDKDBName     string
 
+	// ============ Peran data ============
+	// PeranDataWajib: pengguna biasa yang belum diberi peran data tidak melihat data apa pun. Bawaan false: pengguna tanpa peran tetap melihat semua data
+	// (perilaku lama) sampai admin selesai memberi peran, baru dinyalakan (PERAN_DATA_WAJIB=true).
+	PeranDataWajib bool
+
 	// ============ Sinkronisasi otomatis Digitalisasi Aset ============
 	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Hanya berjalan bila SLDK tersambung.
 	DigitalisasiAutoSync         bool
@@ -122,6 +127,8 @@ func LoadConfig() {
 		SLDKDBUser:     getEnv("SLDK_DB_USER", ""),
 		SLDKDBPassword: getEnv("SLDK_DB_PASSWORD", ""),
 		SLDKDBName:     getEnv("SLDK_DB_NAME", ""),
+
+		PeranDataWajib: getEnvBool("PERAN_DATA_WAJIB", false),
 
 		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),

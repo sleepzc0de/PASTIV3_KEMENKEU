@@ -24,13 +24,13 @@ const TABS: { key: TabKey; label: string; icon: typeof Map }[] = [
   { key: "sinkronisasi", label: "Sinkronisasi", icon: RefreshCw },
 ];
 
-// Tautan dari halaman lain (mis. Dashboard Aset): ?tab=data&dataset=tanah&tanpa_koordinat=1 membuka tab Data pada dataset itu dengan filter terpasang.
+// Tautan dari halaman lain (mis. Dashboard): ?tab=data&dataset=tanah&tanpa_koordinat=1&q=119091 membuka tab Data pada dataset itu dengan filter dan kata kunci terpasang.
 function awalDariAlamat(params: URLSearchParams): { tab: TabKey; preset?: DataPreset } {
   const t = params.get("tab");
   const tab = TABS.some((x) => x.key === t) ? (t as TabKey) : "ringkasan";
   const ds = params.get("dataset");
   if (tab === "data" && ds && ds in DATASET_LABEL) {
-    return { tab, preset: { nonce: 1, dataset: ds as DGDatasetKey, tanpaKoordinat: params.get("tanpa_koordinat") === "1" } };
+    return { tab, preset: { nonce: 1, dataset: ds as DGDatasetKey, tanpaKoordinat: params.get("tanpa_koordinat") === "1", q: (params.get("q") ?? "").trim().slice(0, 100) || undefined } };
   }
   return { tab };
 }

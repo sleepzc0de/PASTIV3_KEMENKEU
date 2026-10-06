@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, MapPin, ShieldAlert } from "lucide-react";
 import { DGDatasetKey, DGDetailData, getDGDetail } from "@/lib/api";
 import { formatDateTime } from "@/lib/dasbor";
+import { useRefUE1 } from "@/lib/useRefUE1";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { DATASET_LABEL, TITLE_COLUMN, columnLabel, formatCell } from "./digitalisasi";
@@ -19,6 +20,7 @@ interface Props {
 export function RecordDetailModal({ dataset, id, onClose, onShowOnMap }: Props) {
   const [data, setData] = useState<DGDetailData | null>(null);
   const [error, setError] = useState("");
+  const ue1 = useRefUE1();
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +83,9 @@ export function RecordDetailModal({ dataset, id, onClose, onShowOnMap }: Props) 
                         ? raw.toFixed(6)
                         : /^Luas_/.test(c.nama) && typeof raw === "number"
                           ? `${formatCell(c, c.nama, raw)} m²`
-                          : formatCell(c, c.nama, raw)}
+                          : c.nama === "Kode_UE1" && typeof raw === "string" && raw !== ""
+                            ? ue1.kodeUraian(raw) // kode bersama uraian dan singkatannya dari referensi UE1
+                            : formatCell(c, c.nama, raw)}
                     </dd>
                   </div>
                 );

@@ -167,6 +167,13 @@ func TestEksporCSVSemuaKolomDanKolomPribadi(t *testing.T) {
 		if has := strings.Contains(judul, "Nama Penghuni"); has != tc.admin {
 			t.Errorf("%s: judul memuat Nama Penghuni = %v, want %v (%s)", tc.role, has, tc.admin, judul)
 		}
+		// Singkatan dan uraian UE1 dari referensi (subquery ke ref_ue1) tepat setelah kode UE1, bukan kolom tabel sehingga tidak ikut di PDF ringkas.
+		if !strings.Contains(judul, "Kode UE1;Singkatan UE1;Uraian UE1;") {
+			t.Errorf("%s: judul tidak memuat Kode UE1;Singkatan UE1;Uraian UE1 berurutan: %s", tc.role, judul)
+		}
+		if !strings.Contains(sel, "FROM ref_ue1 r WHERE r.kode = [Kode_UE1]) AS [Singkatan_UE1]") || !strings.Contains(sel, "SELECT TOP (1) r.nama FROM ref_ue1 r") {
+			t.Errorf("%s: SELECT tidak membaca singkatan dan uraian UE1 dari ref_ue1: %s", tc.role, sel)
+		}
 		for _, mau := range []string{"Luas Rumah Negara (m²)", "Lintang", "Bujur", "Disinkronkan (WIB)"} {
 			if !strings.Contains(judul, mau) {
 				t.Errorf("%s: judul tidak memuat %q: %s", tc.role, mau, judul)

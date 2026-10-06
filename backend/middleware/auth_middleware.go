@@ -1,13 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log"
 	"net/http"
 	"strings"
 
+	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +22,11 @@ var userIsActive = func(userID string) (bool, error) {
 	var isActive bool
 	err := database.DB.QueryRow(`SELECT is_active FROM users WHERE id = @p1`, userID).Scan(&isActive)
 	return isActive, err
+}
+
+// muatPeran menentukan peran data yang berlaku (peran aktif dan cakupan datanya). Berupa variabel agar bisa diganti di tes tanpa database.
+var muatPeran = func(ctx context.Context, userID, akunRole string) (peran.Efektif, error) {
+	return peran.Muat(ctx, userID, akunRole, config.Cfg != nil && config.Cfg.PeranDataWajib)
 }
 
 func AuthRequired() gin.HandlerFunc {
@@ -63,9 +71,23 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
+		// Peran data yang berlaku: akun admin/superadmin memakai peran akunnya kecuali sedang bertindak sebagai peran data; peran data menentukan
+		// cakupan data (peran.DariGin) dan, selama aktif, menurunkan hak administrasi menjadi pengguna biasa. Tabel peran yang belum ada (migrasi 053
+		// belum dijalankan) diperlakukan seperti belum ada peran, bukan galat, supaya penerapan kode sebelum migrasi tidak mengunci semua pengguna.
+		ef, err := muatPeran(c.Request.Context(), claims.UserID, claims.Role)
+		if peran.TabelBelumAda(err) {
+			ef, err = peran.Selesaikan(claims.Role, nil, false), nil
+		}
+		if err != nil {
+			log.Println("[AUTH ERROR] gagal menentukan peran:", err)
+			utils.ErrorResponse(c, http.StatusInternalServerError, "Terjadi kesalahan pada server")
+			c.Abort()
+			return
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
+		peran.Pasang(c, ef)
 		c.Next()
 	}
 }

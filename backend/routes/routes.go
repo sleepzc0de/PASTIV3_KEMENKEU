@@ -19,6 +19,9 @@ func SetupRoutes(r *gin.Engine) {
 			auth.POST("/register", handlers.Register)
 			auth.POST("/login", handlers.Login)
 			auth.GET("/me", middleware.AuthRequired(), handlers.Me)
+			// Peran data: daftar peran sendiri dan berpindah peran aktif.
+			auth.GET("/peran", middleware.AuthRequired(), handlers.GetPeranSaya)
+			auth.POST("/peran/aktif", middleware.AuthRequired(), handlers.PostPeranAktif)
 		}
 
 		users := api.Group("/users", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
@@ -30,6 +33,10 @@ func SetupRoutes(r *gin.Engine) {
 			users.PUT("/:id/role", handlers.UpdateUserRole)
 			users.PUT("/:id/deactivate", handlers.DeactivateUser)
 			users.DELETE("/:id", handlers.DeleteUser)
+			// Peran data pengguna (Pengguna Barang, UE1, Kanwil, Satker) dan cakupan datanya.
+			users.GET("/:id/peran", handlers.GetPeranPengguna)
+			users.POST("/:id/peran", handlers.PostPeranPengguna)
+			users.DELETE("/:id/peran/:peranId", handlers.DeletePeranPengguna)
 		}
 
 		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna login; sinkronisasi khusus admin).
@@ -56,7 +63,17 @@ func SetupRoutes(r *gin.Engine) {
 			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
 		}
 
-		inaproc := api.Group("/inaproc", middleware.AuthRequired())
+		// Keterhubungan satker: aset (Digitalisasi Aset) dan pengadaan (Inaproc) dihubungkan lewat kode satker 6 digit.
+		api.GET("/satker/keterhubungan", middleware.AuthRequired(), handlers.GetSatkerKeterhubungan)
+		// Referensi Unit Eselon I (kode 5 digit -> uraian dan singkatan): dibaca semua pengguna login, dikelola admin/superadmin.
+		referensi := api.Group("/referensi", middleware.AuthRequired())
+		{
+			referensi.GET("/ue1", handlers.GetRefUE1)
+			referensi.PUT("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.PutRefUE1)
+			referensi.DELETE("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.DeleteRefUE1)
+		}
+		// Data Pengadaan lengkap belum bisa dibatasi per satker, jadi hanya untuk peran yang melihat seluruh data.
+		inaproc := api.Group("/inaproc", middleware.AuthRequired(), middleware.RequireCakupanSemua())
 		{
 			// Penarikan Data terpadu (Pengadaan, Tender, E-Katalog V5 dan V6): status, penarikan manual dan otomatis, data lokal, ekspor, dasbor.
 			// Membaca terbuka bagi semua pengguna login; memulai/membatalkan/mengatur khusus admin.

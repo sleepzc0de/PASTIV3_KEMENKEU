@@ -94,9 +94,14 @@ func lastQuery(t *testing.T, p *fakesql.DB, prefix string) fakesql.Stmt {
 
 // selectedColumns membaca daftar kolom dari "SELECT a, [b], c FROM ..." supaya fake bisa membalas sesuai kolom.
 func selectedColumns(q string) []string {
-	body := q[len("SELECT "):strings.Index(q, " FROM ")]
+	// Tabel utama selalu dikutip "FROM [tabel]"; subquery kolom turunan (mis. uraian UE1) memakai "FROM ref_ue1" tanpa kurung siku dan diberi alias "AS [nama]".
+	body := q[len("SELECT "):strings.Index(q, " FROM [")]
 	var cols []string
 	for _, c := range strings.Split(body, ",") {
+		c = strings.TrimSpace(c)
+		if i := strings.LastIndex(c, " AS "); i >= 0 {
+			c = c[i+len(" AS "):]
+		}
 		cols = append(cols, strings.Trim(strings.TrimSpace(c), "[]"))
 	}
 	return cols
@@ -354,14 +359,16 @@ func ringkasanFake(p *fakesql.DB) {
 				{"tanah", "01504", int64(3), []byte("10.0000"), []byte("5.00")},
 				{"rusunara", "(kosong)", int64(1), []byte("0"), []byte("0")},
 			}, nil
-		case strings.Contains(q, "FROM DIGITALISASI_SATKER GROUP BY"):
+		case strings.Contains(q, "FROM [DIGITALISASI_SATKER] GROUP BY"):
 			return make([]string, 4), [][]driver.Value{{"01504", int64(4), int64(8), int64(2)}, {"01599", int64(1), int64(0), int64(0)}}, nil
 		case strings.Contains(q, "GROUP BY CAST("): // kondisi, status hukum, asuransi, penghuni
 			return make([]string, 3), [][]driver.Value{{"Baik", int64(5), []byte("10.00")}, {nil, int64(1), []byte("0")}}, nil
-		case strings.HasPrefix(q, "SELECT ISNULL(SUM("), strings.HasPrefix(q, "SELECT COUNT(*) FROM DIGITALISASI_SATKER"):
+		case strings.HasPrefix(q, "SELECT ISNULL(SUM("), strings.HasPrefix(q, "SELECT COUNT(*) FROM [DIGITALISASI_SATKER]"):
 			return []string{"n"}, [][]driver.Value{{int64(4)}}, nil
 		case strings.Contains(q, "PARTITION BY dataset"):
 			return make([]string, 10), [][]driver.Value{logRow}, nil
+		case strings.Contains(q, "FROM ref_ue1 ORDER BY"): // referensi UE1: hanya DJP yang terdaftar
+			return make([]string, 7), [][]driver.Value{{"01504", "DIREKTORAT JENDERAL PAJAK", "DJP", int64(4), true, "admin1", time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)}}, nil
 		}
 		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 	}
@@ -394,6 +401,13 @@ func TestRingkasanShape(t *testing.T) {
 	ue1 := d["ue1"].([]interface{})
 	if len(ue1) < 2 || ue1[0].(map[string]interface{})["kode"] != "01504" || ue1[0].(map[string]interface{})["label"] != "01504 · DJP" {
 		t.Errorf("ue1 = %v", ue1)
+	}
+	// Uraian dan singkatan dari referensi UE1; kode yang belum terdaftar tampil sebagai "UE1 <kode>" tanpa uraian.
+	if u := ue1[0].(map[string]interface{}); u["nama"] != "DIREKTORAT JENDERAL PAJAK" || u["singkatan"] != "DJP" {
+		t.Errorf("ue1[0] = %v, want nama dan singkatan dari referensi", u)
+	}
+	if u := ue1[1].(map[string]interface{}); u["kode"] != "01599" || u["label"] != "UE1 01599" || u["nama"] != "" {
+		t.Errorf("ue1[1] = %v, want kode belum terdaftar tampil apa adanya", u)
 	}
 	if len(d["provinsi"].([]interface{})) == 0 {
 		t.Error("provinsi kosong")

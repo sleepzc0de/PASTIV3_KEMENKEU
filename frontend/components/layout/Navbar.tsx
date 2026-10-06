@@ -8,7 +8,8 @@ import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
 import { initialsOf } from "@/lib/initials";
 import { breadcrumbsFor } from "@/lib/navigation";
-import { ROLE_LABEL } from "@/lib/roles";
+import { setPeranAktif } from "@/lib/api";
+import { opsiPeran, perluPemilih, peranTampil, teksCakupan } from "@/lib/peran";
 
 interface NavbarProps {
   onOpenMobileSidebar: () => void;
@@ -89,6 +90,9 @@ function UserMenu() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
+  // Berpindah peran: id yang sedang diproses (atau "bawaan"), dan pesan galat bila gagal.
+  const [berpindah, setBerpindah] = useState<string | null>(null);
+  const [galatPeran, setGalatPeran] = useState("");
 
   useEffect(() => setOpen(false), [pathname]);
 
@@ -109,7 +113,22 @@ function UserMenu() {
   }, [open]);
 
   if (!profile) return null;
-  const role = ROLE_LABEL[profile.role] || profile.role;
+  const role = peranTampil(profile.peran, profile.role);
+  const opsi = opsiPeran(profile.peran);
+  const cakupan = profile.peran && profile.peran.cakupan.tingkat !== "semua" ? teksCakupan(profile.peran.cakupan) : "";
+
+  // Peran berlaku di permintaan berikutnya; halaman dimuat ulang supaya menu dan semua data mengikuti peran baru.
+  const pindah = async (id: number | null) => {
+    setBerpindah(id === null ? "bawaan" : String(id));
+    setGalatPeran("");
+    try {
+      await setPeranAktif(id);
+      window.location.reload();
+    } catch {
+      setGalatPeran("Gagal berpindah peran. Coba lagi.");
+      setBerpindah(null);
+    }
+  };
 
   return (
     <div ref={wrap} className="relative">
@@ -150,7 +169,30 @@ function UserMenu() {
                 </span>
               )}
             </div>
+            {cakupan && <p className="mt-2 text-xs text-slate-500">Data yang dilihat: {cakupan}</p>}
           </div>
+          {perluPemilih(profile.peran) && (
+            <div className="border-b border-slate-100 p-1.5" role="group" aria-label="Bertindak sebagai">
+              <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Bertindak sebagai</p>
+              {opsi.map((o) => (
+                <button
+                  key={o.id ?? "bawaan"}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={o.aktif}
+                  disabled={berpindah !== null}
+                  onClick={() => !o.aktif && pindah(o.id)}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                    o.aktif ? "bg-blue-50 font-semibold text-blue-700" : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {o.aktif ? <span className="text-[11px] font-medium">Aktif</span> : berpindah === (o.id === null ? "bawaan" : String(o.id)) ? <span className="text-[11px] text-slate-400">Berpindah…</span> : null}
+                </button>
+              ))}
+              {galatPeran && <p className="px-3 py-1.5 text-xs text-red-600">{galatPeran}</p>}
+            </div>
+          )}
           <div className="p-1.5">
             <Link role="menuitem" href="/dashboard" className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50">
               <Home className="h-4 w-4 text-slate-400" aria-hidden="true" />

@@ -133,7 +133,9 @@ export interface DGAssetStat {
 
 export interface DGUE1 {
   kode: string;
-  label: string;
+  label: string; // "01504 · DJP"; "UE1 01504" bila kodenya belum ada di referensi UE1
+  nama?: string; // uraian lengkap dari referensi UE1
+  singkatan?: string;
   satker: number;
   kdj: number;
   kdo: number;
@@ -791,5 +793,168 @@ export async function getAnalitik(params: { tahun?: string; kode_klpd?: string; 
   const res = await api.get<Amplop<AnalitikResponse>>("/inaproc/analitik", {
     params: { tahun: params.tahun || undefined, kode_klpd: params.kode_klpd || undefined, segarkan: params.segarkan ? 1 : undefined },
   });
+  return res.data;
+}
+
+
+// ---- Referensi Unit Eselon I ----
+
+export interface RefUE1 {
+  kode: string;
+  nama: string;
+  singkatan: string;
+  urutan: number;
+  aktif: boolean;
+  diubah_oleh?: string;
+  diubah_pada?: string;
+}
+
+export interface RefUE1Daftar {
+  daftar: RefUE1[];
+  // Kode UE1 pada data satker Digitalisasi Aset yang belum punya referensi, beserta jumlah satkernya.
+  belum_terdaftar: { kode: string; satker: number }[];
+}
+
+export async function getRefUE1() {
+  const res = await api.get<Amplop<RefUE1Daftar>>("/referensi/ue1");
+  return res.data;
+}
+
+// Membuat kode baru atau mengubah yang ada (admin/superadmin). urutan/aktif yang tidak dikirim tidak berubah.
+export async function putRefUE1(kode: string, body: { nama: string; singkatan: string; urutan?: number; aktif?: boolean }) {
+  const res = await api.put<Amplop<RefUE1>>(`/referensi/ue1/${encodeURIComponent(kode)}`, body);
+  return res.data;
+}
+
+export async function deleteRefUE1(kode: string) {
+  const res = await api.delete<Amplop<{ kode: string }>>(`/referensi/ue1/${encodeURIComponent(kode)}`);
+  return res.data;
+}
+
+// ---- Keterhubungan satker (aset dan pengadaan) ----
+
+export type SatkerStatus = "terhubung" | "hanya_aset" | "hanya_pengadaan";
+
+export interface SatkerPengadaan {
+  rup_paket: number;
+  rup_pagu: number;
+  tender: number;
+  tender_pagu: number;
+  non_tender: number;
+  non_tender_pagu: number;
+}
+
+export interface SatkerTerhubung {
+  kode: string; // kode satker 6 digit = SUBSTRING(Kode_Satker, 10, 6) pada data aset = kd_satker_str pada Inaproc
+  nama: string;
+  nama_pengadaan?: string; // nama menurut Inaproc bila berbeda dari nama pada data aset
+  kode_ue1: string;
+  ue1: string;
+  jenis: string;
+  jumlah_kode_aset: number;
+  aset: Partial<Record<DGDatasetKey, number>>;
+  jumlah_aset: number;
+  kdj: number;
+  kdo: number;
+  pengadaan: SatkerPengadaan;
+  status: SatkerStatus;
+}
+
+export interface SatkerRingkasan {
+  satker_aset: number;
+  satker_pengadaan: number;
+  terhubung: number;
+  hanya_aset: number;
+  hanya_pengadaan: number;
+  aset_tanpa_kode: number;
+}
+
+export interface SatkerKeterhubungan {
+  tahun: string;
+  kode_klpd: string;
+  tahun_tersedia: string[];
+  ringkasan: SatkerRingkasan;
+  satker: SatkerTerhubung[];
+}
+
+export async function getSatkerKeterhubungan(params: { tahun?: string; kode_klpd?: string }) {
+  const res = await api.get<Amplop<SatkerKeterhubungan>>("/satker/keterhubungan", {
+    params: { tahun: params.tahun || undefined, kode_klpd: params.kode_klpd || undefined },
+  });
+  return res.data;
+}
+
+
+// ---- Peran data pengguna (Super Admin, Pengguna Barang, UE1, Kanwil, Satker) ----
+
+export type PeranData = "pengguna_barang" | "ue1" | "kanwil" | "satker";
+
+export interface PeranBaris {
+  id: number;
+  role: PeranData;
+  kode: string; // UE1 5 digit, Kanwil 9 digit, Satker 6 digit; kosong untuk Pengguna Barang
+  aktif: boolean;
+  label: string;
+  dibuat_oleh?: string;
+  dibuat_pada?: string;
+}
+
+export type TingkatCakupan = "semua" | "ue1" | "kanwil" | "satker" | "kosong";
+
+export interface CakupanData {
+  tingkat: TingkatCakupan;
+  kode?: string;
+}
+
+// Peran yang berlaku bagi pengguna saat ini (dari /auth/me dan /auth/peran).
+export interface PeranInfo {
+  akun_role: string; // hak administrasi akun: user | admin | superadmin
+  role: string; // hak administrasi saat ini; turun menjadi "user" selama bertindak sebagai peran data
+  peran: string; // superadmin | admin | pengguna_barang | ue1 | kanwil | satker | "" (belum punya peran)
+  peran_label: string;
+  peran_id: number; // 0 = peran bawaan akun
+  kode: string;
+  cakupan: CakupanData;
+  tersedia: PeranBaris[];
+  bawaan: boolean; // akun admin/superadmin: boleh kembali ke peran akunnya
+  wajib: boolean; // pembatasan diwajibkan: pengguna tanpa peran tidak melihat data
+}
+
+export interface SaranPeran {
+  role: PeranData;
+  kode: string;
+  label: string;
+}
+
+export async function getPeranSaya() {
+  const res = await api.get<Amplop<PeranInfo>>("/auth/peran");
+  return res.data;
+}
+
+// id null = kembali ke peran bawaan akun.
+export async function setPeranAktif(id: number | null) {
+  const res = await api.post<Amplop<PeranInfo>>("/auth/peran/aktif", { id });
+  return res.data;
+}
+
+export interface PeranPengguna {
+  peran: PeranBaris[];
+  saran: SaranPeran[];
+  kode_satker_sso: string;
+  wajib: boolean;
+}
+
+export async function getPeranPengguna(userId: string) {
+  const res = await api.get<Amplop<PeranPengguna>>(`/users/${encodeURIComponent(userId)}/peran`);
+  return res.data;
+}
+
+export async function tambahPeranPengguna(userId: string, body: { role: PeranData; kode: string }) {
+  const res = await api.post<Amplop<PeranBaris>>(`/users/${encodeURIComponent(userId)}/peran`, body);
+  return res.data;
+}
+
+export async function cabutPeranPengguna(userId: string, peranId: number) {
+  const res = await api.delete<Amplop<{ id: number }>>(`/users/${encodeURIComponent(userId)}/peran/${peranId}`);
   return res.data;
 }

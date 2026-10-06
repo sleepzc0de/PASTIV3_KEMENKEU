@@ -20,7 +20,9 @@ yang sama dengan tab Ringkasan di sini) ditambah blok **Wawasan analitik** yang 
 sebaran provinsi, aset rusak berat, kelengkapan koordinat/foto/kondisi, cakupan asuransi gedung, satker tanpa satker induk, status hukum tanah
 kosong, hunian, dan kesegaran data sinkronisasi. Semua ambangnya ada di blok konstanta di awal berkas. Dashboard hanya **membaca salinan** di
 database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk admin). Klik pada grafik
-membuka tab Data lewat `/dashboard/digitalisasi?tab=data&dataset=<kunci>[&tanpa_koordinat=1]`.
+membuka tab Data lewat `/dashboard/digitalisasi?tab=data&dataset=<kunci>[&tanpa_koordinat=1][&q=<kata kunci>]`.
+Label UE1 (mis. `01504 · DJP`) dan uraiannya dibaca dari referensi UE1 (lihat [referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)); tab **Satker** di Dashboard
+menghubungkan data aset dengan data pengadaan per satker.
 
 > Fitur **Data Aset (SLDK)** yang lama (pencarian langsung ke tabel aset SLDK, Ringkasan, Pemantauan, dan perintah `pasti-sldk-sync`) sudah
 > dihapus, termasuk variabel `.env` `SLDK_ASSET_TABLE`, `SLDK_ASSET_SEARCH_COLUMNS`, dan `SLDK_KL_KODE`. Koneksi `SLDK_DB_*` tetap dipakai

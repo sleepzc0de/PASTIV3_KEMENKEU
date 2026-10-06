@@ -7,6 +7,7 @@ import { listUsers, UserListItem, deactivateUser, deleteUser } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
 import { CreateUserModal } from "@/components/users/CreateUserModal";
 import { EditUserModal } from "@/components/users/EditUserModal";
+import { PeranPenggunaModal } from "@/components/users/PeranPenggunaModal";
 import { matchesUser, parseTerms } from "@/components/users/userSearch";
 import { initialsOf } from "@/lib/initials";
 import { Alert } from "@/components/ui/Alert";
@@ -52,6 +53,7 @@ export default function UsersPage() {
   const [query, setQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editUserId, setEditUserId] = useState<string | null>(null);
+  const [peranUser, setPeranUser] = useState<{ id: string; nama: string } | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
 
@@ -230,6 +232,14 @@ export default function UsersPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <button
+                          onClick={() => setPeranUser({ id: u.id, nama: u.full_name })}
+                          title="Peran data"
+                          aria-label={`Peran data ${u.full_name}`}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </button>
+                        <button
                           onClick={() => setEditUserId(u.id)}
                           title="Edit"
                           aria-label={`Edit ${u.full_name}`}
@@ -271,6 +281,7 @@ export default function UsersPage() {
       {showCreateModal && <CreateUserModal onClose={() => setShowCreateModal(false)} onCreated={fetchUsers} />}
 
       {editUserId && <EditUserModal userId={editUserId} onClose={() => setEditUserId(null)} onUpdated={fetchUsers} />}
+      {peranUser && <PeranPenggunaModal userId={peranUser.id} nama={peranUser.nama} onClose={() => setPeranUser(null)} />}
 
       {pending && (
         <ConfirmDialog

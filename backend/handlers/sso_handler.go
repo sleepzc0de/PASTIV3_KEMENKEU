@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -168,20 +169,16 @@ func SSOCallback(c *gin.Context) {
 		return
 	}
 
+	// UseNumber: angka besar (mis. NIP berbentuk angka) tidak kehilangan digit saat disimpan ke raw_claims dan employee_claims.
 	var claims map[string]interface{}
-	if err := json.Unmarshal(userInfoBody, &claims); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(userInfoBody))
+	dec.UseNumber()
+	if err := dec.Decode(&claims); err != nil {
 		redirectError("Format data profil tidak valid")
 		return
 	}
 
-	getClaim := func(key string) string {
-		if v, ok := claims[key]; ok && v != nil {
-			if s, ok := v.(string); ok {
-				return s
-			}
-		}
-		return ""
-	}
+	getClaim := func(key string) string { return klaimTeks(claims, key) }
 
 	sub := getClaim("sub")
 	if sub == "" {
@@ -198,6 +195,11 @@ func SSOCallback(c *gin.Context) {
 		log.Println("[SSO ERROR] gagal upsertEmployee:", err)
 		redirectError("Gagal menyimpan data pegawai: " + truncateError(err, 200))
 		return
+	}
+
+	// Data SSO lengkap (semua klaim userinfo + id_token, riwayat bila berubah). Tidak fatal: login tetap lanjut bila gagal.
+	if err := simpanDataSSO(employeeID, claims, bacaKlaimIDToken(tokenData.IDToken), tokenData.Scope); err != nil {
+		log.Println("[SSO WARN] gagal menyimpan data SSO lengkap:", err)
 	}
 
 	accessToken, expiresIn, userID, err := upsertUserFromSSO(employeeID, sub, email, nip, getClaim("name"))
@@ -241,14 +243,7 @@ func urlItoa(i int) string {
 }
 
 func upsertEmployee(claims map[string]interface{}, sub, nip, nip9, email string) (string, error) {
-	getClaim := func(key string) string {
-		if v, ok := claims[key]; ok && v != nil {
-			if s, ok := v.(string); ok {
-				return s
-			}
-		}
-		return ""
-	}
+	getClaim := func(key string) string { return klaimTeks(claims, key) }
 
 	rawJSON, _ := json.Marshal(claims)
 
