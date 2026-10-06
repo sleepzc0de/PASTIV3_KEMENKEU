@@ -214,7 +214,7 @@ func TestDaftarPenjualanMemakaiParameterDanMeloloskanLIKE(t *testing.T) {
 	s := NewStore(db)
 	// Kata kunci berniat jahat dan berisi karakter khusus LIKE.
 	kunci := "x'; DROP TABLE users;-- 100%_[a]"
-	list, total, err := s.DaftarPenjualan(context.Background(), Scope{Kode18: kodeA}, FilterDaftar{Q: kunci, Status: "selesai", Offset: 20, Limit: 10})
+	list, total, err := s.DaftarPenjualan(context.Background(), Scope{Kode6: Kode6Dari(kodeA)}, FilterDaftar{Q: kunci, Status: "selesai", Offset: 20, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,10 +222,10 @@ func TestDaftarPenjualanMemakaiParameterDanMeloloskanLIKE(t *testing.T) {
 		t.Errorf("hasil = %d %+v", total, list)
 	}
 	for _, st := range f.Queries() {
-		if strings.Contains(st.Query, "DROP") || strings.Contains(st.Query, kodeA) {
+		if strings.Contains(st.Query, "DROP") || strings.Contains(st.Query, kodeA) || strings.Contains(st.Query, Kode6Dari(kodeA)) {
 			t.Errorf("masukan pengguna masuk ke teks SQL:\n%s", st.Query)
 		}
-		if !strings.Contains(st.Query, "p.kode_satker = @p1") {
+		if !strings.Contains(st.Query, "SUBSTRING(p.kode_satker, 10, 6) = @p1") {
 			t.Errorf("cakupan satker hilang:\n%s", st.Query)
 		}
 		if !strings.Contains(st.Query, ">= 10") {
@@ -267,10 +267,19 @@ func TestDaftarPenjualanCakupanUE1DanSemua(t *testing.T) {
 	if q := f.Queries()[0].Query; !strings.Contains(q, "p.kode_ue1 = @p1") || !strings.Contains(q, "< 10") {
 		t.Errorf("query UE1:\n%s", q)
 	}
+	if _, _, err := s.DaftarPenjualan(context.Background(), Scope{Kanwil9: "015010199"}, FilterDaftar{}); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.Queries()[2].Query; !strings.Contains(q, "LEFT(p.kode_satker, 9) = @p1") || strings.Contains(q, "015010199") {
+		t.Errorf("cakupan Kanwil harus memakai 9 karakter pertama kode satker sebagai parameter:\n%s", q)
+	}
+	if got := f.Queries()[2].Args[0].Value; got != "015010199" {
+		t.Errorf("argumen Kanwil = %v", got)
+	}
 	if _, _, err := s.DaftarPenjualan(context.Background(), Scope{Semua: true}, FilterDaftar{}); err != nil {
 		t.Fatal(err)
 	}
-	if q := f.Queries()[2].Query; strings.Contains(q, "WHERE") {
+	if q := f.Queries()[4].Query; strings.Contains(q, "WHERE") {
 		t.Errorf("cakupan semua tanpa filter tidak boleh punya WHERE:\n%s", q)
 	}
 	cekParameter(t, f)
@@ -316,68 +325,57 @@ func TestStatusTahapBanyakDanTahapPenjualan(t *testing.T) {
 	cekParameter(t, f)
 }
 
-func TestSimpanPeranMemeriksaPenggunaDanMenghapus(t *testing.T) {
-	ctx := context.Background()
-	db, f := fakesql.New(t)
-	f.OnQuery = func(_ context.Context, q string, _ []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return []string{"n"}, [][]driver.Value{{int64(0)}}, nil // pengguna tidak ada
-	}
-	if err := NewStore(db).SimpanPeran(ctx, guid1, PeranKanwil, "", "", "Admin"); !errors.Is(err, ErrTidakDitemukan) {
-		t.Errorf("pengguna tak ada: %v", err)
-	}
-	if ev := f.Events(); ev[len(ev)-1] != "ROLLBACK" || f.Count("EXEC") != 0 {
-		t.Errorf("kejadian = %v", ev)
-	}
-
-	db2, f2 := fakesql.New(t)
-	f2.OnQuery = func(_ context.Context, q string, _ []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return []string{"n"}, [][]driver.Value{{int64(1)}}, nil
-	}
-	s := NewStore(db2)
-	if err := s.SimpanPeran(ctx, guid1, "", "", "", "Admin"); err != nil {
-		t.Fatal(err)
-	}
-	if ex := f2.Execs(); len(ex) != 1 || !strings.HasPrefix(strings.TrimSpace(ex[0].Query), "DELETE FROM sapa_peran") {
-		t.Errorf("peran kosong harus menghapus: %+v", ex)
-	}
-	if err := s.SimpanPeran(ctx, guid1, PeranSatker, kodeA, "", "Admin"); err != nil {
-		t.Fatal(err)
-	}
-	ex := f2.Execs()[1]
-	if ex.Args[2].Value != kodeA || ex.Args[3].Value != nil {
-		t.Errorf("argumen = %+v", ex.Args)
-	}
-	cekParameter(t, f)
-	cekParameter(t, f2)
-}
-
-func TestPeranPenggunaTidakDikenalDanDikenal(t *testing.T) {
+func TestNamaPenggunaTidakDikenalDanDikenal(t *testing.T) {
 	db, f := fakesql.New(t)
 	f.OnQuery = func(_ context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		cols := []string{"full_name", "peran", "kode_satker", "kode_ue1"}
+		if strings.Contains(q, "sapa_peran") {
+			return nil, nil, fmt.Errorf("peran SAPA tidak dibaca lagi: %s", q)
+		}
+		cols := []string{"full_name"}
 		switch args[0].Value {
 		case guid1:
-			return cols, [][]driver.Value{{"Budi Santoso", "satker", kodeA, nil}}, nil
+			return cols, [][]driver.Value{{"Budi Santoso"}}, nil
 		case guid2:
-			return cols, [][]driver.Value{{"Siti", nil, nil, nil}}, nil
+			return cols, [][]driver.Value{{nil}}, nil
 		}
 		return cols, nil, nil
 	}
 	s := NewStore(db)
-	if p, err := s.PeranPengguna(context.Background(), "tidak-ada"); err != nil || p != nil {
-		t.Errorf("tak dikenal: %+v %v", p, err)
+	if n, err := s.NamaPengguna(context.Background(), "tidak-ada"); err != nil || n != "" {
+		t.Errorf("tak dikenal: %q %v", n, err)
 	}
-	p, err := s.PeranPengguna(context.Background(), guid1)
-	if err != nil || p == nil || p.Nama != "Budi Santoso" || p.Peran != PeranSatker || p.KodeSatker != kodeA || p.KodeUE1 != "" {
-		t.Errorf("peran = %+v %v", p, err)
+	if n, err := s.NamaPengguna(context.Background(), guid1); err != nil || n != "Budi Santoso" {
+		t.Errorf("nama = %q %v", n, err)
 	}
-	p, err = s.PeranPengguna(context.Background(), guid2)
-	if err != nil || p == nil || p.Nama != "Siti" || p.Peran != "" {
-		t.Errorf("tanpa peran = %+v %v", p, err)
+	if n, err := s.NamaPengguna(context.Background(), guid2); err != nil || n != "" {
+		t.Errorf("nama kosong = %q %v", n, err)
 	}
 	cekParameter(t, f)
 }
 
+// Satker berkode 6 digit itu (induk lebih dulu) dicari dengan parameter, bukan dengan menyisipkan kode ke teks SQL.
+func TestSatkerDenganKode6(t *testing.T) {
+	db, f := fakesql.New(t)
+	f.OnQuery = func(_ context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		return []string{"Kode_Satker", "Nama_Satker", "KabKota_Satker", "Provinsi_Satker", "Kode_UE1"},
+			[][]driver.Value{
+				{"015010199409294000KP", "INDUK", "KOTA JAKARTA PUSAT", "DKI JAKARTA", "01501"},
+				{"015010199409294001KP", "ANAK", nil, nil, nil},
+			}, nil
+	}
+	hasil, err := NewStore(db).SatkerDenganKode6(context.Background(), "409294")
+	if err != nil || len(hasil) != 2 || hasil[0].Nama != "INDUK" || hasil[0].KodeUE1 != "01501" || hasil[1].KabKota != "" {
+		t.Fatalf("hasil = %+v (%v)", hasil, err)
+	}
+	q := f.Queries()[0]
+	if !strings.Contains(q.Query, "SUBSTRING(Kode_Satker, 10, 6) = @p1") || strings.Contains(q.Query, "409294") || q.Args[0].Value != "409294" {
+		t.Errorf("kode 6 digit harus parameter:\n%s %+v", q.Query, q.Args)
+	}
+	if !strings.Contains(q.Query, "ORDER BY CASE WHEN SUBSTRING(Kode_Satker, 16, 3) = '000'") {
+		t.Errorf("induk harus lebih dulu:\n%s", q.Query)
+	}
+	cekParameter(t, f)
+}
 func TestSimpanTemplateVersiBaruDanDokumen(t *testing.T) {
 	ctx := context.Background()
 	db, f := fakesql.New(t)

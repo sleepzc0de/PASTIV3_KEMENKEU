@@ -2,12 +2,14 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/digitalisasi"
+	"pasti-v3-backend/sapa"
 	"pasti-v3-backend/utils"
 )
 
@@ -479,4 +482,162 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 			t.Errorf("akun nonaktif = %d, want 401", code)
 		}
 	})
+}
+
+// Migrasi 054: penetapan peran SAPA lama disalin ke peran data aplikasi (Satker 6 digit, UE1 5 digit, Kanwil dari kode satker SSO), aman dijalankan ulang.
+func TestMigrasi054MenyalinPeranSAPA(t *testing.T) {
+	db := bukaDBUji(t)
+	bersihkanUjiPeran(db)
+	if os.Getenv("PASTI_UJI_BIARKAN_DATA") != "1" {
+		t.Cleanup(func() { bersihkanUjiPeran(db) })
+	}
+	satkerU := buatPenggunaUji(t, db, "sapa-satker", "user")
+	pendek := buatPenggunaUji(t, db, "sapa-pendek", "user")
+	ue1U := buatPenggunaUji(t, db, "sapa-ue1", "user")
+	kwlSSO := buatPenggunaUji(t, db, "sapa-kanwil-sso", "user")
+	kwlTanpa := buatPenggunaUji(t, db, "sapa-kanwil-tanpa", "user")
+	sudah := buatPenggunaUji(t, db, "sapa-sudah", "user")
+
+	exec := func(q string, args ...interface{}) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("%v\n%s", err, q)
+		}
+	}
+	exec(`INSERT INTO sapa_peran (user_id, peran, kode_satker) VALUES (@p1, N'satker', N'099710199971001000')`, satkerU.id)
+	exec(`INSERT INTO sapa_peran (user_id, peran, kode_satker) VALUES (@p1, N'satker', N'0997101')`, pendek.id) // terlalu pendek: tidak disalin
+	exec(`INSERT INTO sapa_peran (user_id, peran, kode_ue1) VALUES (@p1, N'ue1', N'09971')`, ue1U.id)
+	exec(`INSERT INTO sapa_peran (user_id, peran) VALUES (@p1, N'kanwil')`, kwlSSO.id)
+	exec(`INSERT INTO sapa_peran (user_id, peran) VALUES (@p1, N'kanwil')`, kwlTanpa.id)
+	exec(`INSERT INTO sapa_peran (user_id, peran, kode_ue1) VALUES (@p1, N'ue1', N'09972')`, sudah.id)
+	// kode satker SSO: kanwil dari 9 karakter pertama
+	empID := strings.ToUpper(uuid.New().String())
+	exec(`INSERT INTO employees (id, sso_sub, kode_satker) VALUES (@p1, N'uji-peran-kwl', N'099710199971001000KP')`, empID)
+	exec(`UPDATE users SET employee_id = @p1 WHERE id = @p2`, empID, kwlSSO.id)
+	// yang sudah punya peran yang sama di user_roles tidak digandakan
+	exec(`INSERT INTO user_roles (user_id, role, kode, dibuat_oleh) VALUES (@p1, N'ue1', N'09972', N'admin')`, sudah.id)
+
+	skrip, err := os.ReadFile("../migrations/054_sapa_peran_ke_peran_aplikasi.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jalankan := func() {
+		t.Helper()
+		for i, batch := range regexp.MustCompile(`(?im)^[ \t]*GO[ \t]*\r?$`).Split(string(skrip), -1) {
+			if strings.TrimSpace(batch) == "" {
+				continue
+			}
+			if _, err := db.Exec(batch); err != nil {
+				t.Fatalf("batch %d: %v", i+1, err)
+			}
+		}
+	}
+	peranDari := func(p penggunaUji) string {
+		rows, err := db.Query(`SELECT role + N':' + kode FROM user_roles WHERE user_id = @p1 ORDER BY id`, p.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var s string
+			rows.Scan(&s)
+			out = append(out, s)
+		}
+		return strings.Join(out, ",")
+	}
+	cek := func(tahap string) {
+		t.Helper()
+		for p, want := range map[penggunaUji]string{
+			satkerU: "satker:971001", pendek: "", ue1U: "ue1:09971", kwlSSO: "kanwil:099710199", kwlTanpa: "", sudah: "ue1:09972",
+		} {
+			if got := peranDari(p); got != want {
+				t.Errorf("%s: peran %s = %q, want %q", tahap, p.username, got, want)
+			}
+		}
+	}
+	jalankan()
+	cek("pertama")
+	jalankan()
+	cek("diulang")
+
+	// pengguna yang peran SAPA-nya disalin langsung punya peran dan dibatasi sesuai kodenya
+	code, body, _ := panggil(t, "GET", "/auth/me", satkerU.token, "")
+	p := data(t, body)["peran"].(map[string]interface{})
+	if code != 200 || p["peran"] != "satker" || p["kode"] != "971001" {
+		t.Errorf("me setelah migrasi: %d %v", code, p)
+	}
+}
+
+// Cakupan daftar usulan SAPA pada SQL Server sungguhan: SUBSTRING/LEFT pada kode satker lengkap, dan pencarian kode satker lengkap dari kode 6 digit.
+func TestSapaCakupanDaftarDanSatkerKode6DenganSQLServer(t *testing.T) {
+	db := bukaDBUji(t)
+	bersihkanUjiPeran(db)
+	// usulan uji memakai kode satker berawalan 09971 dan 09972; keduanya dibersihkan agar uji yang diulang menghitung dari nol
+	hapusUsulanUji := func() {
+		db.Exec(`DELETE FROM sapa_penjualan WHERE kode_satker LIKE N'09971%' OR kode_satker LIKE N'09972%'`)
+	}
+	hapusUsulanUji()
+	if os.Getenv("PASTI_UJI_BIARKAN_DATA") != "1" {
+		t.Cleanup(func() {
+			hapusUsulanUji()
+			bersihkanUjiPeran(db)
+		})
+	}
+	ctx := context.Background()
+	s := sapa.NewStore(db)
+	// satker A1 dan A2 sekanwil (099710199), A3 di kanwil lain (099710299) pada UE1 yang sama (09971), B1 di UE1 lain (09972)
+	kodes := []string{"099710199971001000", "099710199971002000", "099710299971003000", "099720199972001000"}
+	for _, k := range kodes {
+		if _, err := s.BuatPenjualan(ctx, sapa.BuatInput{KodeSatker: k, NamaSatker: "SATKER " + k, KodeUE1: sapa.KodeUE1Dari(k), Oleh: "uji"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hitung := func(sc sapa.Scope) int {
+		t.Helper()
+		_, total, err := s.DaftarPenjualan(ctx, sc, sapa.FilterDaftar{Limit: 50})
+		if err != nil {
+			t.Fatalf("%+v: %v", sc, err)
+		}
+		return total
+	}
+	for nama, c := range map[string]struct {
+		sc   sapa.Scope
+		want int
+	}{
+		"satker 971001":                   {sapa.Scope{Kode6: "971001"}, 1},
+		"satker tanpa usulan":             {sapa.Scope{Kode6: "000000"}, 0},
+		"kanwil 099710199":                {sapa.Scope{Kanwil9: "099710199"}, 2},
+		"kanwil 099710299":                {sapa.Scope{Kanwil9: "099710299"}, 1},
+		"ue1 09971 (dua kanwil)":          {sapa.Scope{KodeUE1: "09971"}, 3},
+		"ue1 09972":                       {sapa.Scope{KodeUE1: "09972"}, 1},
+		"tidak ada":                       {sapa.Scope{TidakAda: true}, 0},
+		"scope kosong dianggap tanpa hak": {sapa.Scope{}, 0},
+	} {
+		if got := hitung(c.sc); got != c.want {
+			t.Errorf("%s: %d usulan, want %d", nama, got, c.want)
+		}
+	}
+	// semua: setidaknya keempat usulan uji
+	if got := hitung(sapa.Scope{Semua: true}); got < 4 {
+		t.Errorf("semua: %d usulan, want >= 4", got)
+	}
+
+	// kode 6 digit -> kode satker lengkap, induk lebih dulu
+	for _, r := range []struct{ ue1, kode, nama string }{
+		{ue1A, "099710199971001001KP", "ANAK A1"},
+		{ue1A, "099710199971001000KP", "INDUK A1"},
+		{ue1A, "099710199971002000KP", "SATKER A2"},
+	} {
+		if _, err := db.Exec(`INSERT INTO DIGITALISASI_SATKER (Kode_UE1, Kode_Satker, Jenis_Satker, Nama_Satker) VALUES (@p1, @p2, N'x', @p3)`, r.ue1, r.kode, r.nama); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hasil, err := s.SatkerDenganKode6(ctx, "971001")
+	if err != nil || len(hasil) != 2 || hasil[0].Nama != "INDUK A1" || hasil[1].Nama != "ANAK A1" {
+		t.Errorf("satker 971001 = %+v (%v), want induk lalu anak", hasil, err)
+	}
+	if h, err := s.SatkerDenganKode6(ctx, "000000"); err != nil || len(h) != 0 {
+		t.Errorf("satker tak ada = %+v (%v)", h, err)
+	}
 }

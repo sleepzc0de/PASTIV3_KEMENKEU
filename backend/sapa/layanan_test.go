@@ -22,7 +22,7 @@ type env struct {
 	l    *Layanan
 	ctx  context.Context
 
-	admin, satkerA, satkerB, kanwil, ue1, ue1Lain, tanpa Identitas
+	admin, satkerA, satkerB, kanwil, kanwilLain, ue1, ue1Lain, barang, tanpa Identitas
 }
 
 func baru(t *testing.T) *env {
@@ -31,13 +31,16 @@ func baru(t *testing.T) *env {
 	repo.refUE1["01501"] = RefUE1{Kode: "01501", Nama: "Ditjen Contoh", Sekretaris: "Sekretaris Direktorat Jenderal Contoh"}
 	return &env{
 		t: t, repo: repo, l: &Layanan{Repo: repo}, ctx: context.Background(),
-		admin:   Identitas{UserID: "u-admin", Nama: "Admin", Admin: true},
-		satkerA: Identitas{UserID: "u-a", Nama: "Petugas A", Peran: PeranSatker, KodeSatker: kodeA},
-		satkerB: Identitas{UserID: "u-b", Nama: "Petugas B", Peran: PeranSatker, KodeSatker: kodeB},
-		kanwil:  Identitas{UserID: "u-k", Nama: "Petugas Kanwil", Peran: PeranKanwil},
-		ue1:     Identitas{UserID: "u-u", Nama: "Petugas UE1", Peran: PeranUE1, KodeUE1: "01501"},
-		ue1Lain: Identitas{UserID: "u-u2", Nama: "UE1 Lain", Peran: PeranUE1, KodeUE1: "01504"},
-		tanpa:   Identitas{UserID: "u-x", Nama: "Tanpa Peran"},
+		admin: Identitas{UserID: "u-admin", Nama: "Admin", Admin: true},
+		// Kode peran seperti dari peran data aplikasi: Satker 6 digit, Kanwil 9 digit, UE1 5 digit (semuanya diturunkan dari kode satker lengkap).
+		satkerA:    Identitas{UserID: "u-a", Nama: "Petugas A", Peran: PeranSatker, KodeSatker: Kode6Dari(kodeA)},
+		satkerB:    Identitas{UserID: "u-b", Nama: "Petugas B", Peran: PeranSatker, KodeSatker: Kode6Dari(kodeB)},
+		kanwil:     Identitas{UserID: "u-k", Nama: "Petugas Kanwil", Peran: PeranKanwil, KodeKanwil: Kanwil9Dari(kodeA)},
+		kanwilLain: Identitas{UserID: "u-k2", Nama: "Kanwil Lain", Peran: PeranKanwil, KodeKanwil: Kanwil9Dari(kodeB)},
+		ue1:        Identitas{UserID: "u-u", Nama: "Petugas UE1", Peran: PeranUE1, KodeUE1: "01501"},
+		ue1Lain:    Identitas{UserID: "u-u2", Nama: "UE1 Lain", Peran: PeranUE1, KodeUE1: "01504"},
+		barang:     Identitas{UserID: "u-pb", Nama: "Pengguna Barang", Peran: PeranPenggunaBarang},
+		tanpa:      Identitas{UserID: "u-x", Nama: "Tanpa Peran"},
 	}
 }
 
@@ -139,13 +142,13 @@ func TestKeterlihatanUsulan(t *testing.T) {
 	e := baru(t)
 	k := e.buat(e.satkerA)
 
-	for nama, id := range map[string]Identitas{"satker sendiri": e.satkerA, "admin": e.admin, "kanwil": e.kanwil, "ue1 sendiri": e.ue1} {
+	for nama, id := range map[string]Identitas{"satker sendiri": e.satkerA, "admin": e.admin, "kanwil sendiri": e.kanwil, "ue1 sendiri": e.ue1, "pengguna barang": e.barang} {
 		if _, err := e.l.DetailUsulan(e.ctx, id, k.ID); err != nil {
 			t.Errorf("%s harus melihat: %v", nama, err)
 		}
 	}
 	// Yang tidak berhak melihat mendapat "tidak ditemukan" (tidak membocorkan keberadaan usulan).
-	for nama, id := range map[string]Identitas{"satker lain": e.satkerB, "ue1 lain": e.ue1Lain} {
+	for nama, id := range map[string]Identitas{"satker lain": e.satkerB, "ue1 lain": e.ue1Lain, "kanwil lain": e.kanwilLain} {
 		if _, err := e.l.DetailUsulan(e.ctx, id, k.ID); !errors.Is(err, ErrTidakDitemukan) {
 			t.Errorf("%s: %v", nama, err)
 		}
@@ -520,48 +523,75 @@ func TestBukaUlang(t *testing.T) {
 	}
 }
 
-func TestAturPeran(t *testing.T) {
+// Peran di SAPA berasal dari peran data aplikasi yang sedang aktif; SAPA tidak menetapkannya sendiri.
+func TestIdentitasDariPeranAplikasi(t *testing.T) {
 	e := baru(t)
-	e.repo.Pengguna = []PeranRow{{UserID: guid1, Username: "budi", Nama: "Budi", Email: "budi@x"}, {UserID: guid2, Username: "siti", Nama: "Siti"}}
+	e.repo.Nama[guid1] = "Budi Santoso"
 
-	var ev *ErrValidasi
-	if err := e.l.AturPeran(e.ctx, e.satkerA, guid1, PeranKanwil, "", ""); !errors.Is(err, ErrTidakBerhak) {
-		t.Errorf("non-admin: %v", err)
+	for _, c := range []struct {
+		nama string
+		pa   PeranAplikasi
+		want Identitas
+	}{
+		{"satker", PeranAplikasi{Peran: "satker", Kode: " 409294 "}, Identitas{Peran: PeranSatker, KodeSatker: "409294"}},
+		{"kanwil", PeranAplikasi{Peran: "kanwil", Kode: "015010199"}, Identitas{Peran: PeranKanwil, KodeKanwil: "015010199"}},
+		{"ue1", PeranAplikasi{Peran: "ue1", Kode: "01501"}, Identitas{Peran: PeranUE1, KodeUE1: "01501"}},
+		{"pengguna barang", PeranAplikasi{Peran: "pengguna_barang"}, Identitas{Peran: PeranPenggunaBarang}},
+		{"admin (peran bawaan akun)", PeranAplikasi{Admin: true, Peran: "admin"}, Identitas{Admin: true}},
+		{"superadmin", PeranAplikasi{Admin: true, Peran: "superadmin"}, Identitas{Admin: true}},
+		{"tanpa peran", PeranAplikasi{}, Identitas{}},
+		{"peran asing tidak dikenali", PeranAplikasi{Peran: "tamu", Kode: "01501"}, Identitas{}},
+	} {
+		id, err := e.l.IdentitasDari(e.ctx, guid1, "budi", c.pa)
+		c.want.UserID, c.want.Nama = guid1, "Budi Santoso" // nama lengkap dari data pengguna menggantikan nama pengguna
+		if err != nil || id != c.want {
+			t.Errorf("%s: identitas = %+v (%v), want %+v", c.nama, id, err, c.want)
+		}
 	}
-	adalah(t, e.l.AturPeran(e.ctx, e.admin, guid1, PeranSatker, "123", ""), &ev)
-	adalah(t, e.l.AturPeran(e.ctx, e.admin, guid1, PeranUE1, "", "12"), &ev)
-	adalah(t, e.l.AturPeran(e.ctx, e.admin, guid1, "tamu", "", ""), &ev)
-	adalah(t, e.l.AturPeran(e.ctx, e.admin, "", PeranKanwil, "", ""), &ev)
-
-	if err := e.l.AturPeran(e.ctx, e.admin, guid1, PeranSatker, kodeA+"KP", "99999"); err != nil {
-		t.Fatal(err)
+	// pengguna yang tidak dikenal repo: nama pengguna dari token dipakai
+	if id, _ := e.l.IdentitasDari(e.ctx, guid2, "siti", PeranAplikasi{Peran: "satker", Kode: "409294"}); id.Nama != "siti" {
+		t.Errorf("nama cadangan = %q, want siti", id.Nama)
 	}
-	id, err := e.l.IdentitasDari(e.ctx, guid1, "Budi", false)
-	if err != nil || id.Peran != PeranSatker || id.KodeSatker != kodeA || id.KodeUE1 != "" {
-		t.Errorf("identitas = %+v (%v)", id, err)
+	// tanpa peran tidak boleh masuk, peran yang sah boleh
+	tanpa, _ := e.l.IdentitasDari(e.ctx, guid1, "budi", PeranAplikasi{})
+	if err := Akses(tanpa); !errors.Is(err, ErrTanpaPeran) {
+		t.Errorf("tanpa peran: %v", err)
 	}
-	if err := e.l.AturPeran(e.ctx, e.admin, guid1, PeranUE1, kodeA, "01501"); err != nil {
-		t.Fatal(err)
-	}
-	if id, _ := e.l.IdentitasDari(e.ctx, guid1, "Budi", false); id.Peran != PeranUE1 || id.KodeUE1 != "01501" || id.KodeSatker != "" {
-		t.Errorf("identitas = %+v", id)
-	}
-	list, err := e.l.DaftarPeran(e.ctx, e.admin, "bud")
-	if err != nil || len(list) != 1 || list[0].Peran != PeranUE1 {
-		t.Errorf("daftar = %+v (%v)", list, err)
-	}
-	if _, err := e.l.DaftarPeran(e.ctx, e.satkerA, ""); !errors.Is(err, ErrTidakBerhak) {
-		t.Errorf("non-admin daftar: %v", err)
-	}
-	// Peran kosong mencabut.
-	if err := e.l.AturPeran(e.ctx, e.admin, guid1, "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if id, _ := e.l.IdentitasDari(e.ctx, guid1, "Budi", false); id.Peran != "" {
-		t.Errorf("peran harus dicabut: %+v", id)
+	// kode kosong pada peran berkode: akses ditolak dengan pesan yang bukan "tanpa peran"
+	for _, p := range []string{"satker", "kanwil", "ue1"} {
+		id, _ := e.l.IdentitasDari(e.ctx, guid1, "budi", PeranAplikasi{Peran: p})
+		if err := Akses(id); err == nil || errors.Is(err, ErrTanpaPeran) {
+			t.Errorf("peran %s tanpa kode: %v", p, err)
+		}
 	}
 }
 
+// Satker dengan peran 6 digit memperoleh kode satker lengkap dari data Digitalisasi Aset (induk lebih dulu).
+func TestSatkerSaya(t *testing.T) {
+	e := baru(t)
+	induk, anak := "015010199409294000", "015010199409294001"
+	e.repo.Satker[induk] = SatkerInfo{Kode: induk + "KP", Nama: "INDUK"}
+	e.repo.Satker[anak] = SatkerInfo{Kode: anak + "KP", Nama: "ANAK"}
+	e.repo.Satker["015040199119091000"] = SatkerInfo{Kode: "015040199119091000KP", Nama: "LAIN"}
+
+	hasil, err := e.l.SatkerSaya(e.ctx, e.satkerA)
+	if err != nil || len(hasil) != 3 {
+		t.Fatalf("satker saya = %+v (%v), want tiga satker berkode 409294 (kodeA, induk, anak)", hasil, err)
+	}
+	if hasil[0].Nama != "INDUK" {
+		t.Errorf("induk harus lebih dulu: %+v", hasil)
+	}
+	for _, s := range hasil {
+		if Kode6Dari(s.Kode) != "409294" {
+			t.Errorf("satker %q bukan milik kode 409294", s.Kode)
+		}
+	}
+	for nama, id := range map[string]Identitas{"admin": e.admin, "kanwil": e.kanwil, "ue1": e.ue1, "barang": e.barang, "tanpa": e.tanpa} {
+		if h, err := e.l.SatkerSaya(e.ctx, id); err != nil || len(h) != 0 {
+			t.Errorf("%s: satker saya = %+v (%v), want kosong", nama, h, err)
+		}
+	}
+}
 func TestReferensiUE1(t *testing.T) {
 	e := baru(t)
 	var ev *ErrValidasi

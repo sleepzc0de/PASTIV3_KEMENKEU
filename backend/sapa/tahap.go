@@ -5,13 +5,16 @@ import (
 	"strings"
 )
 
-// Peran SAPA (berbeda dari peran aplikasi user/admin/superadmin): menentukan tahap mana yang boleh dikerjakan.
+// Peran di SAPA diturunkan dari peran data aplikasi (paket peran), bukan ditetapkan di SAPA: Satker (kode satker 6 digit), Kanwil (kode 9 digit), UE1
+// (kode 5 digit), Pengguna Barang, atau admin/superadmin. Tiga yang pertama mengerjakan tahap milik perannya; Pengguna Barang hanya melihat semua usulan.
 const (
-	PeranSatker = "satker"
-	PeranKanwil = "kanwil"
-	PeranUE1    = "ue1"
+	PeranSatker         = "satker"
+	PeranKanwil         = "kanwil"
+	PeranUE1            = "ue1"
+	PeranPenggunaBarang = "pengguna_barang"
 )
 
+// PeranValid: peran yang mengerjakan tahap (Pengguna Barang tidak punya tahap).
 var PeranValid = []string{PeranSatker, PeranKanwil, PeranUE1}
 
 func PeranLabel(p string) string {
@@ -22,6 +25,8 @@ func PeranLabel(p string) string {
 		return "Kantor Wilayah"
 	case PeranUE1:
 		return "Unit Eselon I"
+	case PeranPenggunaBarang:
+		return "Pengguna Barang"
 	}
 	return p
 }
@@ -161,14 +166,22 @@ func BolehDiubah(s StatusTahap, kunci string) error {
 
 // ---------------------------------------------------------------- hak akses
 
-// Identitas adalah pengguna yang sedang bekerja di SAPA.
+// Identitas adalah pengguna yang sedang bekerja di SAPA. Peran dan kodenya berasal dari peran data aplikasi yang sedang aktif.
 type Identitas struct {
 	UserID     string
 	Nama       string
-	Admin      bool   // peran aplikasi admin atau superadmin
-	Peran      string // peran SAPA; kosong bila belum ditetapkan
-	KodeSatker string // untuk peran satker
-	KodeUE1    string // untuk peran ue1
+	Admin      bool   // bertindak sebagai admin atau superadmin (peran bawaan akun)
+	Peran      string // satker | kanwil | ue1 | pengguna_barang; kosong bila akun belum diberi peran
+	KodeSatker string // untuk peran satker: kode satker 6 digit (karakter ke-10 sampai ke-15 kode satker lengkap)
+	KodeKanwil string // untuk peran kanwil: kode 9 digit (9 karakter pertama kode satker lengkap)
+	KodeUE1    string // untuk peran ue1: kode 5 digit
+}
+
+// PeranAplikasi: peran data aplikasi yang sedang berlaku bagi pengguna (dari middleware autentikasi), bahan Identitas.
+type PeranAplikasi struct {
+	Admin bool   // peran efektif admin atau superadmin
+	Peran string // peran data aktif: satker, kanwil, ue1, pengguna_barang, atau kosong
+	Kode  string // kode peran (6, 9, atau 5 digit); kosong untuk Pengguna Barang
 }
 
 // Kode18 mengambil 18 digit pertama kode satker ("015010199409294002KP" -> "015010199409294002").
@@ -178,6 +191,24 @@ func Kode18(kode string) string {
 		k = k[:18]
 	}
 	return k
+}
+
+// Kode6Dari: kode satker 6 digit (karakter ke-10 sampai ke-15) dari kode satker lengkap; kosong bila kodenya terlalu pendek.
+func Kode6Dari(kode string) string {
+	k := Kode18(kode)
+	if len(k) < 15 {
+		return ""
+	}
+	return k[9:15]
+}
+
+// Kanwil9Dari: kode Kanwil (9 karakter pertama) dari kode satker lengkap; kosong bila kodenya terlalu pendek.
+func Kanwil9Dari(kode string) string {
+	k := Kode18(kode)
+	if len(k) < 9 {
+		return ""
+	}
+	return k[:9]
 }
 
 // KodeUE1Dari: lima digit pertama kode satker.
@@ -198,7 +229,7 @@ type Kasus struct {
 	KodeUE1    string
 }
 
-var ErrTanpaPeran = errors.New("akun Anda belum ditetapkan perannya di SAPA; hubungi admin")
+var ErrTanpaPeran = errors.New("akun Anda belum diberi peran (Satker, Kanwil, UE1, atau Pengguna Barang); hubungi admin")
 
 func (i Identitas) punyaAkses() error {
 	if i.Admin {
@@ -206,14 +237,18 @@ func (i Identitas) punyaAkses() error {
 	}
 	switch i.Peran {
 	case PeranSatker:
-		if Kode18(i.KodeSatker) == "" {
-			return errors.New("peran Satuan Kerja Anda belum memiliki kode satker; hubungi admin")
+		if strings.TrimSpace(i.KodeSatker) == "" {
+			return errors.New("peran Satker Anda belum memiliki kode satker; hubungi admin")
 		}
 	case PeranUE1:
 		if strings.TrimSpace(i.KodeUE1) == "" {
-			return errors.New("peran Unit Eselon I Anda belum memiliki kode UE1; hubungi admin")
+			return errors.New("peran UE1 Anda belum memiliki kode UE1; hubungi admin")
 		}
 	case PeranKanwil:
+		if strings.TrimSpace(i.KodeKanwil) == "" {
+			return errors.New("peran Kanwil Anda belum memiliki kode Kanwil; hubungi admin")
+		}
+	case PeranPenggunaBarang:
 	default:
 		return ErrTanpaPeran
 	}
@@ -223,8 +258,8 @@ func (i Identitas) punyaAkses() error {
 // Akses memeriksa apakah pengguna boleh masuk ke SAPA.
 func Akses(i Identitas) error { return i.punyaAkses() }
 
-// Terlihat: apakah usulan boleh dilihat pengguna. Admin melihat semuanya; satker hanya satkernya sendiri; UE1 hanya
-// usulan di bawah UE1-nya; Kantor Wilayah melihat semua usulan (kode wilayah belum ada di data).
+// Terlihat: apakah usulan boleh dilihat pengguna. Admin dan Pengguna Barang melihat semuanya; Satker hanya satkernya sendiri (kode 6 digit); Kanwil hanya
+// usulan di bawah Kanwil-nya (9 karakter pertama kode satker); UE1 hanya usulan di bawah UE1-nya.
 func Terlihat(i Identitas, k Kasus) bool {
 	if i.punyaAkses() != nil {
 		return false
@@ -233,12 +268,14 @@ func Terlihat(i Identitas, k Kasus) bool {
 		return true
 	}
 	switch i.Peran {
+	case PeranPenggunaBarang:
+		return true
 	case PeranSatker:
-		return Kode18(i.KodeSatker) == Kode18(k.KodeSatker)
+		return strings.TrimSpace(i.KodeSatker) != "" && Kode6Dari(k.KodeSatker) == strings.TrimSpace(i.KodeSatker)
 	case PeranUE1:
 		return strings.TrimSpace(i.KodeUE1) == k.KodeUE1
 	case PeranKanwil:
-		return true
+		return strings.TrimSpace(i.KodeKanwil) != "" && Kanwil9Dari(k.KodeSatker) == strings.TrimSpace(i.KodeKanwil)
 	}
 	return false
 }
@@ -262,7 +299,7 @@ func BolehMembuat(i Identitas, kodeSatker string) error {
 	if i.Peran != PeranSatker {
 		return errors.New("hanya Satuan Kerja yang dapat membuat usulan penjualan")
 	}
-	if Kode18(i.KodeSatker) != Kode18(kodeSatker) {
+	if strings.TrimSpace(i.KodeSatker) == "" || Kode6Dari(kodeSatker) != strings.TrimSpace(i.KodeSatker) {
 		return errors.New("Anda hanya dapat membuat usulan untuk satker Anda sendiri")
 	}
 	return nil

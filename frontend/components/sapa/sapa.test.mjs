@@ -200,6 +200,20 @@ test("tampilan menurut peran: pengguna fokus ke tahap perannya, admin melihat se
   assert.equal(alur.length, 6);
 });
 
+test("Pengguna Barang hanya melihat: tanpa tahap sendiri, tampilan awal semua tahap", () => {
+  assert.equal(H.punyaTahap("satker"), true);
+  assert.equal(H.punyaTahap("kanwil"), true);
+  assert.equal(H.punyaTahap("ue1"), true);
+  assert.equal(H.punyaTahap("pengguna_barang"), false);
+  assert.equal(H.punyaTahap(""), false);
+  assert.equal(H.lihatAwal(false, "pengguna_barang"), "semua");
+  assert.equal(H.lihatAwal(false, "kanwil"), "saya");
+  assert.equal(H.lihatAwal(true, "satker"), "semua");
+  // Pilihan "saya" tidak boleh menghasilkan daftar kosong bagi Pengguna Barang.
+  assert.equal(H.tahapDilihat(alur, "saya", "pengguna_barang").length, 6);
+  assert.equal(H.peranLabel("pengguna_barang"), "Pengguna Barang");
+});
+
 test("giliran saat ini", () => {
   assert.deepEqual(H.giliranSaatIni(alur, "", "satker", false), { jenis: "selesai" });
   assert.deepEqual(H.giliranSaatIni(alur, "zzz", "satker", false), { jenis: "selesai" });

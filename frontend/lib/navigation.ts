@@ -73,7 +73,7 @@ export const NAV_ENTRIES: NavEntry[] = [
             label: "Pengaturan SAPA",
             href: "/dashboard/sapa/pengaturan",
             icon: Settings2,
-            description: "Template dokumen Word, peran pengguna SAPA, dan referensi Unit Eselon I",
+            description: "Template dokumen Word, jenis dan satuan BMN, dan referensi Unit Eselon I",
             roles: ["admin", "superadmin"],
           },
         ],

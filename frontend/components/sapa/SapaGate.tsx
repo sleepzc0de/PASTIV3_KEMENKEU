@@ -8,7 +8,7 @@ import { errorInfo } from "./sapa";
 
 const SapaContext = createContext<SapaSaya | null>(null);
 
-// Peran SAPA pengguna yang sedang masuk. Hanya dipakai di dalam SapaGate.
+// Peran SAPA pengguna yang sedang masuk (diturunkan dari peran data aplikasi yang sedang aktif). Hanya dipakai di dalam SapaGate.
 export function useSapa(): SapaSaya {
   const v = useContext(SapaContext);
   if (!v) throw new Error("useSapa harus dipakai di dalam SapaGate");
@@ -57,10 +57,10 @@ export function SapaGate({ children, adminOnly = false }: { children: ReactNode;
       <div className="mx-auto max-w-xl rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
         <LockKeyhole className="mx-auto h-8 w-8 text-amber-600" aria-hidden="true" />
         <h2 className="mt-3 text-base font-semibold text-amber-900">Akun Anda belum dapat memakai SAPA</h2>
-        <p className="mt-1.5 text-sm text-amber-800">{saya.alasan || "Peran SAPA belum ditetapkan untuk akun Anda."}</p>
+        <p className="mt-1.5 text-sm text-amber-800">{saya.alasan || "Akun Anda belum diberi peran data aplikasi."}</p>
         <p className="mt-3 text-xs text-amber-700">
-          Peran SAPA (Satuan Kerja, Kantor Wilayah, atau Unit Eselon I) ditetapkan oleh admin di menu Pengaturan SAPA. Hubungi admin aplikasi untuk
-          meminta penetapan peran.
+          SAPA tidak menetapkan peran sendiri: peran Anda (Satuan Kerja, Kantor Wilayah, Unit Eselon I, atau Pengguna Barang) mengikuti peran data aplikasi yang
+          diberikan admin di Manajemen Pengguna. Hubungi admin aplikasi untuk meminta peran, lalu pilih peran itu di menu pengguna bila Anda punya lebih dari satu.
         </p>
       </div>
     );

@@ -53,7 +53,7 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		// SAPA (Sistem Administrasi Pengelolaan Aset), modul Penjualan. Hak akses per usulan dan per tahap diperiksa di
-		// paket sapa menurut peran SAPA pengguna; pengaturan (template, peran, referensi UE1) khusus admin/superadmin.
+		// paket sapa menurut peran data aplikasi pengguna (SAPA tidak punya peran sendiri); pengaturan (template, jenis/satuan BMN, referensi UE1) khusus admin/superadmin.
 		RegisterSapa(api.Group("/sapa", middleware.AuthRequired()))
 
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.
