@@ -2540,7 +2540,7 @@ export interface PenarikanStatus {
   aktif: PenarikanAktif | null;
   otomatis: PenarikanOtomatis;
   kuota: PenarikanKuota;
-  bermasalah: TugasBermasalah[];
+  bermasalah: TugasBermasalah[] | null; // null = tidak ada (backend lama mengirim null untuk daftar kosong); baca lewat daftarAman
   pengaturan: PenarikanPengaturan;
   kelompok: { id: string; nama: string }[];
   datasets: PenarikanDataset[];

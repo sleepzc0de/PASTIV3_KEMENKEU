@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -735,6 +736,21 @@ func TestBermasalahMenjelaskanKeadaanSiklus(t *testing.T) {
 	p.Aktif = false
 	if b := p.Bermasalah(now, g(0.5)); len(b) != 1 || b[0].BerikutnyaSekitar != nil {
 		t.Errorf("otomatis nonaktif tidak punya jadwal percobaan: %+v", b)
+	}
+}
+
+// Tanpa tugas bermasalah, daftarnya harus tampil sebagai [] di JSON, bukan null: halaman Penarikan Data memanggil .length padanya dan crash
+// pada null (terjadi di server yang belum pernah punya kegagalan).
+func TestBermasalahKosongDikirimSebagaiLarikKosong(t *testing.T) {
+	p := pengaturanUji()
+	for nama, gagal := range map[string]map[string]*KegagalanTugas{"nil": nil, "kosong": {}, "tanpa waktu": {"x": {Dataset: "tender/pengumuman"}}} {
+		b := p.Bermasalah(wib(2026, 10, 4, 12), gagal)
+		if b == nil {
+			t.Errorf("%s: Bermasalah mengembalikan nil", nama)
+		}
+		if j, _ := json.Marshal(b); string(j) != "[]" {
+			t.Errorf("%s: JSON = %s, want []", nama, j)
+		}
 	}
 }
 

@@ -445,7 +445,8 @@ func (p Pengaturan) Bermasalah(now time.Time, gagal map[string]*KegagalanTugas) 
 	for i, d := range DaftarDataset {
 		urutan[d.ID] = i
 	}
-	var out []TugasBermasalah
+	// Bukan `var out []TugasBermasalah`: irisan nil menjadi `null` di JSON, dan halaman Penarikan Data memanggil .length padanya.
+	out := []TugasBermasalah{}
 	for k, g := range gagal {
 		if len(g.Waktu) == 0 {
 			continue

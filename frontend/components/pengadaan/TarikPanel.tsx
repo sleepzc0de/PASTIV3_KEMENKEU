@@ -25,7 +25,7 @@ import { KELAS_INPUT, LencanaKesegaran } from "./lencana";
 interface Props {
   status: PenarikanStatus;
   aktif: PenarikanAktif | null;
-  kuota: PenarikanKuota;
+  kuota?: PenarikanKuota | null; // kosong bila backend lebih lama dari frontend: kartunya tidak ditampilkan
   isAdmin: boolean;
   onMulai: (a: PenarikanAktif) => void;
 }
@@ -93,7 +93,7 @@ export function TarikPanel({ status, aktif, kuota, isAdmin, onMulai }: Props) {
       {galat && <Alert message={galat} />}
 
       <PanelBermasalah item={status.bermasalah} otomatis={status.otomatis} isAdmin={isAdmin} />
-      <KartuKuota kuota={kuota} />
+      {kuota && <KartuKuota kuota={kuota} />}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h3 className="text-sm font-semibold text-slate-900">Parameter penarikan</h3>
