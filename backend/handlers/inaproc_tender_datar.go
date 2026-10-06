@@ -579,6 +579,7 @@ func (e *endpointDatar) Jalankan(ctx context.Context, rencana *rencanaSync, oleh
 
 		if statusCode != http.StatusOK {
 			errMsg := extractInaprocErrorMessage(body, statusCode)
+			log.Printf("[INAPROC SYNC ERROR] %s: Inaproc membalas %d, isi: %s", nama, statusCode, ringkasBadan(body, 300))
 			return gagal(&GalatSinkron{Status: statusCode, Pesan: "Sinkronisasi gagal: " + errMsg, Hulu: true}, errMsg)
 		}
 

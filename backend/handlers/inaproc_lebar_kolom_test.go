@@ -165,6 +165,35 @@ func TestJalankanBarisYangTetapGagalTidakDihitungDipotong(t *testing.T) {
 	}
 }
 
+// Alasan penolakan Inaproc harus terbaca (mis. 403), bukan hanya "status 403", apa pun bentuk badan galatnya.
+func TestExtractInaprocErrorMessage(t *testing.T) {
+	cases := []struct {
+		nama string
+		kode int
+		body string
+		want string
+	}{
+		{"error objek dengan detail", 429, `{"success":false,"error":{"code":"Too Many Requests","message":"Rate limit exceeded","details":"Please retry later"}}`, "Rate limit exceeded: Please retry later"},
+		{"error objek tanpa detail", 401, `{"error":{"message":"Token tidak valid"}}`, "Token tidak valid"},
+		{"error berupa teks", 403, `{"success":false,"error":"Akses ditolak untuk endpoint ini"}`, "Akses ditolak untuk endpoint ini"},
+		{"message di atas", 403, `{"message":"Forbidden: scope tidak mencukupi"}`, "Forbidden: scope tidak mencukupi"},
+		{"JSON tanpa pesan", 403, `{"success":false,"code":403}`, `status 403: {"success":false,"code":403}`},
+		{"HTML dari perantara", 403, "<html>\n<head><title>403 Forbidden</title></head>\n<body><center><h1>403 Forbidden</h1></center></body>\n</html>", "status 403: 403 Forbidden 403 Forbidden"},
+		{"badan kosong", 403, ``, "status 403"},
+		{"hanya spasi", 502, "  \n ", "status 502"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.nama, func(t *testing.T) {
+			if got := extractInaprocErrorMessage([]byte(tc.body), tc.kode); got != tc.want {
+				t.Errorf("pesan = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := extractInaprocErrorMessage([]byte(strings.Repeat("x", 1000)), 500); len([]rune(got)) > len("status 500: ")+160 {
+		t.Errorf("potongan isi harus dibatasi 160 karakter, panjang pesan %d", len([]rune(got)))
+	}
+}
+
 func TestCatatanHasil(t *testing.T) {
 	cases := []struct {
 		h    HasilSinkron

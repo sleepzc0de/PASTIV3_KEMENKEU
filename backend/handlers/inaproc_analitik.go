@@ -530,10 +530,14 @@ func (p *pengumpul) corong() (*analitik.Corong, error) {
 	rows, err := p.db.QueryContext(p.ctx, `
 		WITH rup AS (SELECT kd_rup, MAX(`+nilaiPagu+`) AS pagu FROM inaproc_paket_penyedia
 			WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND `+aktifRUP+` AND kd_rup IS NOT NULL GROUP BY kd_rup),
-		t AS (SELECT DISTINCT kd_rup FROM inaproc_tender_pengumuman WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND kd_rup IS NOT NULL),
-		nt AS (SELECT DISTINCT kd_rup FROM inaproc_non_tender_pengumuman WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND kd_rup IS NOT NULL),
-		ec AS (SELECT DISTINCT kd_rup FROM inaproc_ekatalog_paket_epurchasing WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND kd_rup IS NOT NULL
-			UNION SELECT DISTINCT rup_code FROM inaproc_ekatalog6_paket_epurchasing WHERE kode_klpd=@p1 AND fiscal_year=@p2 AND rup_code IS NOT NULL)
+		t AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_tender_pengumuman x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''),
+		nt AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_non_tender_pengumuman x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''),
+		ec AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_ekatalog_paket_epurchasing x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''
+			UNION SELECT DISTINCT LTRIM(RTRIM(s.value)) FROM inaproc_ekatalog6_paket_epurchasing x CROSS APPLY STRING_SPLIT(x.rup_code, ';') s
+			WHERE x.kode_klpd=@p1 AND x.fiscal_year=@p2 AND x.rup_code IS NOT NULL AND LTRIM(RTRIM(s.value)) <> '')
 		SELECT tahap, COUNT_BIG(*), ISNULL(SUM(pagu),0) FROM (
 			SELECT CASE WHEN t.kd_rup IS NOT NULL THEN 'Tender' WHEN nt.kd_rup IS NOT NULL THEN 'Non-tender'
 				WHEN ec.kd_rup IS NOT NULL THEN 'E-Purchasing' ELSE 'Belum diproses' END AS tahap, rup.pagu

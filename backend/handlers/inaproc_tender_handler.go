@@ -93,7 +93,7 @@ func SyncJadwalTahapanNonTender(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama jadwal-tahapan-non-tender:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -150,6 +150,7 @@ func SyncJadwalTahapanNonTender(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertJadwalTahapanNonTender(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris jadwal-tahapan-non-tender:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -161,8 +162,8 @@ func SyncJadwalTahapanNonTender(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("jadwal-tahapan-non-tender", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("jadwal-tahapan-non-tender", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 func insertJadwalTahapanNonTender(row map[string]interface{}) error {
@@ -292,7 +293,7 @@ func SyncJadwalTahapanTender(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama jadwal-tahapan-tender:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -349,6 +350,7 @@ func SyncJadwalTahapanTender(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertJadwalTahapanTender(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris jadwal-tahapan-tender:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -360,8 +362,8 @@ func SyncJadwalTahapanTender(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("jadwal-tahapan-tender", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("jadwal-tahapan-tender", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 func insertJadwalTahapanTender(row map[string]interface{}) error {
@@ -503,7 +505,7 @@ func SyncNonTenderEkontrak(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama non-tender-ekontrak:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -560,6 +562,7 @@ func SyncNonTenderEkontrak(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertNonTenderEkontrak(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris non-tender-ekontrak:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -571,8 +574,8 @@ func SyncNonTenderEkontrak(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("non-tender-ekontrak", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("non-tender-ekontrak", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // jsonArrayColumn mengubah field array dari respons Inaproc menjadi teks JSON
@@ -785,7 +788,7 @@ func SyncNonTenderEkontrakKontrak(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama non-tender-ekontrak-kontrak:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -842,6 +845,7 @@ func SyncNonTenderEkontrakKontrak(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertNonTenderEkontrakKontrak(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris non-tender-ekontrak-kontrak:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -853,8 +857,8 @@ func SyncNonTenderEkontrakKontrak(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("non-tender-ekontrak-kontrak", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // getDecimalString membaca field numerik (angka JSON atau string angka) dan
@@ -1050,7 +1054,7 @@ func SyncNonTenderPengumuman(c *gin.Context) {
 		log.Println("[INAPROC SYNC WARN] gagal hapus data lama non-tender-pengumuman:", err)
 	}
 
-	totalSynced := 0
+	totalSynced, totalFailed := 0, 0
 	cursor := ""
 	pageCount := 0
 	const maxPages = 200
@@ -1107,6 +1111,7 @@ func SyncNonTenderPengumuman(c *gin.Context) {
 		for _, row := range envelope.Data {
 			if err := insertNonTenderPengumuman(row); err != nil {
 				log.Println("[INAPROC SYNC WARN] gagal simpan baris non-tender-pengumuman:", err)
+				totalFailed++
 				continue
 			}
 			totalSynced++
@@ -1118,8 +1123,8 @@ func SyncNonTenderPengumuman(c *gin.Context) {
 		cursor = envelope.Meta.Cursor
 	}
 
-	logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "success", totalSynced, "", adminUserID, startedAt)
-	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "pages_fetched": pageCount})
+	logInaprocSync("non-tender-pengumuman", req.KodeKLPD, req.Tahun, "", "success", totalSynced, catatanHasil(HasilSinkron{TotalGagal: totalFailed}), adminUserID, startedAt)
+	utils.SuccessResponse(c, http.StatusOK, "Sinkronisasi berhasil", gin.H{"total_synced": totalSynced, "total_failed": totalFailed, "pages_fetched": pageCount})
 }
 
 // Urutan argumen harus sama dengan urutan kolom di nonTenderPengumumanInsertSQL.

@@ -128,6 +128,16 @@ Migrasi `046_inaproc_penarikan_kuota_percobaan.sql`: kolom `permintaan` (isian t
 (hitungan permintaan per menit).
 Migrasi `047_inaproc_tender_pengumuman_pokja_lebar.sql`: `nip_pokja` dan `nama_pokja` pada `inaproc_tender_pengumuman` menjadi `NVARCHAR(MAX)` (sebelumnya
 50 dan 255 karakter sehingga pengumuman dengan banyak anggota pokja gagal disimpan). Idempotent; data yang ada tetap.
+Migrasi `048_inaproc_lebarkan_kolom_dari_data_asli.sql`: kolom yang terbukti terlalu sempit pada penarikan pertama ke Inaproc asli. `kd_rup`/`kd_rup_paket`
+(delapan tabel tender dan non-tender) menjadi `NVARCHAR(450)` (batas terbesar yang masih boleh diindeks; indeksnya tetap dipakai) karena satu paket dapat
+memuat beberapa kode RUP dipisah `;`; `nama_paket`, `nama_penyedia`, dan `no_realisasi` pada pencatatan non tender (+ realisasi) menjadi `NVARCHAR(MAX)`.
+Hanya mengubah kolom yang masih lebih sempit dari sasarannya, sehingga aman dijalankan ulang.
+Migrasi `049_inaproc_kd_rup_tanpa_batas.sql`: 450 karakter ternyata masih kurang (satu baris pencatatan non tender memuat puluhan kode RUP), jadi `kd_rup`/`kd_rup_paket`
+di kedelapan tabel menjadi `NVARCHAR(MAX)` dan tujuh indeksnya dibuang (kolom MAX tidak bisa menjadi kunci indeks). Tidak ada query yang mencari berdasarkan
+kolom itu di tabel-tabel ini, jadi indeksnya tidak terpakai. Idempotent.
+Migrasi `050_inaproc_lebarkan_nama_paket_rup_dan_mak.sql`: `nama_paket` pada empat tabel RUP (penyedia dan swakelola, termasuk terumumkan) menjadi `NVARCHAR(MAX)`
+karena satu paket bernama gabungan panjang melebihi 500 karakter (handler lama membuang barisnya); `mak` pada `inaproc_ekatalog6_paket_epurchasing`
+menjadi `NVARCHAR(MAX)`. Idempotent.
 
 ## Pengujian
 
@@ -141,7 +151,18 @@ Migrasi `047_inaproc_tender_pengumuman_pokja_lebar.sql`: `nip_pokja` dan `nama_p
 
 - Belum diuji ke API Inaproc sungguhan (rate limit, bentuk respons, dan isi `status_*` bisa berbeda dari asumsi). Pola status pada wawasan
   "tender gagal" dan "belum terumumkan" memakai kecocokan teks (`gagal|batal|ulang|ditutup`, `umumkan`).
-- `total` pada paket e-purchasing V6 dianggap nilai per order; `kd_rup` dianggap satu kode per baris.
+- `total` pada paket e-purchasing V6 dianggap nilai per order. `kd_rup` pada pengumuman dan paket e-purchasing bisa memuat beberapa kode dipisah `;`
+  (terlihat pada data asli); corong dasbor memecahnya dengan `STRING_SPLIT` (SQL Server 2016+, tingkat kompatibilitas 130+) sebelum dicocokkan ke
+  paket RUP. Daftar lokal dan ekspor menampilkan kolomnya apa adanya.
+- Alasan penolakan Inaproc (mis. 403) kini dibaca dari badan galat dalam beberapa bentuk dan, bila tidak dikenali, potongan isinya disertakan di
+  pesan tugas dan log (`Inaproc membalas 403, isi: ...`). Balasan nyata untuk `tender/tender-selesai` adalah
+  `{"error":"Access to this API has been disallowed"}`: token Inaproc belum diberi izin ke endpoint itu, jadi izinnya harus diminta ke Inaproc.
+  Tugasnya tetap dicatat gagal dan ikut kebijakan percobaan ulang (3 kali per siklus, lalu istirahat 8 jam) sampai izin diberikan.
+- 13 handler sinkron lama (RUP dan non-tender) belum punya jaring pengaman lebar kolom: baris yang gagal disimpan tetap dibuang, tetapi kini
+  dihitung (`total_failed`) dan muncul di riwayat sebagai "N baris gagal disimpan", selain di log. Kolom yang terbukti sempit pada data asli dilebarkan
+  lewat migrasi (048-050).
+- Sesi login aplikasi (cookie `pasti_access_token`) berakhir sesuai umur JWT tanpa pembaruan otomatis; penarikan yang lebih lama dari itu tetap berjalan
+  di server, tetapi halaman mengarahkan ke login (401 pada polling `/inaproc/penarikan/aktif`). Masuk lagi untuk melihat kemajuannya.
 - Dataset rujukan (penyedia, komoditas, distributor, produk penyedia) hanya terisi lewat penarikan per kode; nama di grafik E-Katalog muncul
   bila sudah ditarik, selebihnya kode.
 - Dataset RUP/non-tender lama belum seatomik dataset generik (lihat di atas); kuotanya dipesan di muka dan penarikan gagalnya dicoba ulang oleh kebijakan percobaan.
