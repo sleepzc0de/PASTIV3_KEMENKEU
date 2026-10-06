@@ -1,14 +1,17 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { api } from "@/lib/api";
+import { api, type PeranInfo } from "@/lib/api";
+import { bolehSemuaData } from "@/lib/peran";
 
 export interface Profile {
   id: string;
   username: string;
   email: string;
   full_name: string;
-  role: string;
+  role: string; // hak administrasi saat ini (turun menjadi "user" selama bertindak sebagai peran data)
+  akun_role?: string; // role akun yang sebenarnya
+  peran?: PeranInfo; // peran data yang berlaku dan yang tersedia
   auth_provider?: string;
   is_protected?: boolean;
   jabatan?: string;
@@ -20,12 +23,15 @@ export interface Profile {
 
 interface DashboardContextType {
   profile: Profile | null;
+  // Peran yang berlaku boleh melihat seluruh data. Bila false, menu dan tab yang butuh data lengkap (Pengadaan) disembunyikan.
+  semuaData: boolean;
   isLoadingProfile: boolean;
   refetchProfile: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType>({
   profile: null,
+  semuaData: true,
   isLoadingProfile: true,
   refetchProfile: () => {},
 });
@@ -49,7 +55,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <DashboardContext.Provider value={{ profile, isLoadingProfile, refetchProfile: fetchProfile }}>
+    <DashboardContext.Provider value={{ profile, semuaData: bolehSemuaData(profile?.peran), isLoadingProfile, refetchProfile: fetchProfile }}>
       {children}
     </DashboardContext.Provider>
   );

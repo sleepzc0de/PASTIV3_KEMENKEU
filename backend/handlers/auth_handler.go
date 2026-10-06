@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
 	"pasti-v3-backend/models"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
 )
 
@@ -189,12 +191,23 @@ func Me(c *gin.Context) {
 
 	user.ID = idRaw.String()
 
+	// Peran data yang berlaku: "role" di bawah adalah peran untuk hak administrasi saat ini (turun menjadi "user" selama pengguna bertindak sebagai
+	// peran data), "akun_role" aslinya. Gagal membaca peran tidak menggagalkan profil: dipakai peran akun apa adanya.
+	peranInfo, errPeran := ringkasPeran(c.Request.Context(), user.ID, user.Role)
+	if errPeran != nil {
+		log.Println("[AUTH WARN] gagal membaca peran untuk profil:", errPeran)
+		peranInfo = gin.H{"akun_role": user.Role, "role": user.Role, "peran": "", "peran_label": "", "peran_id": int64(0), "kode": "",
+			"cakupan": peran.CakupanSemua, "tersedia": []peran.Baris{}, "bawaan": false, "wajib": false}
+	}
+
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data user", gin.H{
 		"id":            user.ID,
 		"username":      user.Username,
 		"email":         user.Email,
 		"full_name":     user.FullName,
-		"role":          user.Role,
+		"role":          peranInfo["role"],
+		"akun_role":     peranInfo["akun_role"],
+		"peran":         peranInfo,
 		"auth_provider": user.AuthProvider,
 		"is_protected":  user.IsProtected,
 		"jabatan":       employeeJab.String,

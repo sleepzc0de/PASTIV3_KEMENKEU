@@ -43,7 +43,7 @@ const norm = (s: string) => s.toLowerCase();
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
   const { logout } = useAuth();
-  const { profile } = useDashboard();
+  const { profile, semuaData } = useDashboard();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [recent, setRecent] = useState<string[]>([]);
@@ -66,7 +66,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }, [open]);
 
   const entries = useMemo<Entry[]>(() => {
-    const items = flattenNav(profile?.role);
+    const items = flattenNav(profile?.role, semuaData);
     const go = (href: string) => () => {
       onClose();
       router.push(href);
@@ -97,7 +97,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       list.push({ key: "logout", label: "Keluar dari aplikasi", hint: "Akun", icon: LogOut, run: () => logout("manual") });
     }
     return list;
-  }, [query, profile?.role, recent, router, onClose, logout]);
+  }, [query, profile?.role, semuaData, recent, router, onClose, logout]);
 
   useEffect(() => {
     setActive(0);

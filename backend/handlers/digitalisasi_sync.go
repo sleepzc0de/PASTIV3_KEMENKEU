@@ -60,7 +60,7 @@ func GetDigitalisasiSinkronisasi(c *gin.Context) {
 	if !dgReady(c) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), dgTimeout)
+	ctx, cancel := dgKonteks(c, dgTimeout)
 	defer cancel()
 	admin := dgIsAdmin(c)
 	m := digitalisasi.Default

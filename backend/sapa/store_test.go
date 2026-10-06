@@ -444,3 +444,47 @@ func TestCariSatkerMencocokkanAwalan(t *testing.T) {
 	}
 	cekParameter(t, f)
 }
+
+// Nama UE1 dibaca dari referensi umum (ref_ue1); daftar memuat juga UE1 aktif yang belum punya sebutan Sekretaris.
+func TestRefUE1MemakaiReferensiUmum(t *testing.T) {
+	db, f := fakesql.New(t)
+	f.OnQuery = func(_ context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		switch {
+		case strings.Contains(q, "WHERE s.kode = @p1"):
+			return []string{"kode", "nama", "sebutan"}, [][]driver.Value{{"01509", "DIREKTORAT JENDERAL KEKAYAAN NEGARA", "Sekretaris Direktorat Jenderal Kekayaan Negara"}}, nil
+		case strings.Contains(q, "UNION ALL"):
+			return []string{"kode", "nama", "sebutan"}, [][]driver.Value{
+				{"01501", "SEKRETARIAT JENDERAL", ""},
+				{"01509", "DIREKTORAT JENDERAL KEKAYAAN NEGARA", "Sekretaris Direktorat Jenderal Kekayaan Negara"},
+			}, nil
+		}
+		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
+	}
+	s := &Store{DB: db}
+	ctx := context.Background()
+
+	r, err := s.AmbilRefUE1(ctx, "01509")
+	if err != nil || r == nil || r.Nama != "DIREKTORAT JENDERAL KEKAYAAN NEGARA" || r.Sekretaris == "" {
+		t.Fatalf("AmbilRefUE1 = %+v, %v", r, err)
+	}
+	if q := lastQueryText(f); !strings.Contains(q, "LEFT JOIN ref_ue1 m ON m.kode = s.kode") || !strings.Contains(q, "COALESCE(m.nama, s.nama)") {
+		t.Errorf("AmbilRefUE1 harus mengutamakan nama dari ref_ue1:\n%s", q)
+	}
+
+	daftar, err := s.DaftarRefUE1(ctx)
+	if err != nil || len(daftar) != 2 || daftar[0].Kode != "01501" || daftar[0].Sekretaris != "" || daftar[1].Sekretaris == "" {
+		t.Fatalf("DaftarRefUE1 = %+v, %v", daftar, err)
+	}
+	if q := lastQueryText(f); !strings.Contains(q, "m.aktif = 1") || !strings.Contains(q, "NOT EXISTS (SELECT 1 FROM sapa_ref_ue1 s WHERE s.kode = m.kode)") {
+		t.Errorf("DaftarRefUE1 harus menambah UE1 aktif yang belum punya sebutan:\n%s", q)
+	}
+	cekParameter(t, f)
+}
+
+func lastQueryText(f *fakesql.DB) string {
+	qs := f.Queries()
+	if len(qs) == 0 {
+		return ""
+	}
+	return qs[len(qs)-1].Query
+}

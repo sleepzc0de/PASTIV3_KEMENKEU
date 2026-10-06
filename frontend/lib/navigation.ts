@@ -8,6 +8,7 @@ import {
   Landmark,
   Settings2,
   DatabaseBackup,
+  ListTree,
 } from "lucide-react";
 
 export interface NavItem {
@@ -32,6 +33,8 @@ export interface NavGroup {
   label: string;
   icon: React.ElementType;
   roles?: string[];
+  // Hanya untuk peran yang melihat seluruh data (data Pengadaan lengkap belum bisa dibatasi per satker); disembunyikan bagi peran UE1/Kanwil/Satker.
+  hanyaSemuaData?: boolean;
   children: NavItem[];
 }
 
@@ -81,6 +84,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     type: "group",
     label: "Pengadaan",
     icon: ShoppingCart,
+    hanyaSemuaData: true,
     children: [
       {
         label: "Pengadaan Terpadu",
@@ -101,6 +105,14 @@ export const NAV_ENTRIES: NavEntry[] = [
   },
   {
     type: "item",
+    label: "Referensi UE1",
+    href: "/dashboard/referensi/ue1",
+    icon: ListTree,
+    description: "Kelola kode Unit Eselon I: uraian dan singkatan yang tampil di Digitalisasi Aset, Dashboard, dan berkas unduhan",
+    roles: ["admin", "superadmin"],
+  },
+  {
+    type: "item",
     label: "Manajemen Pengguna",
     href: "/dashboard/users",
     icon: Users,
@@ -114,11 +126,12 @@ export interface FlatNavItem extends NavItem {
 }
 
 // Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti), termasuk halaman turunan.
-export function flattenNav(role?: string): FlatNavItem[] {
+export function flattenNav(role?: string, semuaData = true): FlatNavItem[] {
   const ok = (roles?: string[]) => !roles || (role !== undefined && roles.includes(role));
   const out: FlatNavItem[] = [];
   for (const e of NAV_ENTRIES) {
     if (!ok(e.roles)) continue;
+    if (e.type === "group" && e.hanyaSemuaData && !semuaData) continue;
     if (e.type === "item") {
       out.push(e);
     } else {

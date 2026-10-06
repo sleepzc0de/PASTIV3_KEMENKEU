@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -117,8 +116,27 @@ func dgKolomPDF(ds digitalisasi.Dataset) []string {
 	return out
 }
 
-// dgKolomEkspor: kolom berkas menurut urutan tabel. ringkas (PDF) = dgKolomPDF; selain itu semua kolom ditambah waktu sinkronisasi. Kolom
-// pribadi hanya untuk admin.
+// Kolom turunan pada berkas ekspor: singkatan dan uraian UE1 dari referensi UE1 (migrasi 052), disisipkan tepat setelah kolom kode UE1 supaya
+// berkas tidak hanya memuat kode. Bukan kolom tabel; nilainya dibaca lewat subquery ke ref_ue1 (kosong bila kodenya belum terdaftar).
+const (
+	kolomSingkatanUE1 = "Singkatan_UE1"
+	kolomUraianUE1    = "Uraian_UE1"
+)
+
+// dgEkspresiKolom: ekspresi SELECT untuk satu kolom berkas. Kolom tabel biasa dikutip apa adanya; kolom turunan UE1 berupa subquery yang merujuk
+// kolom kode UE1 tabel dataset (tanpa alias, jadi terbaca dari tabel luar).
+func dgEkspresiKolom(ds digitalisasi.Dataset, nama string) string {
+	switch nama {
+	case kolomSingkatanUE1:
+		return "(SELECT TOP (1) r.singkatan FROM ref_ue1 r WHERE r.kode = " + qc(ds.Roles.UE1) + ") AS " + qc(nama)
+	case kolomUraianUE1:
+		return "(SELECT TOP (1) r.nama FROM ref_ue1 r WHERE r.kode = " + qc(ds.Roles.UE1) + ") AS " + qc(nama)
+	}
+	return qc(nama)
+}
+
+// dgKolomEkspor: kolom berkas menurut urutan tabel. ringkas (PDF) = dgKolomPDF; selain itu semua kolom ditambah waktu sinkronisasi, dengan
+// singkatan dan uraian UE1 setelah kolom kode UE1. Kolom pribadi hanya untuk admin.
 func dgKolomEkspor(ds digitalisasi.Dataset, admin, ringkas bool) (nama []string, koordinat []bool) {
 	if ringkas {
 		nama = dgKolomPDF(ds)
@@ -130,6 +148,10 @@ func dgKolomEkspor(ds digitalisasi.Dataset, admin, ringkas bool) (nama []string,
 		}
 		nama = append(nama, c.Name)
 		koordinat = append(koordinat, c.Kind == digitalisasi.Coord)
+		if ds.Roles.UE1 != "" && c.Name == ds.Roles.UE1 {
+			nama = append(nama, kolomSingkatanUE1, kolomUraianUE1)
+			koordinat = append(koordinat, false, false)
+		}
 	}
 	return append(nama, "synced_at"), append(koordinat, false)
 }
@@ -199,10 +221,10 @@ func EksporDigitalisasiData(c *gin.Context) {
 	}
 	admin := dgIsAdmin(c)
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), eksporTimeout)
+	ctx, cancel := dgKonteks(c, eksporTimeout)
 	defer cancel()
 	var total int64
-	if err := database.DB.QueryRowContext(ctx, "SELECT COUNT_BIG(*) FROM "+qc(ds.Table)+whereSQL, args...).Scan(&total); err != nil {
+	if err := database.DB.QueryRowContext(ctx, "SELECT COUNT_BIG(*) FROM "+dgSumber(ctx, ds)+whereSQL, args...).Scan(&total); err != nil {
 		log.Println("[DIGITALISASI EKSPOR ERROR] hitung", ds.Key+":", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal menyiapkan ekspor")
 		return
@@ -220,7 +242,7 @@ func EksporDigitalisasiData(c *gin.Context) {
 	var kolomWaktu []int
 	for i, n := range nama {
 		judul[i] = labelKolomDigitalisasi(n)
-		pilih[i] = qc(n)
+		pilih[i] = dgEkspresiKolom(ds, n)
 		if koordinat[i] {
 			formatKolom[i] = "0.0000000" // lintang/bujur disimpan DECIMAL(10, 7)
 		}
@@ -233,7 +255,7 @@ func EksporDigitalisasiData(c *gin.Context) {
 	if ds.Roles.Satker != "" {
 		urut = qc(ds.Roles.Satker) + ", id"
 	}
-	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s%s ORDER BY %s", strings.Join(pilih, ", "), qc(ds.Table), whereSQL, urut), args...)
+	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s%s ORDER BY %s", strings.Join(pilih, ", "), dgSumber(ctx, ds), whereSQL, urut), args...)
 	if err != nil {
 		log.Println("[DIGITALISASI EKSPOR ERROR] baca", ds.Key+":", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membaca data")

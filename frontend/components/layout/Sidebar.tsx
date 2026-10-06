@@ -7,7 +7,7 @@ import { ChevronsLeft, ChevronsRight, ChevronDown, LogOut, ShieldCheck, X } from
 import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
 import { NAV_ENTRIES, NavEntry, isNavActive } from "@/lib/navigation";
-import { ROLE_LABEL } from "@/lib/roles";
+import { peranTampil } from "@/lib/peran";
 import { initialsOf } from "@/lib/initials";
 
 // Sama dengan breakpoint `md` Tailwind: di bawah ini sidebar jadi drawer.
@@ -40,7 +40,7 @@ function buildSections(entries: NavEntry[]): Section[] {
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const { logout } = useAuth();
-  const { profile } = useDashboard();
+  const { profile, semuaData } = useDashboard();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Grup yang berisi halaman aktif saat ini (kalau ada).
@@ -125,7 +125,9 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
       {/* Menu */}
       <nav aria-label="Menu utama" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-1">
         {buildSections(NAV_ENTRIES).map((section) => {
-          const visible = section.entries.filter((e) => canSee(e.roles) && (e.type === "item" || e.children.some((c) => canSee(c.roles))));
+          const visible = section.entries.filter(
+            (e) => canSee(e.roles) && (e.type === "item" || ((semuaData || !e.hanyaSemuaData) && e.children.some((c) => canSee(c.roles))))
+          );
           if (visible.length === 0) return null;
           return (
             <div key={section.title}>
@@ -233,7 +235,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-white">{profile.full_name}</p>
-                <p className="truncate text-xs text-slate-400">{ROLE_LABEL[profile.role] || profile.role}</p>
+                <p className="truncate text-xs text-slate-400">{peranTampil(profile.peran, profile.role)}</p>
               </div>
             </div>
           )}

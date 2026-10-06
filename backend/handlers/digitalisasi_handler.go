@@ -16,6 +16,7 @@ import (
 
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/digitalisasi"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
 )
 
@@ -41,17 +42,36 @@ func inIndonesiaSQL(lat, lng string) string {
 	return fmt.Sprintf("%s BETWEEN %v AND %v AND %s BETWEEN %v AND %v", lat, idLatMin, idLatMax, lng, idLngMin, idLngMax)
 }
 
-// Nama UE1 yang diketahui pasti (dari komentar pada query satker). Kode lain ditampilkan sebagai "UE1 <kode>".
-var ue1Names = map[string]string{"01504": "DJP", "01505": "DJBC", "01508": "DJPb", "01515": "BATII"}
+// dgKonteks: context dengan batas waktu dan cakupan data peran aktif. Setiap pembaca data Digitalisasi memakai dgSumber/dgSumberTabel, yang membaca
+// cakupan itu dari ctx, sehingga pengguna berperan UE1/Kanwil/Satker hanya melihat baris satkernya (peran Super Admin/Admin/Pengguna Barang: semua).
+func dgKonteks(c *gin.Context, batas time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), batas)
+	return peran.DenganCakupan(ctx, peran.DariGin(c)), cancel
+}
 
-func ue1Label(kode string) string {
-	if kode == "" || kode == "(kosong)" {
-		return "(kosong)"
+// dgSumberTabel: sumber baris untuk satu tabel DIGITALISASI_*. Tanpa pembatasan berupa nama tabelnya; dengan pembatasan berupa subquery yang hanya memuat
+// baris dalam cakupan, bernama sama dengan tabelnya sehingga seluruh referensi kolom di sekitarnya tetap berlaku. kolomSatker: kolom kode satker lengkap.
+func dgSumberTabel(ctx context.Context, tabel, kolomSatker string) string {
+	return dgSumberAlias(ctx, tabel, kolomSatker, "")
+}
+
+// dgSumberAlias seperti dgSumberTabel, dengan alias (mis. "s") untuk dipakai di query yang menyebut kolom lewat alias itu.
+func dgSumberAlias(ctx context.Context, tabel, kolomSatker, alias string) string {
+	c := peran.CakupanDari(ctx)
+	if c.SemuaData() {
+		if alias != "" {
+			return qc(tabel) + " " + alias
+		}
+		return qc(tabel)
 	}
-	if n, ok := ue1Names[kode]; ok {
-		return kode + " · " + n
+	if alias == "" {
+		alias = qc(tabel)
 	}
-	return "UE1 " + kode
+	return "(SELECT * FROM " + qc(tabel) + " WHERE " + c.KondisiSQL(qc(kolomSatker)) + ") AS " + alias
+}
+
+func dgSumber(ctx context.Context, ds digitalisasi.Dataset) string {
+	return dgSumberTabel(ctx, ds.Table, ds.Roles.Satker)
 }
 
 func dgIsAdmin(c *gin.Context) bool {
@@ -104,7 +124,7 @@ func nullCount(col string) string {
 func dgTableCounts(ctx context.Context) (map[string]int64, error) {
 	parts := make([]string, len(digitalisasi.Datasets))
 	for i, ds := range digitalisasi.Datasets {
-		parts[i] = fmt.Sprintf("SELECT '%s', COUNT(*) FROM %s", ds.Key, qc(ds.Table))
+		parts[i] = fmt.Sprintf("SELECT '%s', COUNT(*) FROM %s", ds.Key, dgSumber(ctx, ds))
 	}
 	rows, err := database.DB.QueryContext(ctx, strings.Join(parts, " UNION ALL "))
 	if err != nil {
@@ -148,12 +168,14 @@ type dgAssetStat struct {
 }
 
 type dgUE1 struct {
-	Kode   string           `json:"kode"`
-	Label  string           `json:"label"`
-	Satker int64            `json:"satker"`
-	KDJ    int64            `json:"kdj"`
-	KDO    int64            `json:"kdo"`
-	Per    map[string]dgAgg `json:"per"`
+	Kode      string           `json:"kode"`
+	Label     string           `json:"label"`     // "01504 · DJP" (dari referensi UE1; "UE1 01504" bila kodenya belum terdaftar)
+	Nama      string           `json:"nama"`      // uraian lengkap dari referensi UE1; kosong bila belum terdaftar
+	Singkatan string           `json:"singkatan"` // singkatan dari referensi UE1
+	Satker    int64            `json:"satker"`
+	KDJ       int64            `json:"kdj"`
+	KDO       int64            `json:"kdo"`
+	Per       map[string]dgAgg `json:"per"`
 }
 
 type dgProvinsi struct {
@@ -183,7 +205,7 @@ func dgAssetStats(ctx context.Context) ([]dgAssetStat, error) {
 
 		var s dgAssetStat
 		var luas, nilai sql.NullString
-		err := database.DB.QueryRowContext(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+qc(ds.Table)).
+		err := database.DB.QueryRowContext(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+dgSumber(ctx, ds)).
 			Scan(&s.Jumlah, &luas, &nilai, &s.Bertitik, &s.TanpaKoordinat, &s.TanpaFoto, &s.TanpaKondisi)
 		if err != nil {
 			return nil, fmt.Errorf("statistik %s: %w", ds.Key, err)
@@ -206,7 +228,7 @@ func dgBreakdown(ctx context.Context, keyExpr func(ds digitalisasi.Dataset) stri
 		r := ds.Roles
 		k := keyExpr(ds)
 		parts = append(parts, fmt.Sprintf("SELECT '%s' AS ds, %s AS k, COUNT(*) AS n, %s AS luas, %s AS nilai FROM %s GROUP BY %s",
-			ds.Key, k, sumDec(r.Luas), sumDec(r.Nilai), qc(ds.Table), k))
+			ds.Key, k, sumDec(r.Luas), sumDec(r.Nilai), dgSumber(ctx, ds), k))
 	}
 	rows, err := database.DB.QueryContext(ctx, strings.Join(parts, " UNION ALL "))
 	if err != nil {
@@ -241,7 +263,7 @@ func dgGroupCounts(ctx context.Context, table, col, valueCol string, top int) ([
 	// Teks status hukum bisa panjang (gabungan beberapa status): dikelompokkan menurut 300 karakter pertama.
 	key := "CAST(" + qc(col) + " AS NVARCHAR(300))"
 	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf(
-		"SELECT %s%s AS k, COUNT(*) AS n, %s FROM %s GROUP BY %s ORDER BY COUNT(*) DESC", topSQL, key, nilai, qc(table), key))
+		"SELECT %s%s AS k, COUNT(*) AS n, %s FROM %s GROUP BY %s ORDER BY COUNT(*) DESC", topSQL, key, nilai, dgSumberTabel(ctx, table, "Kode_Satker"), key))
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +295,7 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Fitur digitalisasi aset belum siap")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), dgTimeout)
+	ctx, cancel := dgKonteks(c, dgTimeout)
 	defer cancel()
 
 	counts, err := dgTableCounts(ctx)
@@ -305,7 +327,7 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 		err := database.DB.QueryRowContext(ctx, `SELECT
 			SUM(CASE WHEN Jenis_Satker = N'INDUK SATKER' THEN 1 ELSE 0 END),
 			SUM(CASE WHEN Jenis_Satker = N'ANAK SATKER' THEN 1 ELSE 0 END),
-			SUM(Jumlah_KDJ), SUM(Jumlah_KDO) FROM DIGITALISASI_SATKER`).Scan(&a, &b, &k1, &k2)
+			SUM(Jumlah_KDJ), SUM(Jumlah_KDO) FROM `+dgSumberTabel(ctx, "DIGITALISASI_SATKER", "Kode_Satker")).Scan(&a, &b, &k1, &k2)
 		if err != nil {
 			dgFail(c, "satker", err)
 			return
@@ -321,13 +343,23 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 		dgFail(c, "per UE1", err)
 		return
 	}
+	// Uraian dan singkatan UE1 dari referensi (migrasi 052). Gagal dibaca tidak menggagalkan ringkasan: kodenya tetap tampil.
+	refUE1, errRef := muatRefUE1(ctx)
+	if errRef != nil {
+		log.Println("[DIGITALISASI WARN] gagal membaca referensi UE1:", errRef)
+		refUE1 = map[string]RefUE1Baris{}
+	}
+	baruUE1 := func(kode string, per map[string]dgAgg) *dgUE1 {
+		r := refUE1[kode]
+		return &dgUE1{Kode: kode, Label: labelUE1(kode, refUE1), Nama: r.Nama, Singkatan: r.Singkatan, Per: per}
+	}
 	ue1 := map[string]*dgUE1{}
 	for kode, per := range ue1Rows {
-		ue1[kode] = &dgUE1{Kode: kode, Label: ue1Label(kode), Per: per}
+		ue1[kode] = baruUE1(kode, per)
 	}
 	{
 		rows, err := database.DB.QueryContext(ctx, `SELECT ISNULL(Kode_UE1, N'(kosong)'), COUNT(*), ISNULL(SUM(Jumlah_KDJ), 0), ISNULL(SUM(Jumlah_KDO), 0)
-			FROM DIGITALISASI_SATKER GROUP BY ISNULL(Kode_UE1, N'(kosong)')`)
+			FROM `+dgSumberTabel(ctx, "DIGITALISASI_SATKER", "Kode_Satker")+` GROUP BY ISNULL(Kode_UE1, N'(kosong)')`)
 		if err != nil {
 			dgFail(c, "satker per UE1", err)
 			return
@@ -342,7 +374,7 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 			}
 			u := ue1[kode]
 			if u == nil {
-				u = &dgUE1{Kode: kode, Label: ue1Label(kode), Per: map[string]dgAgg{}}
+				u = baruUE1(kode, map[string]dgAgg{})
 				ue1[kode] = u
 			}
 			u.Satker, u.KDJ, u.KDO = n, a, b
@@ -421,7 +453,7 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 
 	// Hunian (kamar) dan tanah-bangunan.
 	sumInt := func(table, col string) (int64, error) {
-		return dgScalar(ctx, fmt.Sprintf("SELECT ISNULL(SUM(%s), 0) FROM %s", qc(col), qc(table)))
+		return dgScalar(ctx, fmt.Sprintf("SELECT ISNULL(SUM(%s), 0) FROM %s", qc(col), dgSumberTabel(ctx, table, "Kode_Satker")))
 	}
 	hunian := gin.H{}
 	for _, spec := range []struct{ key, ds, col string }{
@@ -441,10 +473,10 @@ func GetDigitalisasiRingkasan(c *gin.Context) {
 	// Kelengkapan data tingkat satker.
 	kelengkapan := gin.H{}
 	for key, q := range map[string]string{
-		"satker_induk": `SELECT COUNT(*) FROM DIGITALISASI_SATKER WHERE Jenis_Satker = N'INDUK SATKER'`,
-		"induk_tanpa_kantor_utama": `SELECT COUNT(*) FROM DIGITALISASI_SATKER s WHERE s.Jenis_Satker = N'INDUK SATKER'
+		"satker_induk": `SELECT COUNT(*) FROM ` + dgSumberAlias(ctx, "DIGITALISASI_SATKER", "Kode_Satker", "s") + ` WHERE s.Jenis_Satker = N'INDUK SATKER'`,
+		"induk_tanpa_kantor_utama": `SELECT COUNT(*) FROM ` + dgSumberAlias(ctx, "DIGITALISASI_SATKER", "Kode_Satker", "s") + ` WHERE s.Jenis_Satker = N'INDUK SATKER'
 			AND NOT EXISTS (SELECT 1 FROM DIGITALISASI_GEDUNG_KANTOR_UTAMA g WHERE g.Kode_Satker = s.Kode_Satker)`,
-		"induk_tanpa_tanah": `SELECT COUNT(*) FROM DIGITALISASI_SATKER s WHERE s.Jenis_Satker = N'INDUK SATKER'
+		"induk_tanpa_tanah": `SELECT COUNT(*) FROM ` + dgSumberAlias(ctx, "DIGITALISASI_SATKER", "Kode_Satker", "s") + ` WHERE s.Jenis_Satker = N'INDUK SATKER'
 			AND NOT EXISTS (SELECT 1 FROM DIGITALISASI_TANAH t WHERE t.Kode_Satker = s.Kode_Satker)`,
 	} {
 		n, err := dgScalar(ctx, q)
@@ -503,7 +535,7 @@ func round6(f float64) float64 { return math.Round(f*1e6) / 1e6 }
 // GetDigitalisasiPeta: titik koordinat per dataset dalam bentuk ringkas. Rincian satu titik diambil terpisah
 // saat diklik (GetDigitalisasiDetail).
 func GetDigitalisasiPeta(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), dgTimeout)
+	ctx, cancel := dgKonteks(c, dgTimeout)
 	defer cancel()
 
 	want := map[string]bool{}
@@ -528,7 +560,7 @@ func GetDigitalisasiPeta(c *gin.Context) {
 		var total, inside, none sql.NullInt64
 		err := database.DB.QueryRowContext(ctx, fmt.Sprintf(
 			`SELECT COUNT(*), SUM(CASE WHEN %s THEN 1 ELSE 0 END), SUM(CASE WHEN Latitude IS NULL THEN 1 ELSE 0 END) FROM %s%s`,
-			inIndonesiaSQL("[Latitude]", "[Longitude]"), qc(ds.Table), where), args...).Scan(&total, &inside, &none)
+			inIndonesiaSQL("[Latitude]", "[Longitude]"), dgSumber(ctx, ds), where), args...).Scan(&total, &inside, &none)
 		if err != nil {
 			dgFail(c, "hitung titik "+ds.Key, err)
 			return
@@ -541,7 +573,7 @@ func GetDigitalisasiPeta(c *gin.Context) {
 			cond += " AND " + qc(ds.Roles.UE1) + " = @p1"
 		}
 		rows, err := database.DB.QueryContext(ctx, fmt.Sprintf(
-			"SELECT TOP (%d) id, Latitude, Longitude FROM %s WHERE %s", dgMapMax+1, qc(ds.Table), cond), args...)
+			"SELECT TOP (%d) id, Latitude, Longitude FROM %s WHERE %s", dgMapMax+1, dgSumber(ctx, ds), cond), args...)
 		if err != nil {
 			dgFail(c, "titik "+ds.Key, err)
 			return
@@ -605,7 +637,7 @@ func normalizeRow(ds digitalisasi.Dataset, row map[string]interface{}) {
 
 func dgDistinct(ctx context.Context, table, col string) ([]string, error) {
 	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf(
-		"SELECT DISTINCT TOP (%d) %s FROM %s WHERE %s IS NOT NULL ORDER BY %s", dgOptionMax, qc(col), qc(table), qc(col), qc(col)))
+		"SELECT DISTINCT TOP (%d) %s FROM %s WHERE %s IS NOT NULL ORDER BY %s", dgOptionMax, qc(col), dgSumberTabel(ctx, table, "Kode_Satker"), qc(col), qc(col)))
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +659,7 @@ func ListDigitalisasiData(c *gin.Context) {
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), dgTimeout)
+	ctx, cancel := dgKonteks(c, dgTimeout)
 	defer cancel()
 	admin := dgIsAdmin(c)
 
@@ -654,7 +686,7 @@ func ListDigitalisasiData(c *gin.Context) {
 	}
 
 	var total int64
-	if err := database.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+qc(ds.Table)+whereSQL, args...).Scan(&total); err != nil {
+	if err := database.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+dgSumber(ctx, ds)+whereSQL, args...).Scan(&total); err != nil {
 		dgFail(c, "hitung "+ds.Key, err)
 		return
 	}
@@ -675,7 +707,7 @@ func ListDigitalisasiData(c *gin.Context) {
 	}
 	offset, limit := param((page-1)*per), param(per)
 	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s%s ORDER BY %s OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
-		strings.Join(sel, ", "), qc(ds.Table), whereSQL, order, offset, limit), args...)
+		strings.Join(sel, ", "), dgSumber(ctx, ds), whereSQL, order, offset, limit), args...)
 	if err != nil {
 		dgFail(c, "daftar "+ds.Key, err)
 		return
@@ -723,7 +755,7 @@ func GetDigitalisasiDetail(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusBadRequest, "ID tidak valid")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), dgTimeout)
+	ctx, cancel := dgKonteks(c, dgTimeout)
 	defer cancel()
 	admin := dgIsAdmin(c)
 
@@ -737,7 +769,7 @@ func GetDigitalisasiDetail(c *gin.Context) {
 		infos = append(infos, dgColumnInfo{Nama: col.Name, Tipe: columnKind(col), Sensitif: col.Sensitive})
 	}
 	sel = append(sel, "[synced_at]")
-	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE id = @p1", strings.Join(sel, ", "), qc(ds.Table)), id)
+	rows, err := database.DB.QueryContext(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE id = @p1", strings.Join(sel, ", "), dgSumber(ctx, ds)), id)
 	if err != nil {
 		dgFail(c, "detail "+ds.Key, err)
 		return

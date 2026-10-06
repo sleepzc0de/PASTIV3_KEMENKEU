@@ -493,9 +493,12 @@ func (s *Store) RiwayatTemplate(ctx context.Context, kunci string) ([]TemplateIn
 
 // ---------------------------------------------------------------- referensi
 
+// Nama UE1 dibaca dari referensi UE1 umum (ref_ue1, migrasi 052) bila kodenya terdaftar di sana; sapa_ref_ue1 tetap menyimpan sebutan
+// Sekretaris untuk Nota Dinas dan menjadi cadangan nama.
 func (s *Store) AmbilRefUE1(ctx context.Context, kode string) (*RefUE1, error) {
 	var r RefUE1
-	err := s.DB.QueryRowContext(ctx, `SELECT kode, nama, sebutan_sekretaris FROM sapa_ref_ue1 WHERE kode = @p1`, kode).Scan(&r.Kode, &r.Nama, &r.Sekretaris)
+	err := s.DB.QueryRowContext(ctx, `SELECT s.kode, COALESCE(m.nama, s.nama), s.sebutan_sekretaris
+		FROM sapa_ref_ue1 s LEFT JOIN ref_ue1 m ON m.kode = s.kode WHERE s.kode = @p1`, kode).Scan(&r.Kode, &r.Nama, &r.Sekretaris)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -505,8 +508,16 @@ func (s *Store) AmbilRefUE1(ctx context.Context, kode string) (*RefUE1, error) {
 	return &r, nil
 }
 
+// DaftarRefUE1 memuat semua UE1 yang sudah punya sebutan Sekretaris, ditambah UE1 aktif dari referensi umum yang belum punya (Sekretaris
+// kosong) supaya admin melihat seluruh daftarnya dan tinggal mengisi sebutannya.
 func (s *Store) DaftarRefUE1(ctx context.Context) ([]RefUE1, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT kode, nama, sebutan_sekretaris FROM sapa_ref_ue1 ORDER BY kode`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT k.kode, k.nama, k.sebutan FROM (
+			SELECT s.kode, COALESCE(m.nama, s.nama) AS nama, s.sebutan_sekretaris AS sebutan
+			FROM sapa_ref_ue1 s LEFT JOIN ref_ue1 m ON m.kode = s.kode
+			UNION ALL
+			SELECT m.kode, m.nama, N'' FROM ref_ue1 m
+			WHERE m.aktif = 1 AND NOT EXISTS (SELECT 1 FROM sapa_ref_ue1 s WHERE s.kode = m.kode)
+		) k ORDER BY k.kode`)
 	if err != nil {
 		return nil, err
 	}
