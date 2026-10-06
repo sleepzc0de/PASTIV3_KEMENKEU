@@ -526,9 +526,8 @@ create_backend_env() {
       printf '# Kunci enkripsi token SSO: base64 dari TEPAT 32 byte. JANGAN diganti setelah dipakai.\n'
       printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$(gen_key_b64)"
       printf '# Integrasi Inaproc\nINAPROC_BASE_URL=https://data.inaproc.id\nINAPROC_TOKEN=\n'
-      printf '# Integrasi SLDK (opsional; kosongkan SLDK_DB_HOST untuk menonaktifkan)\n'
-      printf 'SLDK_DB_HOST=\nSLDK_DB_PORT=1433\nSLDK_DB_USER=\nSLDK_DB_PASSWORD=\nSLDK_DB_NAME=\nSLDK_ASSET_TABLE=\nSLDK_ASSET_SEARCH_COLUMNS=\n'
-      printf '# Batasi data aset SLDK ke satu K/L menurut kodenya (015 = Kemenkeu); kosong = semua K/L\nSLDK_KL_KODE=015\n'
+      printf '# Integrasi SLDK untuk Digitalisasi Aset (opsional; kosongkan SLDK_DB_HOST untuk menonaktifkan)\n'
+      printf 'SLDK_DB_HOST=\nSLDK_DB_PORT=1433\nSLDK_DB_USER=\nSLDK_DB_PASSWORD=\nSLDK_DB_NAME=\n'
     } >> "$BACKEND_ENV"
   )
   own_file "$BACKEND_ENV"

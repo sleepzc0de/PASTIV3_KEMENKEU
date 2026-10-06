@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Plus, Search, Loader2, CheckCircle2 } from "
 import { SapaHalaman, SapaRingkasan, SapaSatkerRef, cariSapaSatker, createSapaPenjualan, listSapaPenjualan } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
-import { formatDateTime } from "../sldk/overview";
+import { formatDateTime } from "@/lib/dasbor";
 import { Segmented } from "../digitalisasi/controls";
 import { PeranBadge } from "./badges";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton, TextField, inputCls } from "./fields";

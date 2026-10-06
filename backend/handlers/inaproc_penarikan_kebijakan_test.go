@@ -4,21 +4,18 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/internal/fakesql"
 )
 
 // Tes kebijakan penarikan yang stabil: percobaan ulang 3 kali sehari lalu istirahat 8 jam (dibaca dari riwayat), tanpa tabrakan antar
-// penarikan (antrean tunggal, kunci database, sinkron lama), dan pemesanan kuota sebelum tugas dimulai.
+// penarikan (antrean tunggal, kunci database), dan pemesanan kuota sebelum tugas dimulai.
 
 // penarikUjiDB: pengelola dengan database palsu yang jawabannya bisa diatur per jenis query lewat peta potongan-query -> jawaban.
 type jawabanUji struct {
@@ -220,86 +217,6 @@ func TestKunciDatabaseMenolakAntreanBilaDipegangSalinanLain(t *testing.T) {
 	}
 }
 
-func TestSinkronLamaDanAntreanTidakBolehBerjalanBersamaan(t *testing.T) {
-	lepas := make(chan struct{})
-	m, f := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
-		<-lepas
-		return HasilSinkron{}, nil
-	})
-	tg := tugasUji(t, "tender/pengumuman", PermintaanTarik{Tahun: "2025"})
-
-	// Sinkron lama berjalan: antrean ditolak. Sinkron lama kedua juga.
-	selesaiLama, err := m.MulaiEksklusif()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.Start([]Tugas{tg}, PemicuManual, Oleh{}, 0); err != ErrPenarikanSibuk {
-		t.Errorf("antrean saat sinkron lama berjalan: %v, want ErrPenarikanSibuk", err)
-	}
-	if _, err := m.MulaiEksklusif(); err != ErrPenarikanSibuk {
-		t.Errorf("sinkron lama kedua: %v, want ErrPenarikanSibuk", err)
-	}
-	selesaiLama()
-
-	// Antrean berjalan: sinkron lama ditolak.
-	if _, err := m.Start([]Tugas{tg}, PemicuManual, Oleh{}, 0); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.MulaiEksklusif(); err != ErrPenarikanSibuk {
-		t.Errorf("sinkron lama saat antrean berjalan: %v, want ErrPenarikanSibuk", err)
-	}
-	close(lepas)
-	tungguSelesai(t, m)
-	selesai2, err := m.MulaiEksklusif()
-	if err != nil {
-		t.Fatalf("setelah antrean selesai: %v", err)
-	}
-	selesai2()
-	_ = f
-}
-
-func TestSinkronEksklusifMenjawab409SelamaAntreanBerjalan(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	lepas := make(chan struct{})
-	m, _ := penarikUji(t, func(context.Context, Tugas, string, func(string)) (HasilSinkron, error) {
-		<-lepas
-		return HasilSinkron{}, nil
-	})
-	lama := Penarik
-	Penarik = m
-	t.Cleanup(func() { Penarik = lama })
-
-	var dijalankan int32
-	r := gin.New()
-	r.POST("/sync", SinkronEksklusif(), func(c *gin.Context) { atomic.AddInt32(&dijalankan, 1); c.JSON(200, gin.H{"ok": true}) })
-	kirim := func() int {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/sync", nil))
-		return w.Code
-	}
-
-	if kode := kirim(); kode != 200 {
-		t.Fatalf("tanpa antrean: %d, want 200", kode)
-	}
-	if _, err := m.Start([]Tugas{tugasUji(t, "tender/pengumuman", PermintaanTarik{Tahun: "2025"})}, PemicuManual, Oleh{}, 0); err != nil {
-		t.Fatal(err)
-	}
-	if kode := kirim(); kode != http.StatusConflict {
-		t.Errorf("saat antrean berjalan: %d, want 409", kode)
-	}
-	if dijalankan != 1 {
-		t.Errorf("handler dijalankan %d kali, want 1 (tidak dijalankan saat 409)", dijalankan)
-	}
-	close(lepas)
-	tungguSelesai(t, m)
-	if kode := kirim(); kode != 200 {
-		t.Errorf("setelah antrean selesai: %d, want 200", kode)
-	}
-	// Pelepas dipanggil walau handler selesai: permintaan berikutnya tidak tertahan.
-	if kode := kirim(); kode != 200 {
-		t.Errorf("permintaan beruntun: %d, want 200", kode)
-	}
-}
 
 // ---- kuota ----
 

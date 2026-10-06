@@ -28,6 +28,20 @@ const nextConfig: NextConfig = {
     LOGIN_PATH: loginPath,
   },
 
+  // Menu lama (Data Aset SLDK, Pengadaan, Tender, E-Katalog V5/V6 dari Inaproc) sudah dihapus: isinya kini ada di Dashboard dan Pengadaan Terpadu.
+  // Alamat lamanya (markah, tautan yang pernah dibagikan) dialihkan, bukan 404. Sementara (bukan permanen) supaya peramban tidak menyimpannya.
+  async redirects() {
+    return [
+      { source: "/dashboard/assets", destination: "/dashboard", permanent: false },
+      { source: "/dashboard/pengadaan", destination: "/dashboard?tab=pengadaan", permanent: false },
+      { source: "/dashboard/pengadaan/:path*", destination: "/dashboard?tab=pengadaan", permanent: false },
+      { source: "/dashboard/pengadaan-terpadu/dasbor", destination: "/dashboard?tab=pengadaan", permanent: false },
+      { source: "/dashboard/tender/:path*", destination: "/dashboard/pengadaan-terpadu/penarikan", permanent: false },
+      { source: "/dashboard/ekatalog/:path*", destination: "/dashboard/pengadaan-terpadu/penarikan", permanent: false },
+      { source: "/dashboard/ekatalog-v6/:path*", destination: "/dashboard/pengadaan-terpadu/penarikan", permanent: false },
+    ];
+  },
+
   async headers() {
     return [
       {

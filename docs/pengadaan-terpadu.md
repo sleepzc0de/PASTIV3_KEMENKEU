@@ -1,14 +1,17 @@
-# Pengadaan Terpadu: Penarikan Data, Ekspor, dan Dasbor
+# Pengadaan Terpadu: Penarikan Data, Ekspor, dan Dashboard
 
-Dua halaman di menu **Pengadaan Terpadu** menyatukan semua data Inaproc yang sebelumnya tersebar di empat menu:
+Menu **Pengadaan > Pengadaan Terpadu** menyatukan semua data Inaproc yang sebelumnya tersebar di empat menu (Pengadaan, Tender, E-Katalog V5, dan E-Katalog V6; keempatnya sudah dihapus). Analitiknya tampil di Dashboard:
 
 | Halaman | Alamat | Isi |
 |---|---|---|
 | Penarikan Data | `/dashboard/pengadaan-terpadu/penarikan` | Tab **Tarik Data** (manual), **Data & Ekspor** (lihat, saring, unduh Excel/CSV/PDF), **Riwayat**, **Jadwal Otomatis** |
-| Dasbor Pengadaan | `/dashboard/pengadaan-terpadu/dasbor` | Tab Ikhtisar, Perencanaan, Pemilihan, Kontrak, E-Katalog; grafik dan wawasan analitik |
+| Dashboard Pengadaan | `/dashboard?tab=pengadaan` | Tab **Pengadaan** di halaman Dashboard: sub-tab Ikhtisar, Perencanaan, Pemilihan, Kontrak, E-Katalog; grafik dan wawasan analitik |
 
-Semua pengguna login boleh melihat, mengekspor, dan membuka dasbor. Menjalankan/membatalkan penarikan dan mengubah jadwal khusus
-admin/superadmin. Halaman per-dataset yang lama (`/dashboard/pengadaan/...`, `/tender/...`, `/ekatalog/...`) tetap ada dan memakai tabel yang sama.
+Semua pengguna login boleh melihat, mengekspor, dan membuka dashboard. Menjalankan/membatalkan penarikan dan mengubah jadwal khusus
+admin/superadmin. Halaman per-dataset yang lama (`/dashboard/pengadaan/...`, `/tender/...`, `/ekatalog/...`, `/ekatalog-v6/...`) dan alamat
+`/dashboard/pengadaan-terpadu/dasbor` sudah dihapus; alamat lamanya dialihkan (`redirects()` di `frontend/next.config.ts`) ke Dashboard tab Pengadaan
+atau ke Penarikan Data. Rute API per-dataset yang lama (`GET/POST /api/v1/inaproc/<kelompok>/<dataset>[/local|/sync]` dan `/inaproc/sync-log`) juga
+dicabut; semuanya kini lewat `/inaproc/penarikan`, `/inaproc/data`, `/inaproc/ekspor`, dan `/inaproc/analitik`.
 
 ## Katalog dataset (34)
 
@@ -50,7 +53,7 @@ memeriksa tabel, kolom penyaring, kolom ringkasan, dan kolom kunci terhadap migr
 ## Penarikan yang stabil (batas Inaproc, percobaan ulang, tanpa tabrakan)
 
 **Batas permintaan Inaproc**: 1.000 permintaan per 60 detik dan kuota 5.000 permintaan yang direset tiap jam. Semua panggilan ke Inaproc (antrean,
-penjadwal, sinkron halaman lama, tampilan langsung) lewat satu pembatas (`inaproc_batas.go`, `inaproc_klien.go`):
+penjadwal, tampilan langsung) lewat satu pembatas (`inaproc_batas.go`, `inaproc_klien.go`):
 
 - Jendela geser 60 detik dan 60 menit, dengan batas sedikit di bawah batas Inaproc (`INAPROC_BATAS_PER_MENIT` 800, `INAPROC_BATAS_PER_JAM` 4.500).
   Jendela geser lebih ketat daripada jendela tetap, jadi aman bagaimanapun Inaproc mereset kuotanya. Bila jatah habis, penarikan **menunggu** (tidak gagal).
@@ -75,8 +78,7 @@ penjadwal, sinkron halaman lama, tampilan langsung) lewat satu pembatas (`inapro
   kesempatan tidak habis percuma saat Inaproc atau jaringan sedang bermasalah.
 
 **Tidak saling tabrakan**: hanya satu antrean berjalan di satu waktu; kunci aplikasi SQL Server (`sp_getapplock`) menutup celah bila ada dua
-salinan backend (mis. saat deploy); sinkron di halaman lama (satu dataset) dijaga middleware `SinkronEksklusif` dan dijawab 409 selagi antrean
-berjalan, begitu pula sebaliknya.
+salinan backend (mis. saat deploy).
 - Non-admin tidak melihat isi galat mentah maupun nama pemicu (bisa memuat alamat/potongan respons Inaproc).
 
 ## Penarikan otomatis
@@ -111,7 +113,7 @@ jadi perubahan dari halaman berlaku tanpa memulai ulang server.
 - **PDF**: A4 lanskap, kolom ringkasan, maksimal 5.000 baris (keterangan bila terpotong).
 - Kolom teknis (`row_key`, `extra_json`) tidak diekspor. Penyaring memakai parameter SQL; nama tabel dan kolom hanya dari katalog.
 
-## Dasbor
+## Dashboard Pengadaan
 
 `GET /api/v1/inaproc/analitik?tahun=&kode_klpd=&segarkan=1`. Tiap bagian dihitung terpisah (kegagalan satu bagian tidak menjatuhkan yang lain),
 hasilnya di-cache 2 menit dan dikosongkan setiap antrean penarikan selesai. Bagian dihubungkan lewat **kode RUP**: tiap paket RUP aktif

@@ -62,7 +62,7 @@ type endpointDatar struct {
 	// kategori yang tidak ada di respons level 2 dan 3).
 	IsiBilaKosong map[string]string
 
-	// Kolom yang dipilih untuk daftar lokal (GET .../local); harus memuat synced_at.
+	// Kolom yang dipilih untuk daftar data lokal; harus memuat synced_at.
 	KolomDaftar string
 
 	// MenerimaKdTender: GET boleh memakai kd_tender saja (tanpa tahun dan kode_klpd), seperti tender/pengumuman yang memang

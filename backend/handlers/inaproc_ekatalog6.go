@@ -13,6 +13,10 @@ import "github.com/gin-gonic/gin"
 // Dua endpoint punya aturan penyaring sendiri dan dipasang lewat GetDengan/SyncDengan/ListLocalDengan di
 // inaproc_ekatalog6_saring.go: list-kategori-produk (drill-down berjenjang) dan e-purchasing-by-produk.
 //
+// Catatan: pembungkus Get*/Sync*/ListLocal* di bawah sudah TIDAK terpasang di rute (halaman per-dataset dihapus; semuanya lewat penarikan terpadu,
+// /inaproc/data, dan /inaproc/ekspor). Pembungkus itu dipertahankan hanya sebagai pintu masuk tes untuk mesin endpointDatar dan aturan
+// penyaring yang masih dipakai penarikan.
+//
 // Daftar field di tiap deklarasi HARUS sinkron dengan migrasinya (040-044); tes menjaganya. Tabel dinamai inaproc_ekatalog6_* supaya
 // tidak bertabrakan dengan tabel E-Katalog archive (inaproc_ekatalog_*).
 
@@ -40,8 +44,6 @@ var ekatalog6Penyedia = newEndpointDatar(endpointDatar{
 
 func GetEkatalog6Penyedia(c *gin.Context)       { ekatalog6Penyedia.Get(c) }
 func SyncEkatalog6Penyedia(c *gin.Context)      { ekatalog6Penyedia.Sync(c) }
-func ListLocalEkatalog6Penyedia(c *gin.Context) { ekatalog6Penyedia.ListLocal(c) }
-
 // ============================================================
 // E-Katalog V6 Endpoint 4: List Produk Penyedia
 // ============================================================
@@ -62,8 +64,6 @@ var ekatalog6ProdukPenyedia = newEndpointDatar(endpointDatar{
 
 func GetEkatalog6ProdukPenyedia(c *gin.Context)       { ekatalog6ProdukPenyedia.Get(c) }
 func SyncEkatalog6ProdukPenyedia(c *gin.Context)      { ekatalog6ProdukPenyedia.Sync(c) }
-func ListLocalEkatalog6ProdukPenyedia(c *gin.Context) { ekatalog6ProdukPenyedia.ListLocal(c) }
-
 // ============================================================
 // E-Katalog V6 Endpoint 3: Paket E-Purchasing
 // ============================================================
@@ -89,8 +89,6 @@ var ekatalog6Paket = newEndpointDatar(endpointDatar{
 
 func GetEkatalog6Paket(c *gin.Context)       { ekatalog6Paket.Get(c) }
 func SyncEkatalog6Paket(c *gin.Context)      { ekatalog6Paket.Sync(c) }
-func ListLocalEkatalog6Paket(c *gin.Context) { ekatalog6Paket.ListLocal(c) }
-
 // ============================================================
 // E-Katalog V6 Endpoint 2: List Kategori Produk
 // ============================================================

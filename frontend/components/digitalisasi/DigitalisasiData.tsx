@@ -6,7 +6,7 @@ import { DGDatasetKey, DGListData, DGRow, FormatEkspor, eksporDigitalisasi, list
 import { Alert } from "@/components/ui/Alert";
 import { TombolUnduh } from "@/components/ui/TombolUnduh";
 import { useToast } from "@/components/ui/Toast";
-import { formatNumber } from "../sldk/asset";
+import { formatNumber } from "@/lib/dasbor";
 import { simpanBlob } from "../sapa/download";
 import { Segmented, SelectField } from "./controls";
 import { DATASET_LABEL, DATASET_SHORT, TABLE_COLUMNS, TITLE_COLUMN, formatCell } from "./digitalisasi";

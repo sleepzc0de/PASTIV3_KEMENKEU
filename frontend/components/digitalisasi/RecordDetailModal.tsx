@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, MapPin, ShieldAlert } from "lucide-react";
 import { DGDatasetKey, DGDetailData, getDGDetail } from "@/lib/api";
-import { formatDateTime } from "../sldk/overview";
+import { formatDateTime } from "@/lib/dasbor";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { DATASET_LABEL, TITLE_COLUMN, columnLabel, formatCell } from "./digitalisasi";

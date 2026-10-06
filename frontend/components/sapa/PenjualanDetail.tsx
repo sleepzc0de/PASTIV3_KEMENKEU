@@ -6,7 +6,7 @@ import { ArrowLeft, ChevronDown, Lock, RotateCcw, SkipForward, Hourglass } from 
 import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
 import { Segmented } from "../digitalisasi/controls";
-import { formatDateTime } from "../sldk/overview";
+import { formatDateTime } from "@/lib/dasbor";
 import { AlurRingkas } from "./AlurRingkas";
 import { KanalBadge, PeranBadge, StatusBadge, StepCircle } from "./badges";
 import { DokumenList } from "./DokumenList";

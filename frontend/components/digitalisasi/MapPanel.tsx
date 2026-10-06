@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { Loader2, MapPinOff, X } from "lucide-react";
 import { DGDatasetKey, DGDetailData, DGMapSet, getDGDetail, getDGMap } from "@/lib/api";
 import { Alert } from "@/components/ui/Alert";
-import { formatNumber } from "../sldk/asset";
+import { formatNumber } from "@/lib/dasbor";
 import { SelectField } from "./controls";
 import {
   DATASET_COLOR,

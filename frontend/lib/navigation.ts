@@ -1,49 +1,12 @@
 import {
   LayoutDashboard,
-  DatabaseZap,
   Users,
   Users2,
-  FileClock,
-  Wallet,
-  WalletCards,
-  Package,
-  PackageCheck,
-  Boxes,
-  ClipboardCheck,
-  LayoutList,
   ShoppingCart,
-  Gavel,
-  CalendarClock,
-  CalendarRange,
-  FileSignature,
-  ScrollText,
-  Megaphone,
-  BadgeCheck,
-  ClipboardList,
-  Receipt,
-  NotebookPen,
-  ReceiptText,
-  Newspaper,
-  UsersRound,
-  FileCheck2,
-  FileText,
-  Trophy,
-  Coins,
-  Store,
   Building2,
-  Tags,
-  ShoppingBag,
-  Factory,
-  Truck,
-  ShoppingBasket,
-  PackageSearch,
-  FolderTree,
-  ChartColumn,
   MapPinned,
   Landmark,
-  HandCoins,
   Settings2,
-  ChartNoAxesCombined,
   DatabaseBackup,
 } from "lucide-react";
 
@@ -55,10 +18,14 @@ export interface NavItem {
   roles?: string[];
   // Menu tetap aktif di halaman di bawahnya (mis. detail usulan). Tanpa ini, hanya alamat yang persis sama yang aktif.
   matchPrefix?: boolean;
+  // Halaman lain milik menu ini yang tidak punya baris sendiri di sidebar (mis. Pengaturan SAPA). Menu aktif di halaman-halaman itu, dan
+  // halaman-halamannya tetap muncul di pencarian menu (Ctrl+K) dan remah roti.
+  halaman?: NavItem[];
 }
 
-export function isNavActive(pathname: string, item: Pick<NavItem, "href" | "matchPrefix">): boolean {
-  return pathname === item.href || (item.matchPrefix === true && pathname.startsWith(item.href + "/"));
+export function isNavActive(pathname: string, item: Pick<NavItem, "href" | "matchPrefix" | "halaman">): boolean {
+  if (pathname === item.href || (item.matchPrefix === true && pathname.startsWith(item.href + "/"))) return true;
+  return item.halaman?.some((h) => isNavActive(pathname, h)) ?? false;
 }
 
 export interface NavGroup {
@@ -72,293 +39,55 @@ export type NavEntry =
   | ({ type: "item" } & NavItem)
   | ({ type: "group" } & NavGroup);
 
-// Satu-satunya sumber daftar menu: dipakai Sidebar dan kartu "Akses Cepat"
-// di halaman dashboard supaya keduanya tidak pernah berbeda.
+// Satu-satunya sumber daftar menu: dipakai Sidebar, pencarian menu (Ctrl+K), dan remah roti supaya ketiganya tidak pernah berbeda.
 export const NAV_ENTRIES: NavEntry[] = [
-  { type: "item", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   {
     type: "item",
-    label: "Data Aset (SLDK)",
-    href: "/dashboard/assets",
-    icon: DatabaseZap,
-    description: "Cari dan telusuri data aset dari SLDK",
-  },
-  {
-    type: "item",
-    label: "Digitalisasi Aset",
-    href: "/dashboard/digitalisasi",
-    icon: MapPinned,
-    description: "Peta, analitik, dan sinkronisasi data aset KL 015 dari SLDK",
+    label: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    description: "Dashboard analitik aset dan pengadaan, lengkap dengan wawasan berbasis data",
   },
   {
     type: "group",
-    label: "SAPA",
-    icon: Landmark,
+    label: "Aset",
+    icon: Building2,
     children: [
       {
-        label: "Penjualan",
+        label: "Digitalisasi Aset",
+        href: "/dashboard/digitalisasi",
+        icon: MapPinned,
+        description: "Peta, daftar (dengan unduhan Excel, CSV, dan PDF), dan sinkronisasi data aset KL 015 dari SLDK",
+      },
+      {
+        label: "SAPA",
         href: "/dashboard/sapa/penjualan",
-        icon: HandCoins,
+        icon: Landmark,
         description: "Usulan penjualan BMN: pembentukan tim, berita acara, dan nota dinas dari satker hingga UE1",
         matchPrefix: true,
-      },
-      {
-        label: "Pengaturan SAPA",
-        href: "/dashboard/sapa/pengaturan",
-        icon: Settings2,
-        description: "Template dokumen Word, peran pengguna SAPA, dan referensi Unit Eselon I",
-        roles: ["admin", "superadmin"],
-      },
-    ],
-  },
-  {
-    type: "group",
-    label: "Pengadaan Terpadu",
-    icon: ChartNoAxesCombined,
-    children: [
-      {
-        label: "Dasbor Pengadaan",
-        href: "/dashboard/pengadaan-terpadu/dasbor",
-        icon: ChartNoAxesCombined,
-        description: "Dasbor analitik RUP, tender, kontrak, dan e-purchasing yang saling terhubung, dengan wawasan berbasis data",
-      },
-      {
-        label: "Penarikan Data",
-        href: "/dashboard/pengadaan-terpadu/penarikan",
-        icon: DatabaseBackup,
-        description: "Tarik data Pengadaan, Tender, dan E-Katalog dari Inaproc secara manual atau otomatis, lalu ekspor ke Excel, CSV, atau PDF",
+        halaman: [
+          {
+            label: "Pengaturan SAPA",
+            href: "/dashboard/sapa/pengaturan",
+            icon: Settings2,
+            description: "Template dokumen Word, peran pengguna SAPA, dan referensi Unit Eselon I",
+            roles: ["admin", "superadmin"],
+          },
+        ],
       },
     ],
   },
   {
     type: "group",
-    label: "Pengadaan (Inaproc)",
+    label: "Pengadaan",
     icon: ShoppingCart,
     children: [
       {
-        label: "Kaji Ulang RUP",
-        href: "/dashboard/pengadaan",
-        icon: FileClock,
-        description: "Riwayat kaji ulang paket RUP",
-      },
-      {
-        label: "Paket Anggaran",
-        href: "/dashboard/pengadaan/paket-anggaran",
-        icon: Wallet,
-        description: "Anggaran paket penyedia",
-      },
-      {
-        label: "Anggaran Swakelola",
-        href: "/dashboard/pengadaan/anggaran-swakelola",
-        icon: WalletCards,
-        description: "Anggaran paket swakelola",
-      },
-      {
-        label: "Paket Penyedia",
-        href: "/dashboard/pengadaan/paket-penyedia",
-        icon: Package,
-        description: "Daftar paket pengadaan penyedia",
-      },
-      {
-        label: "Penyedia Terumumkan",
-        href: "/dashboard/pengadaan/penyedia-terumumkan",
-        icon: PackageCheck,
-        description: "Paket penyedia yang telah diumumkan",
-      },
-      {
-        label: "Paket Swakelola",
-        href: "/dashboard/pengadaan/paket-swakelola",
-        icon: Boxes,
-        description: "Daftar paket swakelola",
-      },
-      {
-        label: "Swakelola Terumumkan",
-        href: "/dashboard/pengadaan/swakelola-terumumkan",
-        icon: ClipboardCheck,
-        description: "Paket swakelola yang telah diumumkan",
-      },
-      {
-        label: "Program Master",
-        href: "/dashboard/pengadaan/program-master",
-        icon: LayoutList,
-        description: "Master program dan pagu program",
-      },
-    ],
-  },
-  {
-    type: "group",
-    label: "Tender (Inaproc)",
-    icon: Gavel,
-    children: [
-      {
-        label: "Jadwal Non Tender",
-        href: "/dashboard/tender/jadwal-non-tender",
-        icon: CalendarClock,
-        description: "Jadwal tahapan pengadaan non tender",
-      },
-      {
-        label: "Jadwal Tender",
-        href: "/dashboard/tender/jadwal-tender",
-        icon: CalendarRange,
-        description: "Jadwal tahapan tender",
-      },
-      {
-        label: "Non Tender E-Kontrak",
-        href: "/dashboard/tender/non-tender-ekontrak",
-        icon: FileSignature,
-        description: "Riwayat BAP/BAST, SPMK/SPP, dan penilaian kinerja penyedia",
-      },
-      {
-        label: "Kontrak Non Tender",
-        href: "/dashboard/tender/non-tender-ekontrak-kontrak",
-        icon: ScrollText,
-        description: "Data kontrak, nilai, penyedia, dan PPK",
-      },
-      {
-        label: "Pengumuman Non Tender",
-        href: "/dashboard/tender/non-tender-pengumuman",
-        icon: Megaphone,
-        description: "Pengumuman paket non tender: pagu, HPS, metode, dan status",
-      },
-      {
-        label: "Non Tender Selesai",
-        href: "/dashboard/tender/non-tender-selesai",
-        icon: BadgeCheck,
-        description: "Paket non tender yang selesai: penyedia, nilai penawaran, negosiasi, dan kontrak",
-      },
-      {
-        label: "Pencatatan Non Tender",
-        href: "/dashboard/tender/pencatatan-non-tender",
-        icon: ClipboardList,
-        description: "Paket non tender yang dicatat: pagu, total realisasi, PPK, dan status",
-      },
-      {
-        label: "Realisasi Pencatatan",
-        href: "/dashboard/tender/pencatatan-non-tender-realisasi",
-        icon: Receipt,
-        description: "Realisasi pencatatan non tender: nomor, jenis, nilai, penyedia, dan tanggal",
-      },
-      {
-        label: "Pencatatan Swakelola",
-        href: "/dashboard/tender/pencatatan-swakelola",
-        icon: NotebookPen,
-        description: "Paket swakelola yang dicatat: tipe, pagu, total realisasi, PPK, dan status",
-      },
-      {
-        label: "Realisasi Swakelola",
-        href: "/dashboard/tender/pencatatan-swakelola-realisasi",
-        icon: ReceiptText,
-        description: "Realisasi pencatatan swakelola: nomor, jenis, nilai, pelaksana, dan tanggal",
-      },
-      {
-        label: "Pengumuman Tender",
-        href: "/dashboard/tender/pengumuman",
-        icon: Newspaper,
-        description: "Pengumuman tender: pagu, HPS, metode, PPK/Pokja, dan status; bisa dicari dengan kode tender",
-      },
-      {
-        label: "Peserta Tender",
-        href: "/dashboard/tender/peserta-tender",
-        icon: UsersRound,
-        description: "Peserta tender: penyedia, nilai penawaran, dan pemenang",
-      },
-      {
-        label: "Tender E-Kontrak",
-        href: "/dashboard/tender/tender-ekontrak",
-        icon: FileCheck2,
-        description: "Kontrak tender beserta riwayat BAP/BAST, SPMK/SPP, dan penilaian kinerja penyedia",
-      },
-      {
-        label: "Kontrak Tender",
-        href: "/dashboard/tender/tender-ekontrak-kontrak",
-        icon: FileText,
-        description: "Data kontrak tender: nilai, penyedia, dan PPK",
-      },
-      {
-        label: "Tender Selesai",
-        href: "/dashboard/tender/tender-selesai",
-        icon: Trophy,
-        description: "Tender yang selesai: pagu, HPS, metode, status, dan tanggal penetapan pemenang",
-      },
-      {
-        label: "Nilai Tender Selesai",
-        href: "/dashboard/tender/tender-selesai-nilai",
-        icon: Coins,
-        description: "Nilai penawaran, negosiasi, dan kontrak per penyedia pemenang",
-      },
-    ],
-  },
-  {
-    type: "group",
-    label: "E-Katalog V5 (Inaproc)",
-    icon: Store,
-    children: [
-      {
-        label: "Instansi & Satker",
-        href: "/dashboard/ekatalog/instansi-satker",
-        icon: Building2,
-        description: "Daftar instansi dan satuan kerja E-Katalog per KLPD",
-      },
-      {
-        label: "Komoditas",
-        href: "/dashboard/ekatalog/komoditas",
-        icon: Tags,
-        description: "Cari detail komoditas E-Katalog berdasarkan kode komoditas",
-      },
-      {
-        label: "Paket E-Purchasing",
-        href: "/dashboard/ekatalog/paket-e-purchasing",
-        icon: ShoppingBag,
-        description: "Paket e-purchasing: produk, harga, kuantitas, satker, dan status",
-      },
-      {
-        label: "Penyedia",
-        href: "/dashboard/ekatalog/penyedia",
-        icon: Factory,
-        description: "Cari detail penyedia E-Katalog berdasarkan kode penyedia",
-      },
-      {
-        label: "Distributor",
-        href: "/dashboard/ekatalog/distributor",
-        icon: Truck,
-        description: "Cari detail distributor E-Katalog berdasarkan kode distributor",
-      },
-    ],
-  },
-  {
-    type: "group",
-    label: "E-Katalog V6 (Inaproc)",
-    icon: ShoppingBasket,
-    children: [
-      {
-        label: "Penyedia",
-        href: "/dashboard/ekatalog-v6/penyedia",
-        icon: Factory,
-        description: "Cari detail penyedia E-Katalog V6 berdasarkan kode penyedia",
-      },
-      {
-        label: "Produk Penyedia",
-        href: "/dashboard/ekatalog-v6/produk-penyedia",
-        icon: PackageSearch,
-        description: "Daftar produk satu penyedia E-Katalog V6",
-      },
-      {
-        label: "Kategori Produk",
-        href: "/dashboard/ekatalog-v6/kategori-produk",
-        icon: FolderTree,
-        description: "Telusur kategori produk E-Katalog V6 level 1 sampai 3",
-      },
-      {
-        label: "Paket E-Purchasing",
-        href: "/dashboard/ekatalog-v6/paket-e-purchasing",
-        icon: ShoppingBag,
-        description: "Paket e-purchasing V6 per tahun, termasuk paket swasta",
-      },
-      {
-        label: "Transaksi per Produk",
-        href: "/dashboard/ekatalog-v6/transaksi-produk",
-        icon: ChartColumn,
-        description: "Nilai transaksi e-purchasing per produk dan kategori, dengan filter status",
+        label: "Pengadaan Terpadu",
+        href: "/dashboard/pengadaan-terpadu/penarikan",
+        icon: DatabaseBackup,
+        description: "Tarik data Pengadaan, Tender, dan E-Katalog dari Inaproc secara manual atau otomatis, lalu lihat dan ekspor ke Excel, CSV, atau PDF",
+        matchPrefix: true,
       },
     ],
   },
@@ -384,7 +113,7 @@ export interface FlatNavItem extends NavItem {
   group?: string;
 }
 
-// Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti).
+// Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti), termasuk halaman turunan.
 export function flattenNav(role?: string): FlatNavItem[] {
   const ok = (roles?: string[]) => !roles || (role !== undefined && roles.includes(role));
   const out: FlatNavItem[] = [];
@@ -393,7 +122,11 @@ export function flattenNav(role?: string): FlatNavItem[] {
     if (e.type === "item") {
       out.push(e);
     } else {
-      for (const c of e.children) if (ok(c.roles)) out.push({ ...c, group: e.label });
+      for (const c of e.children) {
+        if (!ok(c.roles)) continue;
+        out.push({ ...c, group: e.label });
+        for (const h of c.halaman ?? []) if (ok(h.roles)) out.push({ ...h, group: e.label });
+      }
     }
   }
   return out;
@@ -404,7 +137,7 @@ export interface Crumb {
   href?: string;
 }
 
-// Remah roti dari alamat saat ini: "Beranda > Grup > Menu [> Detail]". Halaman di bawah menu yang `matchPrefix`
+// Remah roti dari alamat saat ini: "Beranda > Grup > Menu [> Halaman turunan] [> Detail]". Halaman di bawah menu yang `matchPrefix`
 // (mis. detail usulan SAPA) mendapat satu remah tambahan "Detail".
 export function breadcrumbsFor(pathname: string): Crumb[] {
   if (pathname === "/dashboard") return [{ label: "Beranda" }];
@@ -420,6 +153,13 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
       const child = e.children.find((c) => isNavActive(pathname, c));
       if (child) {
         crumbs.push({ label: e.label });
+        const sub = child.halaman?.find((h) => isNavActive(pathname, h));
+        if (sub) {
+          crumbs.push({ label: child.label, href: child.href });
+          crumbs.push({ label: sub.label, href: pathname === sub.href ? undefined : sub.href });
+          if (pathname !== sub.href) crumbs.push({ label: "Detail" });
+          return crumbs;
+        }
         crumbs.push({ label: child.label, href: pathname === child.href ? undefined : child.href });
         if (pathname !== child.href) crumbs.push({ label: "Detail" });
         return crumbs;

@@ -6,6 +6,8 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Modul murni di lib/ dan components/**/digitalisasi.ts diimpor dengan ekstensi .ts supaya tes Node (node --test) bisa menjalankannya langsung.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

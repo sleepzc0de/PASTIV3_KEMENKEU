@@ -40,15 +40,11 @@ type Config struct {
 	HTTPProxy                string
 
 	// ============ SLDK Integration ============
-	SLDKDBHost          string
-	SLDKDBPort          string
-	SLDKDBUser          string
-	SLDKDBPassword      string
-	SLDKDBName          string
-	SLDKAssetTable      string
-	SLDKAssetSearchCols []string
-	// SLDKKLKode membatasi data aset ke satu K/L menurut kodenya (mis. 015 = Kementerian Keuangan). Kosong = seluruh K/L.
-	SLDKKLKode string
+	SLDKDBHost     string
+	SLDKDBPort     string
+	SLDKDBUser     string
+	SLDKDBPassword string
+	SLDKDBName     string
 
 	// ============ Sinkronisasi otomatis Digitalisasi Aset ============
 	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Hanya berjalan bila SLDK tersambung.
@@ -121,14 +117,11 @@ func LoadConfig() {
 		HTTPSProxy:               getEnv("HTTPS_PROXY", ""),
 		HTTPProxy:                getEnv("HTTP_PROXY", ""),
 
-		SLDKDBHost:          getEnv("SLDK_DB_HOST", ""),
-		SLDKDBPort:          getEnv("SLDK_DB_PORT", "1433"),
-		SLDKDBUser:          getEnv("SLDK_DB_USER", ""),
-		SLDKDBPassword:      getEnv("SLDK_DB_PASSWORD", ""),
-		SLDKDBName:          getEnv("SLDK_DB_NAME", ""),
-		SLDKAssetTable:      getEnv("SLDK_ASSET_TABLE", ""),
-		SLDKAssetSearchCols: parseCommaList(getEnv("SLDK_ASSET_SEARCH_COLUMNS", "")),
-		SLDKKLKode:          strings.TrimSpace(getEnv("SLDK_KL_KODE", "")),
+		SLDKDBHost:     getEnv("SLDK_DB_HOST", ""),
+		SLDKDBPort:     getEnv("SLDK_DB_PORT", "1433"),
+		SLDKDBUser:     getEnv("SLDK_DB_USER", ""),
+		SLDKDBPassword: getEnv("SLDK_DB_PASSWORD", ""),
+		SLDKDBName:     getEnv("SLDK_DB_NAME", ""),
 
 		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),
@@ -217,21 +210,6 @@ func GetSSOEndpoints() SSOEndpoints {
 		UserinfoEndpoint:   "https://demo-account.kemenkeu.go.id/connect/userinfo",
 		EndSessionEndpoint: "https://demo-account.kemenkeu.go.id/connect/endsession",
 	}
-}
-
-func parseCommaList(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
 
 // GetHRIS2BaseURL mengembalikan base URL API HRIS2 sesuai environment,

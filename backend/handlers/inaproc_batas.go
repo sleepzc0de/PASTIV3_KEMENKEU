@@ -13,7 +13,7 @@ import (
 	"pasti-v3-backend/config"
 )
 
-// Pembatas permintaan ke Inaproc, dipakai SEMUA panggilan (antrean penarikan, penjadwal, sinkron di halaman lama, dan tampilan langsung).
+// Pembatas permintaan ke Inaproc, dipakai SEMUA panggilan (antrean penarikan dan penjadwal).
 //
 // Batas Inaproc: 1.000 permintaan per 60 detik, dan kuota 5.000 permintaan yang direset tiap 1 jam. Pembatas ini menjaga:
 //   - laju per menit dengan jendela geser 60 detik (daftar waktu permintaan);

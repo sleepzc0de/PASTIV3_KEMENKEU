@@ -12,6 +12,20 @@ SLDK ke database PASTI**. Halaman tidak membaca SLDK langsung; SLDK hanya dibaca
 
 Semua pengguna login boleh melihat keempat tab; menjalankan dan membatalkan sinkronisasi khusus admin/superadmin.
 
+## Dashboard Aset
+
+Data yang sama dipakai oleh tab **Aset** di halaman **Dashboard** (`/dashboard`): angka pokok, grafik, tabel kelengkapan (komponen `RingkasanAset`
+yang sama dengan tab Ringkasan di sini) ditambah blok **Wawasan analitik** yang dihitung di browser dari ringkasan itu
+(`frontend/lib/wawasanAset.ts`, fungsi murni dengan tes `lib/wawasanAset.test.mjs`). Wawasannya: skala aset, konsentrasi nilai pada satu UE1,
+sebaran provinsi, aset rusak berat, kelengkapan koordinat/foto/kondisi, cakupan asuransi gedung, satker tanpa satker induk, status hukum tanah
+kosong, hunian, dan kesegaran data sinkronisasi. Semua ambangnya ada di blok konstanta di awal berkas. Dashboard hanya **membaca salinan** di
+database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk admin). Klik pada grafik
+membuka tab Data lewat `/dashboard/digitalisasi?tab=data&dataset=<kunci>[&tanpa_koordinat=1]`.
+
+> Fitur **Data Aset (SLDK)** yang lama (pencarian langsung ke tabel aset SLDK, Ringkasan, Pemantauan, dan perintah `pasti-sldk-sync`) sudah
+> dihapus, termasuk variabel `.env` `SLDK_ASSET_TABLE`, `SLDK_ASSET_SEARCH_COLUMNS`, dan `SLDK_KL_KODE`. Koneksi `SLDK_DB_*` tetap dipakai
+> sinkronisasi di sini. Tabel `sldk_agregat`, `sldk_sync_log`, dan `sldk_pengaturan` (migrasi 019) tidak dipakai lagi; migrasinya sengaja
+> tidak dihapus dan tabelnya tidak di-DROP otomatis. Bila datanya tidak diperlukan, hapus manual.
 ## Tabel dan query
 
 Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
@@ -58,8 +72,7 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 5. Kemajuan dan hasil dicatat di `digitalisasi_sync_log` (status `antri` → `berjalan` → `sukses`/`gagal`/`dibatalkan`). Saat server
    dimulai ulang, baris yang masih `antri`/`berjalan` ditandai `gagal` karena prosesnya sudah hilang.
 
-> Tiap query membaca tabel aset SLDK (±206 GB). Jalankan di luar jam kerja dan jangan bersamaan dengan
-> `pasti-sldk-sync ringkasan` (lihat [sldk-sync.md](sldk-sync.md)).
+> Tiap query membaca tabel aset SLDK (sekitar 206 GB). Jalankan di luar jam kerja (sinkronisasi otomatis sudah dibatasi ke jam malam, lihat di bawah).
 
 ### Sinkronisasi otomatis mingguan
 

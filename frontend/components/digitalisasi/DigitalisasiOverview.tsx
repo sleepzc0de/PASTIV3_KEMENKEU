@@ -5,9 +5,9 @@ import { DatabaseZap, Loader2, RefreshCw } from "lucide-react";
 import { DGDatasetKey, DGOverview, DGOverviewData } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Alert } from "@/components/ui/Alert";
-import { formatNumber, kondisiTone } from "../sldk/asset";
-import { BarItem, BarList, ChartCard, ConditionBar, DataTable, StatTile } from "../sldk/charts";
-import { KondisiPart, compactRupiah, pct } from "../sldk/overview";
+import { formatNumber, kondisiTone } from "@/lib/dasbor";
+import { BarItem, BarList, ChartCard, ConditionBar, DataTable, StatTile } from "@/components/ui/charts";
+import { KondisiPart, compactRupiah, pct } from "@/lib/dasbor";
 import { Segmented } from "./controls";
 import {
   ASSET_KEYS,
@@ -97,13 +97,14 @@ export function DigitalisasiOverview({ overview, isAdmin, onGoSync, onOpenData }
       </div>
       {error && <Alert message={`${error}. Menampilkan data yang dimuat sebelumnya.`} />}
       <div className={`space-y-4 transition-opacity ${isLoading ? "opacity-60" : ""}`}>
-        <Body d={data} onOpenData={onOpenData} />
+        <RingkasanAset d={data} onOpenData={onOpenData} />
       </div>
     </div>
   );
 }
 
-function Body({ d, onOpenData }: { d: DGOverviewData; onOpenData: Props["onOpenData"] }) {
+// Isi ringkasan (angka pokok, grafik, kelengkapan data). Dipakai tab Ringkasan Digitalisasi Aset dan Dashboard Aset.
+export function RingkasanAset({ d, onOpenData }: { d: DGOverviewData; onOpenData: Props["onOpenData"] }) {
   const stat = (k: DGDatasetKey) => d.aset.find((a) => a.key === k);
   const sum = (keys: DGDatasetKey[], f: (a: NonNullable<ReturnType<typeof stat>>) => number) => keys.reduce((acc, k) => acc + (stat(k) ? f(stat(k)!) : 0), 0);
 

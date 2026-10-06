@@ -1,7 +1,5 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
-
 // Endpoint Tender (bukan non tender) 11-16: pengumuman, peserta, e-kontrak, kontrak, selesai, dan nilai selesai. Respons datar;
 // logikanya ada di endpointDatar (inaproc_tender_datar.go). Daftar field di tiap deklarasi HARUS sinkron dengan migrasinya
 // (029-034); tes (TestEndpointDatarKolomSamaDenganMigrasi) menjaganya.
@@ -30,10 +28,6 @@ var tenderPengumuman = newEndpointDatar(endpointDatar{
 	MenerimaKdTender: true,
 })
 
-func GetTenderPengumuman(c *gin.Context)       { tenderPengumuman.Get(c) }
-func SyncTenderPengumuman(c *gin.Context)      { tenderPengumuman.Sync(c) }
-func ListLocalTenderPengumuman(c *gin.Context) { tenderPengumuman.ListLocal(c) }
-
 // ============================================================
 // TENDER Endpoint 12: Peserta Tender
 // ============================================================
@@ -51,10 +45,6 @@ var tenderPeserta = newEndpointDatar(endpointDatar{
 	KolomDaftar: `row_key, kd_klpd, kd_tender, kd_peserta, tahun_anggaran, nama_penyedia, npwp_penyedia,
 		nilai_penawaran, nilai_terkoreksi, pemenang, pemenang_terverifikasi, synced_at`,
 })
-
-func GetTenderPeserta(c *gin.Context)       { tenderPeserta.Get(c) }
-func SyncTenderPeserta(c *gin.Context)      { tenderPeserta.Sync(c) }
-func ListLocalTenderPeserta(c *gin.Context) { tenderPeserta.ListLocal(c) }
 
 // ============================================================
 // TENDER Endpoint 13 dan 14: E-Kontrak dan Kontrak
@@ -92,10 +82,6 @@ var tenderEkontrak = newEndpointDatar(endpointDatar{
 	KolomDaftar: kolomDaftarKontrakTender,
 })
 
-func GetTenderEkontrak(c *gin.Context)       { tenderEkontrak.Get(c) }
-func SyncTenderEkontrak(c *gin.Context)      { tenderEkontrak.Sync(c) }
-func ListLocalTenderEkontrak(c *gin.Context) { tenderEkontrak.ListLocal(c) }
-
 var tenderEkontrakKontrak = newEndpointDatar(endpointDatar{
 	Nama:        "tender-ekontrak-kontrak",
 	Tabel:       "inaproc_tender_ekontrak_kontrak",
@@ -105,10 +91,6 @@ var tenderEkontrakKontrak = newEndpointDatar(endpointDatar{
 	Tanggal:     kontrakTenderTanggal,
 	KolomDaftar: kolomDaftarKontrakTender,
 })
-
-func GetTenderEkontrakKontrak(c *gin.Context)       { tenderEkontrakKontrak.Get(c) }
-func SyncTenderEkontrakKontrak(c *gin.Context)      { tenderEkontrakKontrak.Sync(c) }
-func ListLocalTenderEkontrakKontrak(c *gin.Context) { tenderEkontrakKontrak.ListLocal(c) }
 
 // ============================================================
 // TENDER Endpoint 15: Tender Selesai
@@ -131,10 +113,6 @@ var tenderSelesai = newEndpointDatar(endpointDatar{
 	KolomDaftar: `row_key, kd_klpd, kd_tender, tahun_anggaran, kd_rup, nama_paket, nama_satker, mtd_pemilihan,
 		pagu, hps, status_tender, tgl_penetapan_pemenang, synced_at`,
 })
-
-func GetTenderSelesai(c *gin.Context)       { tenderSelesai.Get(c) }
-func SyncTenderSelesai(c *gin.Context)      { tenderSelesai.Sync(c) }
-func ListLocalTenderSelesai(c *gin.Context) { tenderSelesai.ListLocal(c) }
 
 // ============================================================
 // TENDER Endpoint 16: Tender Selesai Nilai
@@ -159,6 +137,3 @@ var tenderSelesaiNilai = newEndpointDatar(endpointDatar{
 		nilai_penawaran, nilai_negosiasi, nilai_kontrak, tgl_penetapan_pemenang, synced_at`,
 })
 
-func GetTenderSelesaiNilai(c *gin.Context)       { tenderSelesaiNilai.Get(c) }
-func SyncTenderSelesaiNilai(c *gin.Context)      { tenderSelesaiNilai.Sync(c) }
-func ListLocalTenderSelesaiNilai(c *gin.Context) { tenderSelesaiNilai.ListLocal(c) }

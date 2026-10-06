@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Info } from "lucide-react";
 import type { AnPasangan, AnWawasan } from "@/lib/api";
 import { bagi, formatAngka, formatPersen, rupiahRingkas } from "@/lib/pengadaan";
-import { BarItem } from "../sldk/charts";
+import { BarItem } from "@/components/ui/charts";
 import { WARNA } from "./grafik";
 
 // Daftar kelompok -> item batang untuk BarList. `ukuran` menentukan yang diukur (nilai rupiah atau jumlah paket); persentase terhadap total daftar.

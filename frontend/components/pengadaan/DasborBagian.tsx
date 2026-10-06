@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AnEkatalog, AnHasil, AnKontrak, AnPemilihan, AnRUP, AnWawasan } from "@/lib/api";
 import { bagi, formatAngka, formatPersen, formatTanggal, rupiahRingkas } from "@/lib/pengadaan";
-import { BarList, ChartCard, DataTable, StatTile } from "../sldk/charts";
+import { BarList, ChartCard, DataTable, StatTile } from "@/components/ui/charts";
 import { AngkaPokok, Corong, DaftarWawasan, Histogram, Komposisi, KolomBulanan, WARNA } from "./grafik";
 import { KOLOM_TABEL, KartuKosong, Subjudul, keBarItems, keBarisTabel, keKomposisi, saring } from "./dasborUtil";
 

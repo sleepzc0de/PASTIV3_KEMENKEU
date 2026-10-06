@@ -1,7 +1,5 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
-
 // ============================================================
 // TENDER Endpoint 7: Pencatatan Non Tender
 // ============================================================
@@ -26,10 +24,6 @@ var pencatatanNonTender = newEndpointDatar(endpointDatar{
 		pagu, total_realisasi, status_nontender_pct, status_nontender_pct_ket, tgl_selesai_paket, synced_at`,
 })
 
-func GetPencatatanNonTender(c *gin.Context)       { pencatatanNonTender.Get(c) }
-func SyncPencatatanNonTender(c *gin.Context)      { pencatatanNonTender.Sync(c) }
-func ListLocalPencatatanNonTender(c *gin.Context) { pencatatanNonTender.ListLocal(c) }
-
 // ============================================================
 // TENDER Endpoint 8: Pencatatan Non Tender Realisasi
 // ============================================================
@@ -50,6 +44,3 @@ var pencatatanNonTenderRealisasi = newEndpointDatar(endpointDatar{
 		no_realisasi, jenis_realisasi, pagu, nilai_realisasi, tgl_realisasi, synced_at`,
 })
 
-func GetPencatatanNonTenderRealisasi(c *gin.Context)       { pencatatanNonTenderRealisasi.Get(c) }
-func SyncPencatatanNonTenderRealisasi(c *gin.Context)      { pencatatanNonTenderRealisasi.Sync(c) }
-func ListLocalPencatatanNonTenderRealisasi(c *gin.Context) { pencatatanNonTenderRealisasi.ListLocal(c) }

@@ -5,8 +5,8 @@ import { AlertTriangle, Ban, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } 
 import { DGAutoInfo, DGDatasetKey, DGSyncLog, DGSyncOverview, cancelDGSync, startDGSync } from "@/lib/api";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
-import { formatNumber } from "../sldk/asset";
-import { formatDateTime } from "../sldk/overview";
+import { formatNumber } from "@/lib/dasbor";
+import { formatDateTime } from "@/lib/dasbor";
 import {
   DATASET_LABEL,
   STATUS_META,
