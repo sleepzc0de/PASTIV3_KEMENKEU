@@ -40,7 +40,7 @@ function buildSections(entries: NavEntry[]): Section[] {
 export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const { logout } = useAuth();
-  const { profile, semuaData } = useDashboard();
+  const { profile } = useDashboard();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Grup yang berisi halaman aktif saat ini (kalau ada).
@@ -126,7 +126,7 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
       <nav aria-label="Menu utama" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-1">
         {buildSections(NAV_ENTRIES).map((section) => {
           const visible = section.entries.filter(
-            (e) => canSee(e.roles) && (e.type === "item" || ((semuaData || !e.hanyaSemuaData) && e.children.some((c) => canSee(c.roles))))
+            (e) => canSee(e.roles) && (e.type === "item" || e.children.some((c) => canSee(c.roles)))
           );
           if (visible.length === 0) return null;
           return (

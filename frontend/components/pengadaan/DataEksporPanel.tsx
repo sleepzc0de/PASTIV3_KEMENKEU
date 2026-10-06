@@ -16,7 +16,10 @@ import { useDataHalaman } from "./usePengadaan";
 const BATAS_PDF = 5000;
 
 // Tampilan data lokal satu dataset dengan penyaring, plus ekspor ke Excel, CSV, dan PDF dengan penyaring yang sama.
-export function DataEksporPanel({ status, versi, awal }: { status: PenarikanStatus; versi: number; awal?: string }) {
+// Yang dibaca dari status hanya daftar dataset, kelompok, dan KLPD bawaan, jadi peran yang dibatasi per satker (daftar dari /inaproc/dataset) memakainya juga.
+export type StatusDataset = Pick<PenarikanStatus, "datasets" | "kelompok" | "kode_klpd">;
+
+export function DataEksporPanel({ status, versi, awal, terbatas = false }: { status: StatusDataset; versi: number; awal?: string; terbatas?: boolean }) {
   const toast = useToast();
   const kelompok = useMemo(() => kelompokkanDataset(status.datasets, status.kelompok), [status.datasets, status.kelompok]);
   const [datasetId, setDatasetId] = useState(awal ?? "tender/pengumuman");
@@ -202,7 +205,13 @@ export function DataEksporPanel({ status, versi, awal }: { status: PenarikanStat
           <div className="p-4">
             <EmptyState
               title="Belum ada data"
-              description={total === 0 && !cari && !tahun ? "Dataset ini belum pernah ditarik. Gunakan tab Tarik Data untuk mengambilnya dari Inaproc." : "Tidak ada baris yang cocok dengan penyaring ini."}
+              description={
+                total === 0 && !cari && !tahun
+                  ? terbatas
+                    ? "Tidak ada data satker dalam cakupan Anda pada dataset ini."
+                    : "Dataset ini belum pernah ditarik. Gunakan tab Tarik Data untuk mengambilnya dari Inaproc."
+                  : "Tidak ada baris yang cocok dengan penyaring ini."
+              }
             />
           </div>
         )}

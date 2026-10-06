@@ -72,6 +72,33 @@ func TestKondisiSQLDanBolehKodeSatker(t *testing.T) {
 	}
 }
 
+func TestKondisiSatker6SQL(t *testing.T) {
+	const kol, tabel, kolAset = "k6", "[DIGITALISASI_SATKER]", "[Kode_Satker]"
+	for _, c := range []struct {
+		nama    string
+		cakupan Cakupan
+		want    string
+	}{
+		{"semua", CakupanSemua, "1 = 1"},
+		{"nilai nol", Cakupan{}, "1 = 1"},
+		{"kosong", Cakupan{Tingkat: Kosong}, "1 = 0"},
+		{"satker", Cakupan{Tingkat: TingkatSatk, Kode: "119091"}, "(k6) = N'119091'"},
+		{"ue1", Cakupan{Tingkat: TingkatUE1, Kode: "01504"},
+			"(k6) IN (SELECT SUBSTRING([Kode_Satker], 10, 6) FROM [DIGITALISASI_SATKER] WHERE LEN([Kode_Satker]) >= 15 AND LEFT([Kode_Satker], 5) = N'01504')"},
+		{"kanwil", Cakupan{Tingkat: TingkatKwl, Kode: "015040199"},
+			"(k6) IN (SELECT SUBSTRING([Kode_Satker], 10, 6) FROM [DIGITALISASI_SATKER] WHERE LEN([Kode_Satker]) >= 15 AND LEFT([Kode_Satker], 9) = N'015040199')"},
+		// kode tidak sah ditutup, bukan dibuka
+		{"satker rusak", Cakupan{Tingkat: TingkatSatk, Kode: "11909' OR '1'='1"}, "1 = 0"},
+		{"ue1 terlalu pendek", Cakupan{Tingkat: TingkatUE1, Kode: "0150"}, "1 = 0"},
+		{"kanwil bukan angka", Cakupan{Tingkat: TingkatKwl, Kode: "01504019;"}, "1 = 0"},
+		{"tingkat tak dikenal", Cakupan{Tingkat: "lain", Kode: "01504"}, "1 = 0"},
+	} {
+		if got := c.cakupan.KondisiSatker6SQL(kol, tabel, kolAset); got != c.want {
+			t.Errorf("%s: KondisiSatker6SQL = %q, want %q", c.nama, got, c.want)
+		}
+	}
+}
+
 func TestBolehSatker6(t *testing.T) {
 	if !CakupanSemua.BolehSatker6("123456") {
 		t.Error("semua: boleh")

@@ -6,6 +6,7 @@ import { Building2, LayoutDashboard, Link2, ShoppingCart } from "lucide-react";
 import { DasborAset } from "@/components/dashboard/DasborAset";
 import { DasborSatker } from "@/components/dashboard/DasborSatker";
 import { useDashboard } from "@/lib/dashboard-context";
+import { bolehLihatPengadaan } from "@/lib/peran";
 import { DasborWorkspace } from "@/components/pengadaan/DasborWorkspace";
 import { PageShell } from "@/components/ui/PageHeader";
 import { Tabs } from "@/components/ui/Tabs";
@@ -26,9 +27,10 @@ const dariQuery = (v: string | null): KunciTab => (v === "pengadaan" || v === "s
 function IsiDashboard() {
   const router = useRouter();
   const params = useSearchParams();
-  // Data Pengadaan lengkap hanya untuk peran yang melihat seluruh data; bagi peran UE1/Kanwil/Satker tab itu disembunyikan (jangan memanggil API-nya, pasti ditolak).
-  const { profile, semuaData, isLoadingProfile } = useDashboard();
-  const bolehPengadaan = !isLoadingProfile && semuaData;
+  // Pengadaan dibatasi per satker di backend (kd_satker_str): peran UE1/Kanwil/Satker melihat pengadaan satkernya. Yang disembunyikan hanya bagi pengguna yang belum diberi peran
+  // (API-nya pasti menolak).
+  const { profile, isLoadingProfile } = useDashboard();
+  const bolehPengadaan = !isLoadingProfile && bolehLihatPengadaan(profile?.peran);
   const tanpaPeran = Boolean(profile?.peran?.wajib && !profile.peran.peran && profile.role === "user");
   const [tab, setTab] = useState<KunciTab>(dariQuery(params.get("tab")));
   // Tab dimuat saat pertama dibuka lalu tetap terpasang (disembunyikan): pindah tab tidak menghitung ulang dan filter dasbor tidak hilang.

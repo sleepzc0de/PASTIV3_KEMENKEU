@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 // Jalankan dari folder frontend (Node 22.18+ membaca .ts langsung):
 //   node --test lib/peran.test.mjs
-const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
+const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, bolehLihatPengadaan, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
   new URL("./peran.ts", import.meta.url).href
 );
 
@@ -51,6 +51,16 @@ test("boleh semua data: hanya cakupan semua (atau info belum ada)", () => {
   assert.equal(bolehSemuaData(info()), true);
   assert.equal(bolehSemuaData(info({ cakupan: { tingkat: "ue1", kode: "01504" } })), false);
   assert.equal(bolehSemuaData(info({ cakupan: { tingkat: "kosong" } })), false);
+});
+
+test("pengadaan terbuka bagi semua peran yang punya data, termasuk yang dibatasi per satker; hanya cakupan kosong yang ditolak", () => {
+  assert.equal(bolehLihatPengadaan(undefined), true);
+  assert.equal(bolehLihatPengadaan(null), true);
+  assert.equal(bolehLihatPengadaan(info()), true);
+  assert.equal(bolehLihatPengadaan(info({ cakupan: { tingkat: "ue1", kode: "01504" } })), true);
+  assert.equal(bolehLihatPengadaan(info({ cakupan: { tingkat: "kanwil", kode: "015040199" } })), true);
+  assert.equal(bolehLihatPengadaan(info({ cakupan: { tingkat: "satker", kode: "119091" } })), true);
+  assert.equal(bolehLihatPengadaan(info({ cakupan: { tingkat: "kosong" } })), false);
 });
 
 test("pilihan peran: admin punya peran bawaan di depan; pengguna biasa hanya peran datanya; yang berlaku ditandai aktif", () => {

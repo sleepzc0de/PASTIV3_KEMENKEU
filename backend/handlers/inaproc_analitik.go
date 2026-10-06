@@ -17,6 +17,7 @@ import (
 
 	"pasti-v3-backend/analitik"
 	"pasti-v3-backend/database"
+	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
 )
 
@@ -49,7 +50,17 @@ type pengumpul struct {
 	klpd    string
 	tahun   string
 	hariIni time.Time
+	cak     peran.Cakupan // data yang boleh dilihat peran pengguna (nilai nol = semua)
 }
+
+// t: tabel untuk FROM, dibatasi ke satker peran; nama tabel apa adanya bagi peran yang melihat semua data.
+func (p *pengumpul) t(tabel string) string { return sumberInaproc(p.cak, tabel) }
+
+// ta: seperti t untuk query yang memberi alias pada tabelnya.
+func (p *pengumpul) ta(tabel, alias string) string { return sumberInaprocAlias(p.cak, tabel, alias) }
+
+// dibatasi: peran pengguna hanya melihat sebagian data (per satker).
+func (p *pengumpul) dibatasi() bool { return !p.cak.SemuaData() }
 
 func (p *pengumpul) args() []interface{} { return []interface{}{p.klpd, p.tahun, p.hariIni} }
 
@@ -145,7 +156,7 @@ const (
 // ---- bagian RUP ----
 
 func (p *pengumpul) rup() (*analitik.RUP, error) {
-	const dari = "inaproc_paket_penyedia"
+	dari := p.t("inaproc_paket_penyedia")
 	where := "kd_klpd=@p1 AND tahun_anggaran=@p2 AND " + aktifRUP
 	r := &analitik.RUP{}
 	if err := p.skalar("SELECT COUNT_BIG(*), ISNULL(SUM("+nilaiPagu+"),0) FROM "+dari+" WHERE "+where, &r.TotalPaket, &r.TotalPagu); err != nil {
@@ -175,46 +186,70 @@ func (p *pengumpul) rup() (*analitik.RUP, error) {
 		" AND tgl_awal_pemilihan IS NOT NULL AND YEAR(tgl_awal_pemilihan) = CAST(@p2 AS INT) GROUP BY MONTH(tgl_awal_pemilihan)"); err != nil {
 		return nil, err
 	}
-	if err := p.skalar("SELECT COUNT_BIG(*) FROM inaproc_paket_swakelola WHERE kd_klpd=@p1 AND tahun_anggaran=@p2", &r.PaketSwakelola); err != nil {
+	if err := p.skalar("SELECT COUNT_BIG(*) FROM "+p.t("inaproc_paket_swakelola")+" WHERE kd_klpd=@p1 AND tahun_anggaran=@p2", &r.PaketSwakelola); err != nil {
 		return nil, err
 	}
-	if err := p.skalar("SELECT ISNULL(SUM("+nilaiPagu+"),0) FROM inaproc_paket_swakelola_terumumkan WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND "+aktifRUP, &r.PaguSwakelola); err != nil {
+	if err := p.skalar("SELECT ISNULL(SUM("+nilaiPagu+"),0) FROM "+p.t("inaproc_paket_swakelola_terumumkan")+" WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND "+aktifRUP, &r.PaguSwakelola); err != nil {
 		return nil, err
 	}
-	if err := p.skalar("SELECT ISNULL(SUM(CAST(ISNULL(pagu_program,0) AS DECIMAL(38,2))),0) FROM inaproc_program_master WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND ISNULL(is_deleted,0)=0", &r.PaguProgram); err != nil {
-		return nil, err
+	// Program master tidak punya kode satker yang dapat dipercaya, jadi tidak dihitung bagi peran yang dibatasi per satker.
+	if !p.dibatasi() {
+		if err := p.skalar("SELECT ISNULL(SUM(CAST(ISNULL(pagu_program,0) AS DECIMAL(38,2))),0) FROM inaproc_program_master WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND ISNULL(is_deleted,0)=0", &r.PaguProgram); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
 
 // ---- bagian pemilihan (tender dan non-tender) ----
 
+// Potongan SQL berikut menerima cakupan peran: tabel sumbernya dibatasi ke satker peran (sumberInaproc). Bagi peran yang melihat semua data teksnya sama
+// persis seperti tanpa pembatasan.
+
 // Pengumuman terbaru per tender / non-tender (bila sebuah tender punya beberapa versi, hanya versi terbaru yang dihitung).
-const (
-	cteTender = `WITH tp AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_tender ORDER BY ISNULL(versi_tender,0) DESC, tgl_pengumuman_tender DESC) rn
-		FROM inaproc_tender_pengumuman WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) x WHERE rn=1) `
-	cteNonTender = `WITH np AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_nontender ORDER BY ISNULL(versi_nontender,0) DESC, tgl_pengumuman_nontender DESC) rn
-		FROM inaproc_non_tender_pengumuman WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) x WHERE rn=1) `
+func cteTenderUntuk(cak peran.Cakupan) string {
+	return `WITH tp AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_tender ORDER BY ISNULL(versi_tender,0) DESC, tgl_pengumuman_tender DESC) rn
+		FROM ` + sumberInaproc(cak, "inaproc_tender_pengumuman") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) x WHERE rn=1) `
+}
 
-	// Paket selesai yang punya HPS dan nilai kontrak: efisiensi (HPS - kontrak) / HPS.
-	efisiensiGabung = `(SELECT (hps - nilai_kontrak) * 100.0 / hps AS e, hps AS hps, nilai_kontrak AS kontrak FROM inaproc_tender_selesai_nilai
-		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND hps>0 AND nilai_kontrak>0
-		UNION ALL SELECT (hps - nilai_kontrak) * 100.0 / hps, hps, nilai_kontrak FROM inaproc_non_tender_selesai
-		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND hps>0 AND nilai_kontrak>0) t`
+func cteNonTenderUntuk(cak peran.Cakupan) string {
+	return `WITH np AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_nontender ORDER BY ISNULL(versi_nontender,0) DESC, tgl_pengumuman_nontender DESC) rn
+		FROM ` + sumberInaproc(cak, "inaproc_non_tender_pengumuman") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) x WHERE rn=1) `
+}
 
-	// Penyedia dikelompokkan menurut nama (huruf besar, tanpa spasi tepi), dari tender dan non-tender.
-	cteVendor = `WITH v AS (SELECT kunci, MIN(nama) AS nama, SUM(nilai) AS tot, COUNT_BIG(*) AS jml FROM (
-		SELECT UPPER(LTRIM(RTRIM(nama_penyedia))) AS kunci, nama_penyedia AS nama, ISNULL(nilai_kontrak,0) AS nilai FROM inaproc_tender_selesai_nilai
-		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND LTRIM(RTRIM(ISNULL(nama_penyedia,''))) <> ''
-		UNION ALL SELECT UPPER(LTRIM(RTRIM(nama_penyedia))), nama_penyedia, ISNULL(nilai_kontrak,0) FROM inaproc_non_tender_selesai
-		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND LTRIM(RTRIM(ISNULL(nama_penyedia,''))) <> '') x GROUP BY kunci) `
-
-	selesaiKontrakTender = `SELECT ISNULL(SUM(nilai_kontrak),0) FROM inaproc_tender_selesai_nilai WHERE kd_klpd=@p1 AND tahun_anggaran=@p2`
-	selesaiKontrakNon    = `SELECT ISNULL(SUM(nilai_kontrak),0) FROM inaproc_non_tender_selesai WHERE kd_klpd=@p1 AND tahun_anggaran=@p2`
-
-	// Rentang efisiensi: 1 = di atas HPS, 2 = 0-5%, 3 = 5-10%, 4 = 10-20%, 5 = di atas 20%.
-	rentangEfisiensi = `CASE WHEN e < 0 THEN 1 WHEN e < 5 THEN 2 WHEN e < 10 THEN 3 WHEN e < 20 THEN 4 ELSE 5 END`
+// Tanpa pembatasan: untuk pembaca yang membatasi hasilnya sendiri (keterhubungan satker).
+var (
+	cteTender    = cteTenderUntuk(peran.CakupanSemua)
+	cteNonTender = cteNonTenderUntuk(peran.CakupanSemua)
 )
+
+// Paket selesai yang punya HPS dan nilai kontrak: efisiensi (HPS - kontrak) / HPS.
+func efisiensiGabungUntuk(cak peran.Cakupan) string {
+	return `(SELECT (hps - nilai_kontrak) * 100.0 / hps AS e, hps AS hps, nilai_kontrak AS kontrak FROM ` + sumberInaproc(cak, "inaproc_tender_selesai_nilai") + `
+		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND hps>0 AND nilai_kontrak>0
+		UNION ALL SELECT (hps - nilai_kontrak) * 100.0 / hps, hps, nilai_kontrak FROM ` + sumberInaproc(cak, "inaproc_non_tender_selesai") + `
+		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND hps>0 AND nilai_kontrak>0) t`
+}
+
+// Penyedia dikelompokkan menurut nama (huruf besar, tanpa spasi tepi), dari tender dan non-tender.
+func cteVendorUntuk(cak peran.Cakupan) string {
+	return `WITH v AS (SELECT kunci, MIN(nama) AS nama, SUM(nilai) AS tot, COUNT_BIG(*) AS jml FROM (
+		SELECT UPPER(LTRIM(RTRIM(nama_penyedia))) AS kunci, nama_penyedia AS nama, ISNULL(nilai_kontrak,0) AS nilai FROM ` + sumberInaproc(cak, "inaproc_tender_selesai_nilai") + `
+		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND LTRIM(RTRIM(ISNULL(nama_penyedia,''))) <> ''
+		UNION ALL SELECT UPPER(LTRIM(RTRIM(nama_penyedia))), nama_penyedia, ISNULL(nilai_kontrak,0) FROM ` + sumberInaproc(cak, "inaproc_non_tender_selesai") + `
+		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND LTRIM(RTRIM(ISNULL(nama_penyedia,''))) <> '') x GROUP BY kunci) `
+}
+
+func selesaiKontrakTenderUntuk(cak peran.Cakupan) string {
+	return `SELECT ISNULL(SUM(nilai_kontrak),0) FROM ` + sumberInaproc(cak, "inaproc_tender_selesai_nilai") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2`
+}
+
+func selesaiKontrakNonUntuk(cak peran.Cakupan) string {
+	return `SELECT ISNULL(SUM(nilai_kontrak),0) FROM ` + sumberInaproc(cak, "inaproc_non_tender_selesai") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2`
+}
+
+// Rentang efisiensi: 1 = di atas HPS, 2 = 0-5%, 3 = 5-10%, 4 = 10-20%, 5 = di atas 20%.
+const rentangEfisiensi = `CASE WHEN e < 0 THEN 1 WHEN e < 5 THEN 2 WHEN e < 10 THEN 3 WHEN e < 20 THEN 4 ELSE 5 END`
 
 var labelRentangEfisiensi = [...]string{"Di atas HPS", "0-5%", "5-10%", "10-20%", "Di atas 20%"}
 
@@ -223,59 +258,59 @@ func (p *pengumpul) pemilihan() (*analitik.Pemilihan, error) {
 	var err error
 
 	// Tender dan non-tender yang diumumkan.
-	if err = p.skalar(cteTender+"SELECT COUNT_BIG(*), ISNULL(SUM(CAST(ISNULL(pagu,0) AS DECIMAL(38,2))),0), ISNULL(SUM(CAST(ISNULL(hps,0) AS DECIMAL(38,2))),0) FROM tp",
+	if err = p.skalar(cteTenderUntuk(p.cak)+"SELECT COUNT_BIG(*), ISNULL(SUM(CAST(ISNULL(pagu,0) AS DECIMAL(38,2))),0), ISNULL(SUM(CAST(ISNULL(hps,0) AS DECIMAL(38,2))),0) FROM tp",
 		&m.TenderJumlah, &m.TenderPagu, &m.TenderHPS); err != nil {
 		return nil, err
 	}
-	if err = p.skalar(cteNonTender+"SELECT COUNT_BIG(*), ISNULL(SUM(CAST(ISNULL(pagu,0) AS DECIMAL(38,2))),0), ISNULL(SUM(CAST(ISNULL(hps,0) AS DECIMAL(38,2))),0) FROM np",
+	if err = p.skalar(cteNonTenderUntuk(p.cak)+"SELECT COUNT_BIG(*), ISNULL(SUM(CAST(ISNULL(pagu,0) AS DECIMAL(38,2))),0), ISNULL(SUM(CAST(ISNULL(hps,0) AS DECIMAL(38,2))),0) FROM np",
 		&m.NonTenderJumlah, &m.NonTenderPagu, &m.NonTenderHPS); err != nil {
 		return nil, err
 	}
 	nilaiTender := "CAST(ISNULL(pagu,0) AS DECIMAL(38,2))"
-	if m.StatusTender, err = p.kelompok(cteTender + sqlKelompok(lbl("status_tender"), hitung, nilaiTender, "tp", "1=1", 8, true)); err != nil {
+	if m.StatusTender, err = p.kelompok(cteTenderUntuk(p.cak) + sqlKelompok(lbl("status_tender"), hitung, nilaiTender, "tp", "1=1", 8, true)); err != nil {
 		return nil, err
 	}
-	if m.MetodeTender, err = p.kelompok(cteTender + sqlKelompok(lbl("mtd_pemilihan"), hitung, nilaiTender, "tp", "1=1", 8, false)); err != nil {
+	if m.MetodeTender, err = p.kelompok(cteTenderUntuk(p.cak) + sqlKelompok(lbl("mtd_pemilihan"), hitung, nilaiTender, "tp", "1=1", 8, false)); err != nil {
 		return nil, err
 	}
-	if m.JenisTender, err = p.kelompok(cteTender + sqlKelompok(lbl("jenis_pengadaan"), hitung, nilaiTender, "tp", "1=1", 8, false)); err != nil {
+	if m.JenisTender, err = p.kelompok(cteTenderUntuk(p.cak) + sqlKelompok(lbl("jenis_pengadaan"), hitung, nilaiTender, "tp", "1=1", 8, false)); err != nil {
 		return nil, err
 	}
-	if m.MetodeNonTender, err = p.kelompok(cteNonTender + sqlKelompok(lbl("mtd_pemilihan"), hitung, nilaiTender, "np", "1=1", 8, false)); err != nil {
+	if m.MetodeNonTender, err = p.kelompok(cteNonTenderUntuk(p.cak) + sqlKelompok(lbl("mtd_pemilihan"), hitung, nilaiTender, "np", "1=1", 8, false)); err != nil {
 		return nil, err
 	}
-	if m.PerBulanTender, err = p.bulan(cteTender + `SELECT MONTH(tgl_pengumuman_tender), COUNT_BIG(*), ISNULL(SUM(` + nilaiTender + `),0) FROM tp
+	if m.PerBulanTender, err = p.bulan(cteTenderUntuk(p.cak) + `SELECT MONTH(tgl_pengumuman_tender), COUNT_BIG(*), ISNULL(SUM(` + nilaiTender + `),0) FROM tp
 		WHERE tgl_pengumuman_tender IS NOT NULL AND YEAR(tgl_pengumuman_tender) = CAST(@p2 AS INT) GROUP BY MONTH(tgl_pengumuman_tender)`); err != nil {
 		return nil, err
 	}
-	if m.PerBulanNonTender, err = p.bulan(cteNonTender + `SELECT MONTH(tgl_pengumuman_nontender), COUNT_BIG(*), ISNULL(SUM(` + nilaiTender + `),0) FROM np
+	if m.PerBulanNonTender, err = p.bulan(cteNonTenderUntuk(p.cak) + `SELECT MONTH(tgl_pengumuman_nontender), COUNT_BIG(*), ISNULL(SUM(` + nilaiTender + `),0) FROM np
 		WHERE tgl_pengumuman_nontender IS NOT NULL AND YEAR(tgl_pengumuman_nontender) = CAST(@p2 AS INT) GROUP BY MONTH(tgl_pengumuman_nontender)`); err != nil {
 		return nil, err
 	}
 
 	// Nilai kontrak hasil pemilihan (tender dan non-tender selesai).
 	var kt, kn float64
-	if err = p.skalar(selesaiKontrakTender, &kt); err != nil {
+	if err = p.skalar(selesaiKontrakTenderUntuk(p.cak), &kt); err != nil {
 		return nil, err
 	}
-	if err = p.skalar(selesaiKontrakNon, &kn); err != nil {
+	if err = p.skalar(selesaiKontrakNonUntuk(p.cak), &kn); err != nil {
 		return nil, err
 	}
 	m.NilaiKontrak = kt + kn
-	if err = p.skalar("SELECT COUNT_BIG(*) FROM inaproc_tender_selesai WHERE kd_klpd=@p1 AND tahun_anggaran=@p2", &m.TenderSelesai); err != nil {
+	if err = p.skalar("SELECT COUNT_BIG(*) FROM "+p.t("inaproc_tender_selesai")+" WHERE kd_klpd=@p1 AND tahun_anggaran=@p2", &m.TenderSelesai); err != nil {
 		return nil, err
 	}
 
 	// Efisiensi harga.
 	e := &m.Efisiensi
-	if err = p.skalar("SELECT COUNT_BIG(*), ISNULL(SUM(hps),0), ISNULL(SUM(kontrak),0) FROM "+efisiensiGabung, &e.Sampel, &e.TotalHPS, &e.TotalKontrak); err != nil {
+	if err = p.skalar("SELECT COUNT_BIG(*), ISNULL(SUM(hps),0), ISNULL(SUM(kontrak),0) FROM "+efisiensiGabungUntuk(p.cak), &e.Sampel, &e.TotalHPS, &e.TotalKontrak); err != nil {
 		return nil, err
 	}
 	if e.TotalHPS > 0 {
 		e.Persen = (e.TotalHPS - e.TotalKontrak) / e.TotalHPS * 100
 	}
 	if e.Sampel > 0 {
-		if err = p.skalar("SELECT TOP 1 CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY e) OVER () AS FLOAT) FROM "+efisiensiGabung, &e.Median); err != nil {
+		if err = p.skalar("SELECT TOP 1 CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY e) OVER () AS FLOAT) FROM "+efisiensiGabungUntuk(p.cak), &e.Median); err != nil {
 			return nil, err
 		}
 	}
@@ -283,7 +318,7 @@ func (p *pengumpul) pemilihan() (*analitik.Pemilihan, error) {
 	for i, l := range labelRentangEfisiensi {
 		e.Sebaran[i].Label = l
 	}
-	if err = p.perRentang("SELECT b, COUNT_BIG(*) FROM (SELECT "+rentangEfisiensi+" AS b FROM "+efisiensiGabung+") x GROUP BY b", e.Sebaran); err != nil {
+	if err = p.perRentang("SELECT b, COUNT_BIG(*) FROM (SELECT "+rentangEfisiensi+" AS b FROM "+efisiensiGabungUntuk(p.cak)+") x GROUP BY b", e.Sebaran); err != nil {
 		return nil, err
 	}
 
@@ -293,7 +328,7 @@ func (p *pengumpul) pemilihan() (*analitik.Pemilihan, error) {
 	}
 
 	// Waktu proses pemilihan.
-	const hariProses = `(SELECT DATEDIFF(DAY, tgl_pengumuman_tender, tgl_penetapan_pemenang) AS d FROM inaproc_tender_selesai
+	hariProses := `(SELECT DATEDIFF(DAY, tgl_pengumuman_tender, tgl_penetapan_pemenang) AS d FROM ` + p.t("inaproc_tender_selesai") + `
 		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND tgl_pengumuman_tender IS NOT NULL AND tgl_penetapan_pemenang IS NOT NULL) x WHERE d BETWEEN 0 AND 730`
 	w := &m.WaktuProses
 	if err = p.skalar("SELECT COUNT_BIG(*), ISNULL(AVG(CAST(d AS FLOAT)),0) FROM "+hariProses, &w.Sampel, &w.Rata); err != nil {
@@ -306,12 +341,12 @@ func (p *pengumpul) pemilihan() (*analitik.Pemilihan, error) {
 	}
 
 	// Pasar penyedia.
-	if err = p.skalar(cteVendor+`SELECT COUNT_BIG(*), ISNULL(SUM(v.tot),0),
+	if err = p.skalar(cteVendorUntuk(p.cak)+`SELECT COUNT_BIG(*), ISNULL(SUM(v.tot),0),
 		ISNULL(SUM(POWER(CAST(v.tot AS FLOAT) * 100.0 / NULLIF(CAST(g.gt AS FLOAT),0), 2)),0)
 		FROM v CROSS JOIN (SELECT SUM(tot) AS gt FROM v) g`, &m.Pasar.JumlahPenyedia, &m.Pasar.TotalNilai, &m.Pasar.HHI); err != nil {
 		return nil, err
 	}
-	if m.Pasar.Top, err = p.kelompok(cteVendor + "SELECT TOP 10 nama AS label, jml AS jumlah, tot AS nilai FROM v ORDER BY tot DESC, jml DESC"); err != nil {
+	if m.Pasar.Top, err = p.kelompok(cteVendorUntuk(p.cak) + "SELECT TOP 10 nama AS label, jml AS jumlah, tot AS nilai FROM v ORDER BY tot DESC, jml DESC"); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -341,7 +376,7 @@ var labelPeserta = [...]string{"1 peserta", "2 peserta", "3 peserta", "4-5 peser
 
 func (p *pengumpul) persaingan() (analitik.Persaingan, error) {
 	var c analitik.Persaingan
-	rows, err := p.db.QueryContext(p.ctx, `SELECT n, COUNT_BIG(*) FROM (SELECT COUNT_BIG(*) AS n FROM inaproc_peserta_tender
+	rows, err := p.db.QueryContext(p.ctx, `SELECT n, COUNT_BIG(*) FROM (SELECT COUNT_BIG(*) AS n FROM `+p.t("inaproc_peserta_tender")+`
 		WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND kd_tender IS NOT NULL GROUP BY kd_tender) x GROUP BY n`, p.args()...)
 	if err != nil {
 		return c, err
@@ -387,16 +422,18 @@ func (p *pengumpul) persaingan() (analitik.Persaingan, error) {
 // ---- bagian kontrak ----
 
 // Kontrak terbaru per nomor kontrak (addendum membuat versi baru; hanya versi terbaru yang dihitung), tender dan non-tender digabung.
-const cteKontrak = `WITH ks AS (
+func cteKontrakUntuk(cak peran.Cakupan) string {
+	return `WITH ks AS (
 	SELECT 'Tender' AS jenis, no_kontrak, nama_paket, nama_penyedia, ISNULL(nilai_kontrak,0) AS nilai, status_kontrak, tgl_kontrak, tgl_kontrak_akhir,
 		CASE WHEN ISNULL(versi_addendum,0) > 0 OR LOWER(ISNULL(apakah_addendum,'')) IN ('ya','y','true','1') THEN 1 ELSE 0 END AS addendum
 	FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_tender, no_kontrak ORDER BY ISNULL(versi_addendum,0) DESC) rn
-		FROM inaproc_tender_ekontrak_kontrak WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) a WHERE rn=1
+		FROM ` + sumberInaproc(cak, "inaproc_tender_ekontrak_kontrak") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) a WHERE rn=1
 	UNION ALL
 	SELECT 'Non-tender', no_kontrak, nama_paket, nama_penyedia, ISNULL(nilai_kontrak,0), status_kontrak, tgl_kontrak, tgl_kontrak_akhir,
 		CASE WHEN ISNULL(versi_addendum,0) > 0 OR LOWER(ISNULL(apakah_addendum,'')) IN ('ya','y','true','1') THEN 1 ELSE 0 END
 	FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kd_nontender, no_kontrak ORDER BY ISNULL(versi_addendum,0) DESC) rn
-		FROM inaproc_non_tender_ekontrak_kontrak WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) b WHERE rn=1) `
+		FROM ` + sumberInaproc(cak, "inaproc_non_tender_ekontrak_kontrak") + ` WHERE kd_klpd=@p1 AND tahun_anggaran=@p2) b WHERE rn=1) `
+}
 
 // Kontrak yang sudah selesai atau berhenti tidak disorot sebagai "segera berakhir".
 const kontrakBerjalan = `tgl_kontrak_akhir >= @p3 AND tgl_kontrak_akhir < DATEADD(DAY, 61, @p3)
@@ -404,7 +441,7 @@ const kontrakBerjalan = `tgl_kontrak_akhir >= @p3 AND tgl_kontrak_akhir < DATEAD
 
 func (p *pengumpul) kontrak() (*analitik.Kontrak, error) {
 	k := &analitik.Kontrak{HariPeringatan: hariPeringatan}
-	rows, err := p.db.QueryContext(p.ctx, cteKontrak+`SELECT jenis, COUNT_BIG(*), ISNULL(SUM(nilai),0), ISNULL(SUM(addendum),0) FROM ks GROUP BY jenis`, p.args()...)
+	rows, err := p.db.QueryContext(p.ctx, cteKontrakUntuk(p.cak)+`SELECT jenis, COUNT_BIG(*), ISNULL(SUM(nilai),0), ISNULL(SUM(addendum),0) FROM ks GROUP BY jenis`, p.args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -429,18 +466,18 @@ func (p *pengumpul) kontrak() (*analitik.Kontrak, error) {
 	}
 	rows.Close()
 
-	if k.Status, err = p.kelompok(cteKontrak + sqlKelompok(lbl("status_kontrak"), hitung, "nilai", "ks", "1=1", 8, true)); err != nil {
+	if k.Status, err = p.kelompok(cteKontrakUntuk(p.cak) + sqlKelompok(lbl("status_kontrak"), hitung, "nilai", "ks", "1=1", 8, true)); err != nil {
 		return nil, err
 	}
-	if k.PerBulan, err = p.bulan(cteKontrak + `SELECT MONTH(tgl_kontrak), COUNT_BIG(*), ISNULL(SUM(nilai),0) FROM ks
+	if k.PerBulan, err = p.bulan(cteKontrakUntuk(p.cak) + `SELECT MONTH(tgl_kontrak), COUNT_BIG(*), ISNULL(SUM(nilai),0) FROM ks
 		WHERE tgl_kontrak IS NOT NULL AND YEAR(tgl_kontrak) = CAST(@p2 AS INT) GROUP BY MONTH(tgl_kontrak)`); err != nil {
 		return nil, err
 	}
-	if err = p.skalar(cteKontrak+"SELECT COUNT_BIG(*), ISNULL(SUM(nilai),0) FROM ks WHERE "+kontrakBerjalan, &k.BerakhirDalam, &k.NilaiBerakhir); err != nil {
+	if err = p.skalar(cteKontrakUntuk(p.cak)+"SELECT COUNT_BIG(*), ISNULL(SUM(nilai),0) FROM ks WHERE "+kontrakBerjalan, &k.BerakhirDalam, &k.NilaiBerakhir); err != nil {
 		return nil, err
 	}
 	if k.BerakhirDalam > 0 {
-		rows, err := p.db.QueryContext(p.ctx, cteKontrak+fmt.Sprintf(`SELECT TOP (%d) jenis, ISNULL(no_kontrak,''), ISNULL(nama_paket,''), ISNULL(nama_penyedia,''), nilai, tgl_kontrak_akhir,
+		rows, err := p.db.QueryContext(p.ctx, cteKontrakUntuk(p.cak)+fmt.Sprintf(`SELECT TOP (%d) jenis, ISNULL(no_kontrak,''), ISNULL(nama_paket,''), ISNULL(nama_penyedia,''), nilai, tgl_kontrak_akhir,
 			DATEDIFF(DAY, @p3, tgl_kontrak_akhir) FROM ks WHERE %s ORDER BY tgl_kontrak_akhir, nilai DESC`, maksKontrakDaftar, kontrakBerjalan), p.args()...)
 		if err != nil {
 			return nil, err
@@ -467,7 +504,7 @@ func (p *pengumpul) ekatalog() (*analitik.Ekatalog, error) {
 	var err error
 
 	// V5 (arsip): satu paket (kd_paket) bisa punya beberapa baris produk.
-	const v5 = "inaproc_ekatalog_paket_epurchasing"
+	v5 := p.t("inaproc_ekatalog_paket_epurchasing")
 	w5 := "kd_klpd=@p1 AND tahun_anggaran=@p2"
 	if err = p.skalar("SELECT COUNT_BIG(DISTINCT kd_paket), ISNULL(SUM(total_harga),0) FROM "+v5+" WHERE "+w5, &e.V5.Paket, &e.V5.Nilai); err != nil {
 		return nil, err
@@ -491,7 +528,7 @@ func (p *pengumpul) ekatalog() (*analitik.Ekatalog, error) {
 	}
 
 	// V6.
-	const v6 = "inaproc_ekatalog6_paket_epurchasing"
+	v6 := p.t("inaproc_ekatalog6_paket_epurchasing")
 	w6 := "kode_klpd=@p1 AND fiscal_year=@p2"
 	if err = p.skalar("SELECT COUNT_BIG(DISTINCT order_id), ISNULL(SUM(total),0), COUNT_BIG(DISTINCT CASE WHEN is_swasta=1 THEN order_id END), ISNULL(SUM(CASE WHEN is_swasta=1 THEN total ELSE 0 END),0) FROM "+v6+" WHERE "+w6,
 		&e.V6.Order, &e.V6.Nilai, &e.V6.OrderSwasta, &e.V6.NilaiSwasta); err != nil {
@@ -510,7 +547,10 @@ func (p *pengumpul) ekatalog() (*analitik.Ekatalog, error) {
 		return nil, err
 	}
 
-	// Transaksi per produk (V6).
+	// Transaksi per produk (V6) tidak punya kode satker yang dapat dipercaya, jadi tidak dihitung bagi peran yang dibatasi per satker.
+	if p.dibatasi() {
+		return e, nil
+	}
 	const tr = "inaproc_ekatalog6_epurchasing_produk"
 	wt := "kode_klpd=@p1 AND tahun=@p2"
 	if err = p.skalar("SELECT COUNT_BIG(*), ISNULL(SUM(nilai_transaksi),0) FROM "+tr+" WHERE "+wt, &e.V6.TransaksiBaris, &e.V6.TransaksiNilai); err != nil {
@@ -528,15 +568,15 @@ func (p *pengumpul) ekatalog() (*analitik.Ekatalog, error) {
 // atau belum diproses. Satu paket yang muncul di beberapa tahap dihitung di tahap pertama menurut urutan itu.
 func (p *pengumpul) corong() (*analitik.Corong, error) {
 	rows, err := p.db.QueryContext(p.ctx, `
-		WITH rup AS (SELECT kd_rup, MAX(`+nilaiPagu+`) AS pagu FROM inaproc_paket_penyedia
+		WITH rup AS (SELECT kd_rup, MAX(`+nilaiPagu+`) AS pagu FROM `+p.t("inaproc_paket_penyedia")+`
 			WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND `+aktifRUP+` AND kd_rup IS NOT NULL GROUP BY kd_rup),
-		t AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_tender_pengumuman x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+		t AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM `+p.ta("inaproc_tender_pengumuman", "x")+` CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
 			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''),
-		nt AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_non_tender_pengumuman x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+		nt AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM `+p.ta("inaproc_non_tender_pengumuman", "x")+` CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
 			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''),
-		ec AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM inaproc_ekatalog_paket_epurchasing x CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
+		ec AS (SELECT DISTINCT LTRIM(RTRIM(s.value)) AS kd_rup FROM `+p.ta("inaproc_ekatalog_paket_epurchasing", "x")+` CROSS APPLY STRING_SPLIT(x.kd_rup, ';') s
 			WHERE x.kd_klpd=@p1 AND x.tahun_anggaran=@p2 AND x.kd_rup IS NOT NULL AND LTRIM(RTRIM(s.value)) <> ''
-			UNION SELECT DISTINCT LTRIM(RTRIM(s.value)) FROM inaproc_ekatalog6_paket_epurchasing x CROSS APPLY STRING_SPLIT(x.rup_code, ';') s
+			UNION SELECT DISTINCT LTRIM(RTRIM(s.value)) FROM `+p.ta("inaproc_ekatalog6_paket_epurchasing", "x")+` CROSS APPLY STRING_SPLIT(x.rup_code, ';') s
 			WHERE x.kode_klpd=@p1 AND x.fiscal_year=@p2 AND x.rup_code IS NOT NULL AND LTRIM(RTRIM(s.value)) <> '')
 		SELECT tahap, COUNT_BIG(*), ISNULL(SUM(pagu),0) FROM (
 			SELECT CASE WHEN t.kd_rup IS NOT NULL THEN 'Tender' WHEN nt.kd_rup IS NOT NULL THEN 'Non-tender'
@@ -575,17 +615,17 @@ func (p *pengumpul) pembanding(tahunLalu string) (*analitik.Pembanding, error) {
 	q := *p
 	q.tahun = tahunLalu
 	b := &analitik.Pembanding{Tahun: tahunLalu}
-	if err := q.skalar("SELECT COUNT_BIG(*), ISNULL(SUM("+nilaiPagu+"),0) FROM inaproc_paket_penyedia WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND "+aktifRUP, &b.RUPPaket, &b.RUPPagu); err != nil {
+	if err := q.skalar("SELECT COUNT_BIG(*), ISNULL(SUM("+nilaiPagu+"),0) FROM "+q.t("inaproc_paket_penyedia")+" WHERE kd_klpd=@p1 AND tahun_anggaran=@p2 AND "+aktifRUP, &b.RUPPaket, &b.RUPPagu); err != nil {
 		return nil, err
 	}
-	if err := q.skalar(cteTender+"SELECT COUNT_BIG(*) FROM tp", &b.TenderJumlah); err != nil {
+	if err := q.skalar(cteTenderUntuk(p.cak)+"SELECT COUNT_BIG(*) FROM tp", &b.TenderJumlah); err != nil {
 		return nil, err
 	}
 	var kt, kn float64
-	if err := q.skalar(selesaiKontrakTender, &kt); err != nil {
+	if err := q.skalar(selesaiKontrakTenderUntuk(p.cak), &kt); err != nil {
 		return nil, err
 	}
-	if err := q.skalar(selesaiKontrakNon, &kn); err != nil {
+	if err := q.skalar(selesaiKontrakNonUntuk(p.cak), &kn); err != nil {
 		return nil, err
 	}
 	b.NilaiKontrak = kt + kn
@@ -602,8 +642,14 @@ var reTahunAnalitik = regexp.MustCompile(`^(19|20)[0-9]{2}$`)
 // HitungAnalitik menghitung dasbor untuk satu KLPD dan tahun. Tiap bagian berjalan sendiri; yang gagal dicatat di Galat dan dibiarkan nil.
 func HitungAnalitik(ctx context.Context, db *sql.DB, klpd, tahun string, sekarang time.Time) *analitik.Hasil {
 	hari := sekarang.In(zonaWIB)
-	p := &pengumpul{ctx: ctx, db: db, klpd: klpd, tahun: tahun, hariIni: time.Date(hari.Year(), hari.Month(), hari.Day(), 0, 0, 0, 0, time.UTC)}
+	cak := peran.CakupanDari(ctx)
+	p := &pengumpul{ctx: ctx, db: db, klpd: klpd, tahun: tahun, hariIni: time.Date(hari.Year(), hari.Month(), hari.Day(), 0, 0, 0, 0, time.UTC), cak: cak}
 	h := &analitik.Hasil{Tahun: tahun, KodeKLPD: klpd, Galat: map[string]string{}, Sekarang: sekarang}
+	if !cak.SemuaData() {
+		// Peran yang dibatasi per satker: dasbor memuat data satker dalam cakupannya saja, dan bagian yang tidak dapat dibatasi tidak dihitung.
+		h.Batas = &analitik.Batas{Tingkat: string(cak.Tingkat), Kode: cak.Kode}
+		h.TidakTersedia = []string{"Pagu program (Program Master)", "Transaksi per produk (E-Katalog V6)"}
+	}
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -644,9 +690,10 @@ func HitungAnalitik(ctx context.Context, db *sql.DB, klpd, tahun string, sekaran
 	jalankan(analitik.BagianData, func() error {
 		for _, id := range datasetDasbor {
 			d, ok := DatasetByID(id)
-			if !ok {
+			if !ok || !d.BolehDilihat(cak) {
 				continue
 			}
+			// Kelengkapan menanyakan ada-tidaknya data hasil penarikan (seluruh data), bukan isi cakupan peran: kosong di cakupan satker bukan berarti belum ditarik.
 			n, err := d.hitung(ctx, db, PenyaringData{KodeKLPD: klpd, Tahun: tahun})
 			if err != nil {
 				return err
@@ -674,14 +721,16 @@ func HitungAnalitik(ctx context.Context, db *sql.DB, klpd, tahun string, sekaran
 
 // tahunTersedia: tahun yang punya data di tabel utama untuk KLPD ini, terbaru dulu.
 func tahunTersediaAnalitik(ctx context.Context, db *sql.DB, klpd string) []string {
+	cak := peran.CakupanDari(ctx)
+	t := func(tabel string) string { return sumberInaproc(cak, tabel) }
 	rows, err := db.QueryContext(ctx, `
 		SELECT tahun FROM (
-			SELECT tahun_anggaran AS tahun FROM inaproc_paket_penyedia WHERE kd_klpd=@p1
-			UNION SELECT tahun_anggaran FROM inaproc_tender_pengumuman WHERE kd_klpd=@p1
-			UNION SELECT tahun_anggaran FROM inaproc_tender_selesai_nilai WHERE kd_klpd=@p1
-			UNION SELECT tahun_anggaran FROM inaproc_non_tender_pengumuman WHERE kd_klpd=@p1
-			UNION SELECT tahun_anggaran FROM inaproc_ekatalog_paket_epurchasing WHERE kd_klpd=@p1
-			UNION SELECT fiscal_year FROM inaproc_ekatalog6_paket_epurchasing WHERE kode_klpd=@p1
+			SELECT tahun_anggaran AS tahun FROM `+t("inaproc_paket_penyedia")+` WHERE kd_klpd=@p1
+			UNION SELECT tahun_anggaran FROM `+t("inaproc_tender_pengumuman")+` WHERE kd_klpd=@p1
+			UNION SELECT tahun_anggaran FROM `+t("inaproc_tender_selesai_nilai")+` WHERE kd_klpd=@p1
+			UNION SELECT tahun_anggaran FROM `+t("inaproc_non_tender_pengumuman")+` WHERE kd_klpd=@p1
+			UNION SELECT tahun_anggaran FROM `+t("inaproc_ekatalog_paket_epurchasing")+` WHERE kd_klpd=@p1
+			UNION SELECT fiscal_year FROM `+t("inaproc_ekatalog6_paket_epurchasing")+` WHERE kode_klpd=@p1
 		) x WHERE tahun IS NOT NULL ORDER BY tahun DESC`, klpd)
 	if err != nil {
 		log.Println("[INAPROC ANALITIK WARN] gagal membaca daftar tahun:", err)
@@ -733,7 +782,9 @@ func GetInaprocAnalitik(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), analitikTimeout)
+	// Cakupan peran dipasang pada ctx supaya semua pembaca di bawahnya (tahun tersedia, tiap bagian dasbor) membatasi hasilnya ke satker peran.
+	cak := peran.DariGin(c)
+	ctx, cancel := context.WithTimeout(peran.DenganCakupan(c.Request.Context(), cak), analitikTimeout)
 	defer cancel()
 	tersedia := tahunTersediaAnalitik(ctx, database.DB, klpd)
 	if tahun == "" {
@@ -745,7 +796,8 @@ func GetInaprocAnalitik(c *gin.Context) {
 		}
 	}
 
-	kunci := klpd + "|" + tahun
+	// Hasil disimpan per cakupan: dasbor satu satker tidak boleh dilayani dari cache peran lain.
+	kunci := klpd + "|" + tahun + "|" + string(cak.Tingkat) + "|" + cak.Kode
 	if c.Query("segarkan") != "1" {
 		cacheAnalitikMu.Lock()
 		e, ada := cacheAnalitik[kunci]

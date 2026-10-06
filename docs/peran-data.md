@@ -46,7 +46,8 @@ Cakupan dibaca dari `context` (`peran.CakupanDari`) oleh semua pembaca data beri
 | Dashboard > Aset | Mengikuti ringkasan di atas |
 | Dashboard > Satker (`/satker/keterhubungan`) | Aset dalam cakupan; pengadaan hanya untuk satker yang dikenal di data aset dalam cakupan (Satker: satkernya sendiri) |
 | Referensi UE1: daftar kode yang belum terdaftar | Menurut cakupan |
-| **Pengadaan Terpadu** (`/inaproc/*`: analitik, data, ekspor, penarikan) | **Ditolak (403) bagi peran UE1/Kanwil/Satker.** Data Inaproc hanya punya kode satker 6 digit dan sebagian tabelnya tidak punya `kd_satker_str`, jadi belum bisa dibatasi per UE1/Kanwil. Menu Pengadaan dan tab Pengadaan di Dashboard disembunyikan bagi peran ini. |
+| **Pengadaan Terpadu**: data, ekspor, dasbor (`/inaproc/data`, `/inaproc/ekspor`, `/inaproc/analitik`, `/inaproc/dataset`) | Dibatasi per satker lewat `kd_satker_str` (kode 6 digit); dataset yang tidak punya kode satker tertutup (403). Lihat [pengadaan-terpadu.md](pengadaan-terpadu.md#pembatasan-per-satker). |
+| Pengadaan Terpadu: keadaan penarikan (`/inaproc/penarikan`, `/aktif`, `/riwayat`) dan operasi admin | **Ditolak (403) bagi peran UE1/Kanwil/Satker**: memuat keadaan seluruh data dan riwayat penarikan. Pengguna yang belum diberi peran sementara pembatasan diwajibkan juga ditolak di semua `/inaproc/*` (403). |
 | HRIS2, pengguna, pengaturan | Hanya admin/superadmin (tidak berubah) |
 
 Kode cakupan dibentuk dari angka murni yang diperiksa ulang sebelum ditulis ke SQL (`Cakupan.KondisiSQL`); kode yang tidak sah menutup data (`1 = 0`), bukan membukanya.
@@ -70,5 +71,5 @@ Pemilih peran ada di menu pengguna (kanan atas) bila pengguna punya lebih dari s
 
 ## Belum dikerjakan
 
-- Pembatasan **data Pengadaan lengkap** per satker (butuh pemetaan `kd_satker_str` ke UE1/Kanwil di semua tabel Inaproc dan penanganan tabel tanpa kolom itu).
+- Pembatasan Pengadaan untuk dataset yang tidak punya kode satker (program master, E-Katalog V6 transaksi per produk, rujukan katalog, e-kontrak non-tender) dan untuk satker yang tidak ada di data aset (bagi UE1/Kanwil); lihat [pengadaan-terpadu.md](pengadaan-terpadu.md#pembatasan-per-satker).
 - Pemberian peran otomatis saat login SSO dari `kode_satker` (sengaja belum: format klaimnya belum terverifikasi; sementara lewat saran satu klik).
