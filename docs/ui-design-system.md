@@ -44,7 +44,7 @@ Bila warna merek diganti, ubah palet `blue` **dan** konstanta `BAR` di `frontend
 - `components/layout/Sidebar.tsx`: kelompok menu otomatis (Menu / Modul / Administrasi) dari `lib/navigation.ts`, submenu buka-tutup
   halus, ikon-saja saat diciutkan, drawer di ponsel. Menu anak mengikuti pembatasan role.
 - Struktur menu (`lib/navigation.ts`, satu-satunya sumber): **Dashboard** (`/dashboard`), grup **Aset** (Digitalisasi Aset, SAPA), grup **Pengadaan**
-  (Pengadaan Terpadu), lalu menu administrasi (Cari Pegawai, Referensi UE1, Manajemen Pengguna) khusus admin. `NavItem.halaman` memuat halaman milik sebuah menu yang
+  (Pengadaan Terpadu), lalu menu administrasi (Cari Pegawai, Referensi UE1, Manajemen Pengguna) khusus superadmin (Manajemen Pengguna juga untuk Pengguna Barang, dan hanya lihat bagi UE1/Kanwil/Satker). `NavItem.halaman` memuat halaman milik sebuah menu yang
   tidak punya baris sendiri di sidebar (Pengaturan SAPA, dibuka dari tombol di halaman SAPA); halaman itu tetap muncul di Ctrl+K dan remah roti, dan
   menu induknya aktif di sana. Alamat menu lama dialihkan lewat `redirects()` di `next.config.ts`.
 - `components/layout/Navbar.tsx`: remah roti (dari `breadcrumbsFor`), tombol cari menu, menu pengguna (profil, beranda, keluar).

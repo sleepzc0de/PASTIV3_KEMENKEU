@@ -20,6 +20,7 @@ import (
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/digitalisasi"
+	"pasti-v3-backend/persetujuan"
 	"pasti-v3-backend/sapa"
 	"pasti-v3-backend/utils"
 )
@@ -101,7 +102,18 @@ func seedAsetUji(t *testing.T, db *sql.DB) {
 
 type penggunaUji struct{ id, username, role, token string }
 
+// buatPenggunaUji membuat pengguna yang SUDAH menyetujui pernyataan penggunaan aplikasi (versi terbaru), supaya tes data tidak terhenti di modal persetujuan.
+// Role akun hanya "user" atau "superadmin"; pengguna "user" tanpa peran adalah tamu. Untuk pengguna yang belum menyetujui, lihat buatPenggunaUjiBelumSetuju.
 func buatPenggunaUji(t *testing.T, db *sql.DB, nama, role string) penggunaUji {
+	t.Helper()
+	p := buatPenggunaUjiBelumSetuju(t, db, nama, role)
+	if _, err := db.Exec(`UPDATE users SET persetujuan_at = SYSUTCDATETIME(), persetujuan_versi = @p1 WHERE id = @p2`, persetujuan.Versi, p.id); err != nil {
+		t.Fatalf("setujui pengguna %s: %v", nama, err)
+	}
+	return p
+}
+
+func buatPenggunaUjiBelumSetuju(t *testing.T, db *sql.DB, nama, role string) penggunaUji {
 	t.Helper()
 	p := penggunaUji{id: strings.ToUpper(uuid.New().String()), username: "uji-peran-" + nama, role: role}
 	if _, err := db.Exec(`INSERT INTO users (id, username, email, full_name, role, is_active) VALUES (@p1, @p2, @p3, @p4, @p5, 1)`, p.id, p.username, p.username+"@example.test", "PENGGUNA "+nama, role); err != nil {
@@ -194,28 +206,31 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 	}
 	seedAsetUji(t, db)
 
-	admin := buatPenggunaUji(t, db, "admin", "admin")
+	// "admin" di bawah adalah superadmin (ditetapkan di .env pada aplikasi asli; di tes cukup role akunnya).
+	admin := buatPenggunaUji(t, db, "admin", "superadmin")
 	budi := buatPenggunaUji(t, db, "budi", "user")
 	sinta := buatPenggunaUji(t, db, "sinta", "user")
 
-	t.Run("tanpa peran melihat semua data seperti sebelumnya", func(t *testing.T) {
-		if n := barisUji(t, budi); n != 6 {
-			t.Errorf("pengguna tanpa peran melihat %d baris uji, want 6", n)
+	t.Run("tanpa peran adalah tamu: tidak melihat data apa pun, hanya profil sendiri", func(t *testing.T) {
+		code, body, _ := panggil(t, "GET", "/digitalisasi/data/tanah", budi.token, "")
+		if code != 403 || body["code"] != "tamu" {
+			t.Errorf("tamu membuka data = %d %v, want 403 dengan code tamu", code, body)
 		}
-		code, body, _ := panggil(t, "GET", "/auth/me", budi.token, "")
+		code, body, _ = panggil(t, "GET", "/auth/me", budi.token, "")
 		d := data(t, body)
 		p := d["peran"].(map[string]interface{})
-		if code != 200 || d["role"] != "user" || d["akun_role"] != "user" || p["peran"] != "" || p["cakupan"].(map[string]interface{})["tingkat"] != "semua" {
-			t.Errorf("me tanpa peran: %d %v", code, d)
+		if code != 200 || d["role"] != "user" || d["akun_role"] != "user" || d["tamu"] != true || p["peran"] != "" || p["cakupan"].(map[string]interface{})["tingkat"] != "kosong" {
+			t.Errorf("me tamu: %d %v", code, d)
 		}
 	})
 
-	t.Run("hanya admin yang boleh mengelola peran", func(t *testing.T) {
+	t.Run("hanya superadmin dan Pengguna Barang yang boleh mengelola peran", func(t *testing.T) {
+		// budi dan sinta masih tamu: ditolak di pintu (tamu), bukan karena aturan peran
 		if code, _, _ := panggil(t, "POST", "/users/"+sinta.id+"/peran", budi.token, `{"role":"ue1","kode":"09971"}`); code != 403 {
-			t.Errorf("pengguna biasa memberi peran = %d, want 403", code)
+			t.Errorf("tamu memberi peran = %d, want 403", code)
 		}
 		if code, _, _ := panggil(t, "GET", "/users/"+sinta.id+"/peran", budi.token, ""); code != 403 {
-			t.Errorf("pengguna biasa melihat peran orang lain = %d, want 403", code)
+			t.Errorf("tamu melihat peran orang lain = %d, want 403", code)
 		}
 		if code, _, _ := panggil(t, "POST", "/users/"+sinta.id+"/peran", "", `{"role":"ue1","kode":"09971"}`); code != 401 {
 			t.Errorf("tanpa token = %d, want 401", code)
@@ -413,27 +428,34 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 		}
 	})
 
-	t.Run("admin yang bertindak sebagai peran data kehilangan hak administrasi sementara", func(t *testing.T) {
+	t.Run("superadmin yang bertindak sebagai peran data kehilangan hak superadmin sementara", func(t *testing.T) {
 		if code, _, _ := panggil(t, "GET", "/users", admin.token, ""); code != 200 {
-			t.Fatalf("admin melihat pengguna = %d", code)
+			t.Fatalf("superadmin melihat pengguna = %d", code)
 		}
 		idSatker := beriPeran(t, admin, admin, "satker", "972001")
 		pilihPeran(t, admin, idSatker)
 
-		if code, _, _ := panggil(t, "GET", "/users", admin.token, ""); code != 403 {
-			t.Errorf("admin yang bertindak sebagai Satker mengelola pengguna = %d, want 403", code)
+		// sebagai Satker: boleh MELIHAT pengguna dalam cakupan, tetapi tidak mengelola dan tidak memakai fitur superadmin
+		if code, _, _ := panggil(t, "GET", "/users", admin.token, ""); code != 200 {
+			t.Errorf("superadmin sebagai Satker melihat pengguna = %d, want 200 (hanya cakupan)", code)
+		}
+		if code, _, _ := panggil(t, "POST", "/users/"+sinta.id+"/peran", admin.token, `{"role":"pengguna_barang"}`); code != 403 {
+			t.Errorf("superadmin yang bertindak sebagai Satker memberi peran = %d, want 403", code)
+		}
+		if code, _, _ := panggil(t, "POST", "/inaproc/penarikan", admin.token, `{}`); code != 403 {
+			t.Errorf("superadmin sebagai Satker memulai penarikan = %d, want 403", code)
 		}
 		if total, _ := totalTanah(t, admin); total != 2 { // B1 x2
 			t.Errorf("admin sebagai Satker 972001 melihat %d tanah, want 2", total)
 		}
 		code, body, _ := panggil(t, "GET", "/auth/me", admin.token, "")
-		if d := data(t, body); code != 200 || d["role"] != "user" || d["akun_role"] != "admin" {
+		if d := data(t, body); code != 200 || d["role"] != "user" || d["akun_role"] != "superadmin" {
 			t.Errorf("me admin sebagai Satker: %v", d)
 		}
 		// kembali ke peran bawaan (id null)
 		pilihPeran(t, admin, nil)
-		if code, _, _ := panggil(t, "GET", "/users", admin.token, ""); code != 200 {
-			t.Errorf("admin setelah kembali ke peran bawaan = %d, want 200", code)
+		if code, _, _ := panggil(t, "POST", "/users/"+sinta.id+"/peran", admin.token, `{"role":"pengguna_barang"}`); code != 201 && code != 200 {
+			t.Errorf("superadmin setelah kembali ke peran bawaan memberi peran = %d, want 201/200", code)
 		}
 		if n := barisUji(t, admin); n != 6 {
 			t.Errorf("admin peran bawaan melihat %d baris uji, want 6", n)
@@ -443,7 +465,7 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 		}
 	})
 
-	t.Run("pengguna barang melihat semua data tetapi bukan admin", func(t *testing.T) {
+	t.Run("pengguna barang melihat semua data, mengelola pengguna kecuali superadmin", func(t *testing.T) {
 		pb := buatPenggunaUji(t, db, "barang", "user")
 		beriPeran(t, admin, pb, "pengguna_barang", "")
 		if n := barisUji(t, pb); n != 6 {
@@ -452,36 +474,50 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 		if code, _, _ := panggil(t, "GET", "/inaproc/analitik", pb.token, ""); code != 200 {
 			t.Errorf("pengguna barang membuka analitik Pengadaan = %d, want 200", code)
 		}
-		if code, _, _ := panggil(t, "GET", "/users", pb.token, ""); code != 403 {
-			t.Errorf("pengguna barang mengelola pengguna = %d, want 403", code)
+		// hak superadmin tetap tertutup bagi Pengguna Barang
+		for _, c := range []struct{ metode, path, badan string }{
+			{"POST", "/inaproc/penarikan", `{}`},
+			{"POST", "/digitalisasi/sinkronisasi", `{}`},
+			{"GET", "/hris2/pegawai/search?q=budi", ""},
+			{"PUT", "/referensi/ue1/09971", `{"nama":"X"}`},
+		} {
+			if code, _, _ := panggil(t, c.metode, c.path, pb.token, c.badan); code != 403 {
+				t.Errorf("%s %s oleh Pengguna Barang = %d, want 403", c.metode, c.path, code)
+			}
 		}
-	})
-
-	t.Run("pembatasan wajib: pengguna tanpa peran tidak melihat data apa pun", func(t *testing.T) {
-		tanpa := buatPenggunaUji(t, db, "tanpa", "user")
-		config.Cfg.PeranDataWajib = true
-		defer func() { config.Cfg.PeranDataWajib = false }()
-
-		if n := barisUji(t, tanpa); n != 0 {
-			t.Errorf("tanpa peran + wajib melihat %d baris, want 0", n)
+		// mengelola pengguna biasa boleh
+		if code, _, _ := panggil(t, "GET", "/users", pb.token, ""); code != 200 {
+			t.Errorf("pengguna barang melihat pengguna = %d, want 200", code)
 		}
-		if code, _, _ := panggil(t, "GET", "/inaproc/analitik", tanpa.token, ""); code != 403 {
-			t.Errorf("tanpa peran + wajib membuka analitik = %d, want 403", code)
+		if code, _, _ := panggil(t, "GET", "/users/"+sinta.id, pb.token, ""); code != 200 {
+			t.Errorf("pengguna barang melihat pengguna biasa = %d, want 200", code)
 		}
-		code, body, _ := panggil(t, "GET", "/digitalisasi/ringkasan", tanpa.token, "")
-		if d := data(t, body); code != 200 || d["tersedia"] != false {
-			t.Errorf("ringkasan tanpa peran + wajib: %d %v", code, d)
+		if code, _, _ := panggil(t, "POST", "/users/"+sinta.id+"/peran", pb.token, `{"role":"satker","kode":"971001"}`); code != 201 {
+			t.Errorf("pengguna barang memberi peran = %d, want 201", code)
 		}
-		if _, body, _ := panggil(t, "GET", "/auth/me", tanpa.token, ""); data(t, body)["peran"].(map[string]interface{})["wajib"] != true {
-			t.Error("me harus memberi tahu bahwa pembatasan diwajibkan")
+		// superadmin tidak terlihat dan tidak dapat disentuh (dijawab 404, seolah tidak ada)
+		for _, c := range []struct{ metode, path, badan string }{
+			{"GET", "/users/" + admin.id, ""},
+			{"GET", "/users/" + admin.id + "/peran", ""},
+			{"PUT", "/users/" + admin.id, `{"full_name":"Peretas","email":"peretas@example.test","is_active":true}`},
+			{"PUT", "/users/" + admin.id + "/deactivate", ""},
+			{"DELETE", "/users/" + admin.id, ""},
+			{"POST", "/users/" + admin.id + "/peran", `{"role":"pengguna_barang"}`},
+		} {
+			if code, _, _ := panggil(t, c.metode, c.path, pb.token, c.badan); code != 404 {
+				t.Errorf("%s %s oleh Pengguna Barang terhadap superadmin = %d, want 404", c.metode, c.path, code)
+			}
 		}
-		// admin tidak terpengaruh, begitu pula pengguna yang sudah punya peran
-		if n := barisUji(t, admin); n != 6 {
-			t.Errorf("admin saat wajib melihat %d baris, want 6", n)
+		_, body, _ := panggil(t, "GET", "/users", pb.token, "")
+		for _, x := range body["data"].([]interface{}) {
+			if m := x.(map[string]interface{}); m["id"] == admin.id || m["role"] == "superadmin" {
+				t.Errorf("daftar pengguna bagi Pengguna Barang memuat superadmin: %v", m)
+			}
 		}
-		// pembatasan hanya pada data: profil sendiri tetap bisa dibuka
-		if code, _, _ := panggil(t, "GET", "/auth/me", tanpa.token, ""); code != 200 {
-			t.Errorf("me = %d", code)
+		var role string
+		db.QueryRow(`SELECT role FROM users WHERE id = @p1`, admin.id).Scan(&role)
+		if role != "superadmin" {
+			t.Errorf("role superadmin berubah menjadi %q", role)
 		}
 	})
 

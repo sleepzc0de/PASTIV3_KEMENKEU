@@ -2,10 +2,10 @@
 
 ## Referensi Unit Eselon I
 
-Satu daftar kode UE1 (5 digit, mis. `01504`) -> uraian dan singkatan, tabel `ref_ue1` (migrasi `052_create_ref_ue1.sql`). Dikelola admin/superadmin di
-**Administrasi > Referensi UE1** (`/dashboard/referensi/ue1`): tambah, ubah uraian/singkatan/urutan, nonaktifkan, atau hapus. Semua pengguna login bisa membacanya.
+Satu daftar kode UE1 (5 digit, mis. `01504`) -> uraian dan singkatan, tabel `ref_ue1` (migrasi `052_create_ref_ue1.sql`). Dikelola superadmin di
+**Administrasi > Referensi UE1** (`/dashboard/referensi/ue1`): tambah, ubah uraian/singkatan/urutan, nonaktifkan, atau hapus. Semua pengguna yang punya peran bisa membacanya.
 
-Data awal (14 UE1; hanya dimasukkan bila kodenya belum ada, jadi migrasi yang dijalankan ulang tidak menimpa perubahan admin):
+Data awal (14 UE1; hanya dimasukkan bila kodenya belum ada, jadi migrasi yang dijalankan ulang tidak menimpa perubahan superadmin):
 
 | Kode | Singkatan | Uraian |
 |---|---|---|
@@ -24,7 +24,7 @@ Data awal (14 UE1; hanya dimasukkan bila kodenya belum ada, jadi migrasi yang di
 | 01514 | DJSPSK | DIREKTORAT JENDERAL STABILITAS DAN PENGEMBANGAN SEKTOR KEUANGAN |
 | 01515 | BTIIK | BADAN TEKNOLOGI, INFORMASI DAN INTELIJEN KEUANGAN |
 
-Kode `01510` tidak ada pada data awal. Kode UE1 yang ada di data satker Digitalisasi Aset tetapi belum punya referensi dilaporkan di halaman admin
+Kode `01510` tidak ada pada data awal. Kode UE1 yang ada di data satker Digitalisasi Aset tetapi belum punya referensi dilaporkan di halaman superadmin
 ("N kode UE1 di data aset belum punya referensi") dengan tombol Tambahkan, dan tampil sebagai `UE1 <kode>` sampai ditambahkan.
 
 Di mana referensi dipakai:
@@ -33,9 +33,9 @@ Di mana referensi dipakai:
   unduhan Excel/CSV** (`Singkatan UE1`, `Uraian UE1`, tepat setelah `Kode UE1`; dibaca dari `ref_ue1` saat diunduh). PDF ringkas tidak memuat kolom UE1.
 - **Dashboard**: wawasan dan grafik aset memakai label yang sama; tab Satker menampilkan UE1 tiap satker.
 - **SAPA**: nama UE1 dibaca dari referensi ini. `sapa_ref_ue1` tetap menyimpan **sebutan Sekretaris** (tujuan Nota Dinas); daftarnya di Pengaturan SAPA
-  kini memuat semua UE1 aktif sehingga admin cukup mengisi sebutan yang masih kosong.
+  kini memuat semua UE1 aktif sehingga superadmin cukup mengisi sebutan yang masih kosong.
 
-API: `GET /api/v1/referensi/ue1` (semua pengguna login), `PUT /api/v1/referensi/ue1/:kode` dan `DELETE ...` (admin/superadmin).
+API: `GET /api/v1/referensi/ue1` (semua pengguna yang punya peran), `PUT /api/v1/referensi/ue1/:kode` dan `DELETE ...` (superadmin).
 
 ## Keterhubungan satker: aset dan pengadaan
 

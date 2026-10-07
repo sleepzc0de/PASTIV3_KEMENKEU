@@ -154,7 +154,7 @@ func TestListHidesPersonalColumnFromNonAdmin(t *testing.T) {
 	for _, tc := range []struct {
 		role  string
 		admin bool
-	}{{"user", false}, {"admin", true}, {"superadmin", true}} {
+	}{{"user", false}, {"admin", false}, {"superadmin", true}} {
 		code, body := call(dgRouter(tc.role), "GET", "/dg/data/rumah_negara", "")
 		if code != 200 {
 			t.Fatalf("%s: status %d: %v", tc.role, code, body)
@@ -265,7 +265,7 @@ func TestDetail(t *testing.T) {
 		t.Errorf("angka tidak dinormalkan: %v", row)
 	}
 
-	code, _ = call(dgRouter("admin"), "GET", "/dg/data/rumah_negara/7", "")
+	code, _ = call(dgRouter("superadmin"), "GET", "/dg/data/rumah_negara/7", "")
 	if code != 200 || !strings.Contains(lastQuery(t, p, "SELECT id").Query, "Nama_Penghuni") {
 		t.Error("admin harus mendapat kolom pribadi")
 	}
@@ -452,7 +452,7 @@ func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 		t.Errorf("non-admin tetap harus tahu bahwa sinkronisasi gagal: %s", raw)
 	}
 
-	_, body = call(dgRouter("admin"), "GET", "/dg/sinkronisasi", "")
+	_, body = call(dgRouter("superadmin"), "GET", "/dg/sinkronisasi", "")
 	raw, _ = json.Marshal(body)
 	if !strings.Contains(string(raw), "Login failed") {
 		t.Errorf("admin harus melihat pesan lengkap: %s", raw)
@@ -463,7 +463,7 @@ func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 	}
 
 	// Jadwal sinkronisasi otomatis ikut dikirim (terlihat oleh semua pengguna) beserta perkiraan berikutnya.
-	for _, peran := range []string{"user", "admin"} {
+	for _, peran := range []string{"user", "superadmin"} {
 		_, b := call(dgRouter(peran), "GET", "/dg/sinkronisasi", "")
 		oto, _ := dataOf(t, b)["otomatis"].(map[string]interface{})
 		if oto["aktif"] != true || oto["interval_hari"] != float64(7) || oto["jam_mulai"] != float64(1) || oto["jam_akhir"] != float64(5) || oto["zona"] != "WIB" || oto["berikutnya"] == nil {
@@ -484,7 +484,7 @@ func TestStatusOtomatisNonaktif(t *testing.T) {
 		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 	}
 	digitalisasi.Default.MulaiPenjadwal(context.Background(), digitalisasi.NewJadwal(false, 7, 1, 5))
-	_, body := call(dgRouter("admin"), "GET", "/dg/sinkronisasi", "")
+	_, body := call(dgRouter("superadmin"), "GET", "/dg/sinkronisasi", "")
 	oto, _ := dataOf(t, body)["otomatis"].(map[string]interface{})
 	if oto["aktif"] != false || oto["berikutnya"] != nil {
 		t.Errorf("dimatikan: otomatis = %v", oto)
@@ -505,7 +505,7 @@ func TestSyncEndpoints(t *testing.T) {
 		<-ctx.Done()
 		return nil, nil, ctx.Err()
 	}
-	r := dgRouter("admin")
+	r := dgRouter("superadmin")
 
 	for name, body := range map[string]string{"kosong": `{}`, "tak dikenal": `{"datasets":["../x"]}`, "bukan JSON": `xx`} {
 		if code, _ := call(r, "POST", "/dg/sinkronisasi", body); code != 400 {
@@ -566,7 +566,7 @@ func TestHandlersWhenManagerNotInitialised(t *testing.T) {
 	old := digitalisasi.Default
 	digitalisasi.Default = nil
 	defer func() { digitalisasi.Default = old }()
-	r := dgRouter("admin")
+	r := dgRouter("superadmin")
 	for _, tc := range [][2]string{{"GET", "/dg/ringkasan"}, {"GET", "/dg/sinkronisasi"}, {"POST", "/dg/sinkronisasi"}, {"POST", "/dg/sinkronisasi/batal"}} {
 		if code, _ := call(r, tc[0], tc[1], `{"datasets":["tanah"]}`); code != 503 {
 			t.Errorf("%s %s: %d, want 503", tc[0], tc[1], code)

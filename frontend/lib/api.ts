@@ -339,6 +339,11 @@ export interface UserListItem {
   jabatan: string | null;
   satker: string | null;
   created_at: string;
+  kode_satker: string | null; // kode satker lengkap dari SSO Kemenkeu (kosong untuk akun non-SSO)
+  satker_aset: string | null; // nama satker pada data Digitalisasi Aset yang kode 6 digitnya sama dengan kode satker SSO
+  peran_data: PeranBaris[];
+  tamu: boolean; // belum punya peran apa pun (dan bukan superadmin)
+  setuju: boolean; // sudah menyetujui pernyataan penggunaan aplikasi versi terbaru
 }
 
 export interface ListUsersResponse {
@@ -359,7 +364,6 @@ export interface CreateUserPayload {
   password: string;
   email?: string;
   full_name?: string;
-  role: "user" | "admin";
 }
 
 export async function createUser(payload: CreateUserPayload) {
@@ -371,11 +375,6 @@ export async function searchPegawaiByNIP(nip: string) {
   const res = await api.get<{ success: boolean; message: string; data: Record<string, unknown> }>(
     `/hris2/pegawai/by-nip/${encodeURIComponent(nip)}`
   );
-  return res.data;
-}
-
-export async function updateUserRole(userId: string, role: string) {
-  const res = await api.put(`/users/${userId}/role`, { role });
   return res.data;
 }
 
@@ -397,7 +396,6 @@ export async function getUserDetail(userId: string) {
 export interface UpdateUserPayload {
   full_name: string;
   email: string;
-  role: "user" | "admin";
   is_active: boolean;
   password?: string;
 }
@@ -924,22 +922,52 @@ export interface CakupanData {
 
 // Peran yang berlaku bagi pengguna saat ini (dari /auth/me dan /auth/peran).
 export interface PeranInfo {
-  akun_role: string; // hak administrasi akun: user | admin | superadmin
-  role: string; // hak administrasi saat ini; turun menjadi "user" selama bertindak sebagai peran data
-  peran: string; // superadmin | admin | pengguna_barang | ue1 | kanwil | satker | "" (belum punya peran)
+  akun_role: string; // role akun: user | superadmin (superadmin hanya ditetapkan di .env)
+  role: string; // hak superadmin saat ini; turun menjadi "user" selama bertindak sebagai peran data
+  peran: string; // superadmin | pengguna_barang | ue1 | kanwil | satker | "" (belum punya peran = tamu)
   peran_label: string;
   peran_id: number; // 0 = peran bawaan akun
   kode: string;
   cakupan: CakupanData;
   tersedia: PeranBaris[];
-  bawaan: boolean; // akun admin/superadmin: boleh kembali ke peran akunnya
-  wajib: boolean; // pembatasan diwajibkan: pengguna tanpa peran tidak melihat data
+  bawaan: boolean; // superadmin: boleh kembali ke peran akunnya
+  tamu: boolean; // belum punya peran apa pun: belum boleh membuka fitur apa pun
 }
 
 export interface SaranPeran {
   role: PeranData;
   kode: string;
   label: string;
+}
+
+// Pernyataan penggunaan aplikasi yang harus disetujui setiap pengguna (kecuali superadmin) sebelum memakai aplikasi.
+export interface Pernyataan {
+  versi: string;
+  judul: string;
+  paragraf: string[];
+  frasa: string; // kalimat yang harus diketik
+  sudah: boolean;
+  auth_provider: string;
+  isi_profil: boolean; // akun non-SSO: nama lengkap, NIP, dan email diisi bersama persetujuan
+  profil: { nama: string; nip: string; email: string };
+}
+
+export async function getPernyataan() {
+  const res = await api.get<Amplop<Pernyataan>>("/auth/persetujuan");
+  return res.data;
+}
+
+export interface MasukanPersetujuan {
+  frasa: string;
+  setuju: boolean;
+  nama?: string;
+  nip?: string;
+  email?: string;
+}
+
+export async function setujuiPernyataan(body: MasukanPersetujuan) {
+  const res = await api.post<Amplop<{ sudah: boolean }>>("/auth/persetujuan", body);
+  return res.data;
 }
 
 export async function getPeranSaya() {
@@ -957,7 +985,6 @@ export interface PeranPengguna {
   peran: PeranBaris[];
   saran: SaranPeran[];
   kode_satker_sso: string;
-  wajib: boolean;
 }
 
 export async function getPeranPengguna(userId: string) {

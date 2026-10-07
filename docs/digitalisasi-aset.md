@@ -1,16 +1,16 @@
 # Digitalisasi Aset
 
 Halaman **Digitalisasi Aset** (`/dashboard/digitalisasi`) menampilkan analitik, peta, dan daftar aset KL 015 yang **disalin dari
-SLDK ke database PASTI**. Halaman tidak membaca SLDK langsung; SLDK hanya dibaca saat admin menjalankan sinkronisasi.
+SLDK ke database PASTI**. Halaman tidak membaca SLDK langsung; SLDK hanya dibaca saat superadmin menjalankan sinkronisasi.
 
 | Tab | Isi |
 |---|---|
 | Ringkasan | Angka utama (satker, tanah, gedung, hunian, nilai, kendaraan dinas), grafik per jenis, kondisi, UE1, provinsi, status hukum, asuransi, kamar tidur, status penghuni, dan tabel **kelengkapan data** (aset tanpa koordinat/foto/kondisi). Tiap grafik punya tombol *Tabel*. |
 | Peta | Peta Leaflet sebaran aset. Titik berklaster (donat berwarna menunjukkan komposisi jenis), filter jenis aset dan UE1, klik titik untuk kartu ringkas lalu *Detail lengkap*. |
 | Data | Daftar tiap dataset dengan pencarian, filter UE1/provinsi/kondisi, filter "belum punya koordinat", halaman, dan detail per baris (tombol *Lihat di peta*). |
-| Sinkronisasi | Status tiap dataset, tombol sinkronisasi (admin), kemajuan, pembatalan, dan riwayat. |
+| Sinkronisasi | Status tiap dataset, tombol sinkronisasi (superadmin), kemajuan, pembatalan, dan riwayat. |
 
-Semua pengguna login boleh melihat keempat tab; menjalankan dan membatalkan sinkronisasi khusus admin/superadmin.
+Semua pengguna login boleh melihat keempat tab; menjalankan dan membatalkan sinkronisasi khusus superadmin.
 
 ## Dashboard Aset
 
@@ -19,7 +19,7 @@ yang sama dengan tab Ringkasan di sini) ditambah blok **Wawasan analitik** yang 
 (`frontend/lib/wawasanAset.ts`, fungsi murni dengan tes `lib/wawasanAset.test.mjs`). Wawasannya: skala aset, konsentrasi nilai pada satu UE1,
 sebaran provinsi, aset rusak berat, kelengkapan koordinat/foto/kondisi, cakupan asuransi gedung, satker tanpa satker induk, status hukum tanah
 kosong, hunian, dan kesegaran data sinkronisasi. Semua ambangnya ada di blok konstanta di awal berkas. Dashboard hanya **membaca salinan** di
-database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk admin). Klik pada grafik
+database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk superadmin). Klik pada grafik
 membuka tab Data lewat `/dashboard/digitalisasi?tab=data&dataset=<kunci>[&tanpa_koordinat=1][&q=<kata kunci>]`.
 Label UE1 (mis. `01504 · DJP`) dan uraiannya dibaca dari referensi UE1 (lihat [referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)); tab **Satker** di Dashboard
 menghubungkan data aset dengan data pengadaan per satker.
@@ -60,10 +60,10 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 
 ## Cara kerja sinkronisasi
 
-1. Admin memilih dataset (atau "Sinkronkan semua") dan mengonfirmasi. Permintaan langsung dijawab; pekerjaan berjalan di server,
+1. Superadmin memilih dataset (atau "Sinkronkan semua") dan mengonfirmasi. Permintaan langsung dijawab; pekerjaan berjalan di server,
    jadi halaman boleh ditinggalkan. Hanya **satu antrean** berjalan pada satu waktu; dataset dijalankan berurutan.
 2. Per dataset: query dijalankan di SLDK pada satu koneksi (query memakai tabel `#sementara`), seluruh hasil dibaca ke memori
-   (maks. 500.000 baris, **tanpa batas waktu**: berjalan sampai selesai atau sampai admin menekan Batalkan), lalu **dalam satu
+   (maks. 500.000 baris, **tanpa batas waktu**: berjalan sampai selesai atau sampai superadmin menekan Batalkan), lalu **dalam satu
    transaksi singkat** isi tabel tujuan dikosongkan dan diisi ulang. Pembaca tidak terkunci selama query SLDK berjalan; bila ada
    yang gagal, tabel tidak berubah.
 3. Perlindungan: hasil **0 baris tidak menimpa** tabel yang sudah berisi; kolom hasil yang hilang dari query menghentikan
@@ -87,7 +87,7 @@ membaca riwayat `digitalisasi_sync_log`, jadi keadaannya bertahan saat server di
   berjalan boleh melewati jendela itu sampai selesai. Penjadwal memeriksa tiap 15 menit.
 - Percobaan yang **gagal** (atau terhenti karena server dimulai ulang) tidak diulang langsung: dataset yang sama baru dicoba lagi
   paling cepat 20 jam kemudian, yaitu pada malam berikutnya, supaya SLDK tidak dibebani berulang saat ada masalah.
-- Tidak pernah bersamaan dengan sinkronisasi lain: bila admin sedang menyinkronkan manual, penjadwal menunggu putaran berikutnya.
+- Tidak pernah bersamaan dengan sinkronisasi lain: bila superadmin sedang menyinkronkan manual, penjadwal menunggu putaran berikutnya.
 - **Tanpa batas waktu**, baik manual maupun otomatis; sinkronisasi yang macet dihentikan lewat tombol *Batalkan*.
 - Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila `SLDK_DB_*` terisi (koneksi SLDK ada).
 - Dataset yang belum pernah disinkronkan ikut diantrekan pada malam pertama setelah deploy; sebelum itu, coba satu dataset kecil dulu
@@ -135,9 +135,9 @@ satker, "belum punya koordinat"), bukan hanya halaman yang tampil. Berkas yang d
 
 ## Data pribadi
 
-`DIGITALISASI_RUMAH_NEGARA.Nama_Penghuni` (nama pemakai dari `SIMAN2_M_ASET_PEMAKAI`) hanya dikirim ke admin/superadmin: tidak ikut
+`DIGITALISASI_RUMAH_NEGARA.Nama_Penghuni` (nama pemakai dari `SIMAN2_M_ASET_PEMAKAI`) hanya dikirim ke superadmin: tidak ikut
 daftar, detail, pencarian, maupun unduhan Excel/CSV/PDF untuk pengguna lain. Pesan galat sinkronisasi (bisa memuat nama server/tabel) juga hanya
-terlihat admin.
+terlihat superadmin.
 
 ## Menjalankan pertama kali
 

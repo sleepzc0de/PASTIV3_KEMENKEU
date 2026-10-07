@@ -31,7 +31,6 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
     const [password, setPassword] = useState("");
     const [email, setEmail] = useState("");
     const [fullName, setFullName] = useState("");
-    const [role, setRole] = useState<"user" | "admin">("user");
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
@@ -93,7 +92,6 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                 password,
                 email: email || undefined,
                 full_name: fullName || undefined,
-                role,
             });
             onCreated();
             onClose();
@@ -208,17 +206,10 @@ export function CreateUserModal({ onClose, onCreated }: CreateUserModalProps) {
                         <FormField label="Username" value={username} onChange={setUsername} placeholder="Username untuk login" />
                         <FormField label="Password" value={password} onChange={setPassword} placeholder="Minimal 8 karakter" type="password" />
 
-                        <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
-                            <select
-                                value={role}
-                                onChange={(e) => setRole(e.target.value as "user" | "admin")}
-                                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                            >
-                                <option value="user">User</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                        </div>
+                        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            Akun baru berstatus <b>tamu</b>: pemiliknya harus menyetujui pernyataan penggunaan aplikasi saat login pertama dan belum dapat membuka fitur apa pun sampai
+                            diberi peran data (Pengguna Barang, UE1, Kanwil, atau Satker).
+                        </p>
                     </div>
 
                     {submitError && (

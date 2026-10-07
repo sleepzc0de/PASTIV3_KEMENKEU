@@ -6,6 +6,7 @@ import { CornerDownLeft, History, LogOut, Search } from "lucide-react";
 import { FlatNavItem, flattenNav } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
+import { peranEfektif } from "@/lib/peran";
 
 export const RECENT_KEY = "pasti_recent_pages";
 const MAX_RECENT = 4;
@@ -66,7 +67,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }, [open]);
 
   const entries = useMemo<Entry[]>(() => {
-    const items = flattenNav(profile?.role);
+    const items = flattenNav(peranEfektif(profile?.peran, profile?.role));
     const go = (href: string) => () => {
       onClose();
       router.push(href);
@@ -97,7 +98,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       list.push({ key: "logout", label: "Keluar dari aplikasi", hint: "Akun", icon: LogOut, run: () => logout("manual") });
     }
     return list;
-  }, [query, profile?.role, recent, router, onClose, logout]);
+  }, [query, profile?.peran, profile?.role, recent, router, onClose, logout]);
 
   useEffect(() => {
     setActive(0);

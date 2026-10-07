@@ -18,28 +18,39 @@ func SetupRoutes(r *gin.Engine) {
 			auth.GET("/captcha", handlers.GenerateCaptcha)
 			auth.POST("/register", handlers.Register)
 			auth.POST("/login", handlers.Login)
-			auth.GET("/me", middleware.AuthRequired(), handlers.Me)
+			// Tamu (belum punya peran) dan pengguna yang belum menyetujui pernyataan hanya boleh membaca profilnya dan menyetujui pernyataan; semua endpoint lain
+			// memakai AuthRequired yang menolak mereka (403).
+			auth.GET("/me", middleware.AuthTamuBoleh(), handlers.Me)
+			auth.GET("/persetujuan", middleware.AuthTamuBoleh(), handlers.GetPersetujuan)
+			auth.POST("/persetujuan", middleware.AuthTamuBoleh(), handlers.PostPersetujuan)
 			// Peran data: daftar peran sendiri dan berpindah peran aktif.
-			auth.GET("/peran", middleware.AuthRequired(), handlers.GetPeranSaya)
+			auth.GET("/peran", middleware.AuthTamuBoleh(), handlers.GetPeranSaya)
 			auth.POST("/peran/aktif", middleware.AuthRequired(), handlers.PostPeranAktif)
 		}
 
-		users := api.Group("/users", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
+		// Pengguna: superadmin melihat dan mengelola semua; Pengguna Barang semua kecuali superadmin; UE1, Kanwil, dan Satker hanya MELIHAT pengguna dalam cakupan kode
+		// satker SSO-nya (lihat handlers/akses_pengguna.go).
+		users := api.Group("/users", middleware.AuthRequired())
 		{
-			users.GET("", handlers.ListUsers)
-			users.POST("", handlers.CreateUser)
-			users.GET("/:id", handlers.GetUserDetail)
-			users.PUT("/:id", handlers.UpdateUser)
-			users.PUT("/:id/role", handlers.UpdateUserRole)
-			users.PUT("/:id/deactivate", handlers.DeactivateUser)
-			users.DELETE("/:id", handlers.DeleteUser)
-			// Peran data pengguna (Pengguna Barang, UE1, Kanwil, Satker) dan cakupan datanya.
-			users.GET("/:id/peran", handlers.GetPeranPengguna)
-			users.POST("/:id/peran", handlers.PostPeranPengguna)
-			users.DELETE("/:id/peran/:peranId", handlers.DeletePeranPengguna)
+			lihat := users.Group("", middleware.RequireLihatPengguna())
+			{
+				lihat.GET("", handlers.ListUsers)
+				lihat.GET("/:id", handlers.GetUserDetail)
+				// Peran data pengguna (Pengguna Barang, UE1, Kanwil, Satker) dan cakupan datanya.
+				lihat.GET("/:id/peran", handlers.GetPeranPengguna)
+			}
+			kelola := users.Group("", middleware.RequireKelolaPengguna())
+			{
+				kelola.POST("", handlers.CreateUser)
+				kelola.PUT("/:id", handlers.UpdateUser)
+				kelola.PUT("/:id/deactivate", handlers.DeactivateUser)
+				kelola.DELETE("/:id", handlers.DeleteUser)
+				kelola.POST("/:id/peran", handlers.PostPeranPengguna)
+				kelola.DELETE("/:id/peran/:peranId", handlers.DeletePeranPengguna)
+			}
 		}
 
-		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna login; sinkronisasi khusus admin).
+		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna yang punya peran; sinkronisasi khusus superadmin).
 		digitalisasi := api.Group("/digitalisasi", middleware.AuthRequired())
 		{
 			digitalisasi.GET("/ringkasan", handlers.GetDigitalisasiRingkasan)
@@ -48,16 +59,16 @@ func SetupRoutes(r *gin.Engine) {
 			digitalisasi.GET("/data/:dataset", handlers.ListDigitalisasiData)
 			digitalisasi.GET("/data/:dataset/:id", handlers.GetDigitalisasiDetail)
 			digitalisasi.GET("/sinkronisasi", handlers.GetDigitalisasiSinkronisasi)
-			digitalisasi.POST("/sinkronisasi", middleware.RequireRole("admin", "superadmin"), handlers.StartDigitalisasiSync)
-			digitalisasi.POST("/sinkronisasi/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelDigitalisasiSync)
+			digitalisasi.POST("/sinkronisasi", middleware.RequireSuperadmin(), handlers.StartDigitalisasiSync)
+			digitalisasi.POST("/sinkronisasi/batal", middleware.RequireSuperadmin(), handlers.CancelDigitalisasiSync)
 		}
 
 		// SAPA (Sistem Administrasi Pengelolaan Aset), modul Penjualan. Hak akses per usulan dan per tahap diperiksa di
-		// paket sapa menurut peran data aplikasi pengguna (SAPA tidak punya peran sendiri); pengaturan (template, jenis/satuan BMN, referensi UE1) khusus admin/superadmin.
+		// paket sapa menurut peran data aplikasi pengguna (SAPA tidak punya peran sendiri); pengaturan (template, jenis/satuan BMN, referensi UE1) khusus superadmin.
 		RegisterSapa(api.Group("/sapa", middleware.AuthRequired()))
 
-		// Seluruh fitur HRIS2 (pencarian & detail pegawai) sekarang khusus admin/superadmin.
-		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireRole("admin", "superadmin"))
+		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.
+		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireSuperadmin())
 		{
 			hris2.GET("/pegawai/search", handlers.SearchPegawai)
 			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
@@ -65,16 +76,16 @@ func SetupRoutes(r *gin.Engine) {
 
 		// Keterhubungan satker: aset (Digitalisasi Aset) dan pengadaan (Inaproc) dihubungkan lewat kode satker 6 digit.
 		api.GET("/satker/keterhubungan", middleware.AuthRequired(), handlers.GetSatkerKeterhubungan)
-		// Referensi Unit Eselon I (kode 5 digit -> uraian dan singkatan): dibaca semua pengguna login, dikelola admin/superadmin.
+		// Referensi Unit Eselon I (kode 5 digit -> uraian dan singkatan): dibaca semua pengguna yang punya peran, dikelola superadmin.
 		referensi := api.Group("/referensi", middleware.AuthRequired())
 		{
 			referensi.GET("/ue1", handlers.GetRefUE1)
-			referensi.PUT("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.PutRefUE1)
-			referensi.DELETE("/ue1/:kode", middleware.RequireRole("admin", "superadmin"), handlers.DeleteRefUE1)
+			referensi.PUT("/ue1/:kode", middleware.RequireSuperadmin(), handlers.PutRefUE1)
+			referensi.DELETE("/ue1/:kode", middleware.RequireSuperadmin(), handlers.DeleteRefUE1)
 		}
 		// Pengadaan Terpadu (Pengadaan, Tender, E-Katalog V5 dan V6). Data lokal, ekspor, dan dasbor terbuka bagi semua pengguna login dan dibatasi ke satker
 		// menurut peran aktif lewat kd_satker_str (UE1/Kanwil/Satker hanya melihat satkernya dan hanya dataset yang dapat dibatasi; lihat handlers/inaproc_cakupan.go).
-		// Keadaan penarikan memuat seluruh data dan operasi admin, jadi hanya bagi peran yang melihat seluruh data; memulai/membatalkan/mengatur khusus admin.
+		// Keadaan penarikan memuat seluruh data dan operasi superadmin, jadi hanya bagi peran yang melihat seluruh data; memulai/membatalkan/mengatur khusus superadmin.
 		inaproc := api.Group("/inaproc", middleware.AuthRequired())
 		{
 			dibatasi := inaproc.Group("", middleware.RequireCakupanAda())
@@ -89,9 +100,9 @@ func SetupRoutes(r *gin.Engine) {
 				penarikan.GET("/penarikan", handlers.GetInaprocPenarikan)
 				penarikan.GET("/penarikan/aktif", handlers.GetInaprocPenarikanAktif)
 				penarikan.GET("/penarikan/riwayat", handlers.GetInaprocPenarikanRiwayat)
-				penarikan.POST("/penarikan", middleware.RequireRole("admin", "superadmin"), handlers.StartInaprocPenarikan)
-				penarikan.POST("/penarikan/batal", middleware.RequireRole("admin", "superadmin"), handlers.CancelInaprocPenarikan)
-				penarikan.PUT("/penarikan/pengaturan", middleware.RequireRole("admin", "superadmin"), handlers.PutInaprocPenarikanPengaturan)
+				penarikan.POST("/penarikan", middleware.RequireSuperadmin(), handlers.StartInaprocPenarikan)
+				penarikan.POST("/penarikan/batal", middleware.RequireSuperadmin(), handlers.CancelInaprocPenarikan)
+				penarikan.PUT("/penarikan/pengaturan", middleware.RequireSuperadmin(), handlers.PutInaprocPenarikanPengaturan)
 			}
 		}
 	}

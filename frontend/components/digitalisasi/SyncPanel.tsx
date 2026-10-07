@@ -198,7 +198,7 @@ export function SyncPanel({ sync, isAdmin }: Props) {
             )}
           </div>
         </div>
-        {!isAdmin && <p className="mt-2 text-xs text-slate-500">Hanya admin yang dapat menjalankan sinkronisasi.</p>}
+        {!isAdmin && <p className="mt-2 text-xs text-slate-500">Hanya superadmin yang dapat menjalankan sinkronisasi.</p>}
 
         <ul className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
           {data.datasets.map((d) => {

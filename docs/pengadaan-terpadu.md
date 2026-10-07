@@ -8,7 +8,7 @@ Menu **Pengadaan > Pengadaan Terpadu** menyatukan semua data Inaproc yang sebelu
 | Dashboard Pengadaan | `/dashboard?tab=pengadaan` | Tab **Pengadaan** di halaman Dashboard: sub-tab Ikhtisar, Perencanaan, Pemilihan, Kontrak, E-Katalog; grafik dan wawasan analitik |
 
 Semua pengguna login boleh melihat, mengekspor, dan membuka dashboard, **dibatasi ke satkernya menurut peran data** (lihat [Pembatasan per satker](#pembatasan-per-satker)).
-Menjalankan/membatalkan penarikan dan mengubah jadwal khusus admin/superadmin. Halaman per-dataset yang lama (`/dashboard/pengadaan/...`, `/tender/...`, `/ekatalog/...`, `/ekatalog-v6/...`) dan alamat
+Menjalankan/membatalkan penarikan dan mengubah jadwal khusus superadmin. Halaman per-dataset yang lama (`/dashboard/pengadaan/...`, `/tender/...`, `/ekatalog/...`, `/ekatalog-v6/...`) dan alamat
 `/dashboard/pengadaan-terpadu/dasbor` sudah dihapus; alamat lamanya dialihkan (`redirects()` di `frontend/next.config.ts`) ke Dashboard tab Pengadaan
 atau ke Penarikan Data. Rute API per-dataset yang lama (`GET/POST /api/v1/inaproc/<kelompok>/<dataset>[/local|/sync]` dan `/inaproc/sync-log`) juga
 dicabut; semuanya kini lewat `/inaproc/penarikan`, `/inaproc/data`, `/inaproc/ekspor`, dan `/inaproc/analitik`.
@@ -79,7 +79,7 @@ penjadwal, tampilan langsung) lewat satu pembatas (`inaproc_batas.go`, `inaproc_
 
 **Tidak saling tabrakan**: hanya satu antrean berjalan di satu waktu; kunci aplikasi SQL Server (`sp_getapplock`) menutup celah bila ada dua
 salinan backend (mis. saat deploy).
-- Non-admin tidak melihat isi galat mentah maupun nama pemicu (bisa memuat alamat/potongan respons Inaproc).
+- Non-superadmin tidak melihat isi galat mentah maupun nama pemicu (bisa memuat alamat/potongan respons Inaproc).
 
 ## Pembatasan per satker
 
@@ -89,7 +89,7 @@ dengan karakter ke-10 sampai ke-15 kode satker data aset (`SUBSTRING(Kode_Satker
 - **Satker**: `kd_satker_str` sama dengan kodenya (juga bila satkernya belum ada di data aset).
 - **UE1 / Kanwil**: `kd_satker_str` ada di antara satker data aset (`DIGITALISASI_SATKER`) yang kode lengkapnya berawalan kode UE1 (5 digit) atau Kanwil (9 digit). Satker yang punya
   pengadaan tetapi tidak ada di data aset tidak terlihat oleh UE1/Kanwil-nya (Inaproc tidak memuat UE1/Kanwil).
-- Yang melihat seluruh data (Super Admin, Admin, Pengguna Barang, pengguna tanpa peran bila pembatasan belum diwajibkan) tidak berubah: query-nya persis seperti sebelumnya.
+- Yang melihat seluruh data (Super Admin dan Pengguna Barang) tidak berubah: query-nya persis seperti sebelumnya.
 
 Tiap tabel masuk salah satu golongan di `backend/handlers/inaproc_cakupan.go` (dijaga tes `inaproc_cakupan_test.go`: dataset baru yang belum digolongkan membuat tes gagal, bukan terbuka):
 
@@ -105,10 +105,10 @@ Yang berubah di API:
 - `GET /inaproc/data/...`, `/inaproc/ekspor/...`, `/inaproc/analitik`: terbuka bagi peran terbatas tetapi dibatasi; tahun yang tersedia juga hanya dari baris dalam cakupan. Hasil dasbor di cache **per cakupan**
   (kunci KLPD, tahun, tingkat, kode) supaya dasbor satu satker tidak pernah dilayani ke peran lain. Respons dasbor memuat `batas` ({tingkat, kode}) dan `tidak_tersedia` bagi peran terbatas.
 - `GET /inaproc/penarikan`, `/penarikan/aktif`, `/penarikan/riwayat`: tetap hanya untuk peran yang melihat seluruh data (403 bagi UE1/Kanwil/Satker).
-- Pengguna yang belum diberi peran sementara `PERAN_DATA_WAJIB=true` mendapat 403 di semua `/inaproc/*`.
+- Tamu (belum punya peran) dan pengguna yang belum menyetujui pernyataan mendapat 403 di semua `/inaproc/*` (lihat [akses-pengguna.md](akses-pengguna.md)).
 
 Tampilan: tab **Pengadaan** di Dashboard dan menu **Pengadaan > Pengadaan Terpadu** tampil bagi semua peran yang punya data. Peran terbatas melihat dasbor dengan catatan cakupan, dan halaman Pengadaan Terpadu
-hanya berisi **Data & Ekspor** (tanpa Tarik Data, Riwayat, dan Jadwal Otomatis, yang urusan admin).
+hanya berisi **Data & Ekspor** (tanpa Tarik Data, Riwayat, dan Jadwal Otomatis, yang urusan superadmin).
 
 Belum diverifikasi terhadap data asli: bahwa `kd_satker_str` memang kode satker 6 digit yang sama dengan data aset (dasarnya sama dengan tab Satker di Dashboard) dan bahwa kode RUP/tender pada tabel tautan cocok dengan
 tabel pembandingnya. Bila angka satker terasa terlalu kecil, periksa lebih dulu apakah satkernya ada di data aset (UE1/Kanwil) dan apakah `kd_satker_str`-nya terisi.

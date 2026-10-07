@@ -42,7 +42,7 @@ const (
 type pengguna struct{ id, nama, roleApp, peran, kode string }
 
 var daftarPengguna = map[string]pengguna{
-	"admin":      {gAdmin, "admin", "admin", "", ""},
+	"admin":      {gAdmin, "admin", "superadmin", "", ""},
 	"satkA":      {gSatkA, "satker.a", "user", "satker", "409294"},       // kodeA
 	"satkB":      {gSatkB, "satker.b", "user", "satker", "119091"},       // kodeB
 	"kanwil":     {gKanwil, "kanwil", "user", "kanwil", "015010199"},     // Kanwil kodeA
@@ -95,7 +95,7 @@ func siapkan(t *testing.T, repoWrap func(*sapa.MemRepo) sapa.Repo) *lingkungan {
 		if p.peran != "" {
 			baris = []peran.Baris{{ID: 1, Peran: p.peran, Kode: p.kode}}
 		}
-		peran.Pasang(c, peran.Selesaikan(p.roleApp, baris, false))
+		peran.Pasang(c, peran.Selesaikan(p.roleApp, baris))
 		c.Next()
 	})
 	RegisterSapa(g)

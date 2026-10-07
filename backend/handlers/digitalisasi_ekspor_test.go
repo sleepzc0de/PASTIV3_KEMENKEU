@@ -131,7 +131,7 @@ func TestEksporCSVSemuaKolomDanKolomPribadi(t *testing.T) {
 	for _, tc := range []struct {
 		role  string
 		admin bool
-	}{{"user", false}, {"admin", true}} {
+	}{{"user", false}, {"superadmin", true}} {
 		w := ambilBerkas(dgRouter(tc.role), "/dg/ekspor/rumah_negara?format=csv")
 		if w.Code != 200 {
 			t.Fatalf("%s: status %d: %s", tc.role, w.Code, w.Body)

@@ -26,6 +26,12 @@ const (
 	// CodeAccountInactive: akun dinonaktifkan administrator. Berlaku juga untuk sesi yang sedang
 	// berjalan (diperiksa di middleware AuthRequired), bukan hanya untuk login baru.
 	CodeAccountInactive = "account_inactive"
+
+	// CodePersetujuan: 403 karena pengguna belum menyetujui pernyataan penggunaan aplikasi (versi terbaru).
+	CodePersetujuan = "persetujuan_diperlukan"
+
+	// CodeTamu: 403 karena pengguna belum diberi peran (tamu), jadi belum boleh membuka fitur apa pun.
+	CodeTamu = "tamu"
 )
 
 // ErrorResponseWithCode seperti ErrorResponse, ditambah "code" supaya frontend bisa membedakan

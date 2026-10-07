@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 
 // Jalankan dari folder frontend (Node 22.18+ membaca .ts langsung):
 //   node --test lib/peran.test.mjs
-const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, bolehLihatPengadaan, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
+const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, bolehLihatPengadaan, peranEfektif, adalahSuperadmin, adalahTamu, bolehKelolaPengguna, bolehLihatPengguna, PERAN_LIHAT_PENGGUNA, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
   new URL("./peran.ts", import.meta.url).href
 );
 
 const info = (o = {}) => ({
-  akun_role: "user", role: "user", peran: "", peran_label: "", peran_id: 0, kode: "", cakupan: { tingkat: "semua" }, tersedia: [], bawaan: false, wajib: false, ...o,
+  akun_role: "user", role: "user", peran: "", peran_label: "", peran_id: 0, kode: "", cakupan: { tingkat: "semua" }, tersedia: [], bawaan: false, tamu: false, ...o,
 });
 const baris = (id, role, kode = "") => ({ id, role, kode, aktif: false, label: role });
 
@@ -63,10 +63,47 @@ test("pengadaan terbuka bagi semua peran yang punya data, termasuk yang dibatasi
   assert.equal(bolehLihatPengadaan(info({ cakupan: { tingkat: "kosong" } })), false);
 });
 
-test("pilihan peran: admin punya peran bawaan di depan; pengguna biasa hanya peran datanya; yang berlaku ditandai aktif", () => {
-  const admin = info({ akun_role: "admin", role: "admin", peran: "admin", peran_id: 0, bawaan: true, tersedia: [baris(4, "ue1", "01504"), baris(7, "satker", "119091")] });
+test("peran efektif untuk hak akses menu dan fitur", () => {
+  assert.equal(peranEfektif(info({ akun_role: "superadmin", role: "superadmin", peran: "superadmin" })), "superadmin");
+  assert.equal(peranEfektif(info({ peran: "pengguna_barang" })), "pengguna_barang");
+  assert.equal(peranEfektif(info({ peran: "satker", kode: "119091" })), "satker");
+  assert.equal(peranEfektif(info()), ""); // tamu
+  assert.equal(peranEfektif(null, "superadmin"), "superadmin"); // peran belum dimuat: role akun superadmin tetap superadmin
+  assert.equal(peranEfektif(undefined, "user"), "");
+  assert.equal(peranEfektif(undefined), "");
+  // superadmin yang bertindak sebagai peran data kehilangan hak superadmin
+  assert.equal(adalahSuperadmin(info({ akun_role: "superadmin", role: "user", peran: "satker" })), false);
+  assert.equal(adalahSuperadmin(info({ akun_role: "superadmin", role: "superadmin", peran: "superadmin" })), true);
+  assert.equal(adalahSuperadmin(info({ peran: "pengguna_barang" })), false);
+});
+
+test("tamu: sudah masuk tetapi belum punya peran", () => {
+  assert.equal(adalahTamu(info({ peran: "", tamu: true })), true);
+  assert.equal(adalahTamu(info({ peran: "ue1", kode: "01504" })), false);
+  assert.equal(adalahTamu(info({ peran: "superadmin" })), false);
+  assert.equal(adalahTamu(undefined), false); // belum dimuat: bukan tamu (yang menentukan hanya backend)
+});
+
+test("manajemen pengguna: superadmin dan Pengguna Barang mengelola; UE1, Kanwil, dan Satker hanya melihat; tamu tidak", () => {
+  for (const [peran, kelola, lihat] of [
+    ["superadmin", true, true],
+    ["pengguna_barang", true, true],
+    ["ue1", false, true],
+    ["kanwil", false, true],
+    ["satker", false, true],
+    ["", false, false],
+    ["admin", false, false], // role lama sudah ditiadakan
+  ]) {
+    assert.equal(bolehKelolaPengguna(peran), kelola, "kelola " + peran);
+    assert.equal(bolehLihatPengguna(peran), lihat, "lihat " + peran);
+  }
+  assert.deepEqual(PERAN_LIHAT_PENGGUNA, ["superadmin", "pengguna_barang", "ue1", "kanwil", "satker"]);
+});
+
+test("pilihan peran: superadmin punya peran bawaan di depan; pengguna biasa hanya peran datanya; yang berlaku ditandai aktif", () => {
+  const admin = info({ akun_role: "superadmin", role: "superadmin", peran: "superadmin", peran_id: 0, bawaan: true, tersedia: [baris(4, "ue1", "01504"), baris(7, "satker", "119091")] });
   assert.deepEqual(opsiPeran(admin), [
-    { id: null, label: "Admin", aktif: true },
+    { id: null, label: "Super Admin", aktif: true },
     { id: 4, label: "UE1 01504", aktif: false },
     { id: 7, label: "Satker 119091", aktif: false },
   ]);
@@ -82,14 +119,14 @@ test("pemilih hanya muncul bila ada dua pilihan atau lebih", () => {
   assert.equal(perluPemilih(info()), false);
   assert.equal(perluPemilih(info({ tersedia: [baris(1, "ue1", "01504")], peran_id: 1 })), false);
   assert.equal(perluPemilih(info({ tersedia: [baris(1, "ue1", "01504"), baris(2, "satker", "119091")], peran_id: 1 })), true);
-  assert.equal(perluPemilih(info({ akun_role: "admin", bawaan: true, tersedia: [] })), false); // admin tanpa peran data: tidak ada yang dipilih
-  assert.equal(perluPemilih(info({ akun_role: "admin", bawaan: true, tersedia: [baris(1, "ue1", "01504")] })), true);
+  assert.equal(perluPemilih(info({ akun_role: "superadmin", bawaan: true, tersedia: [] })), false); // superadmin tanpa peran data: tidak ada yang dipilih
+  assert.equal(perluPemilih(info({ akun_role: "superadmin", bawaan: true, tersedia: [baris(1, "ue1", "01504")] })), true);
 });
 
-test("peran yang tampil di samping nama", () => {
-  assert.equal(peranTampil(null, "admin"), "Admin");
+test("peran yang tampil di samping nama: tanpa peran adalah Tamu", () => {
+  assert.equal(peranTampil(null, "user"), "");
   assert.equal(peranTampil(undefined, "superadmin"), "Super Admin");
-  assert.equal(peranTampil(info(), "user"), "Pengguna");
+  assert.equal(peranTampil(info(), "user"), "Tamu");
   assert.equal(peranTampil(info({ akun_role: "superadmin", role: "superadmin", peran: "superadmin" }), "superadmin"), "Super Admin");
   assert.equal(peranTampil(info({ peran: "kanwil", kode: "015040199" }), "user"), "Kanwil 015040199");
 });

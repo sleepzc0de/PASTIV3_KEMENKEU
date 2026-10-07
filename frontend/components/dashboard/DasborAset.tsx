@@ -19,7 +19,7 @@ import { DaftarWawasan } from "../pengadaan/grafik";
 export function DasborAset() {
   const router = useRouter();
   const { profile } = useDashboard();
-  const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
+  const isAdmin = profile?.role === "superadmin";
   const { data, isLoading, error, reload } = useDGOverview(true, 0);
 
   const wawasan = useMemo(() => (data && data.tersedia ? wawasanAset(data) : []), [data]);
@@ -56,7 +56,7 @@ export function DasborAset() {
             Buka Sinkronisasi
           </Link>
         ) : (
-          <p className="text-xs text-slate-400">Hubungi administrator untuk menjalankan sinkronisasi.</p>
+          <p className="text-xs text-slate-400">Hanya superadmin yang dapat menjalankan sinkronisasi.</p>
         )}
       </div>
     );

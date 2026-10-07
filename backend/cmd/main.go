@@ -15,6 +15,7 @@ import (
 func main() {
 	config.LoadConfig()
 	database.Connect()
+	handlers.SinkronkanSuperadmin()
 	database.ConnectSLDK()
 	handlers.InitDigitalisasi()
 	handlers.InitInaprocPenarikan()

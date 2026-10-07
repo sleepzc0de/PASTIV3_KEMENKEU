@@ -19,12 +19,12 @@ export default function PegawaiPage() {
     );
   }
 
-  const isAllowed = profile && ["admin", "superadmin"].includes(profile.role);
+  const isAllowed = profile?.role === "superadmin";
 
   if (!isAllowed) {
     return (
       <div className="mx-auto mt-10 max-w-lg">
-        <EmptyState icon={ShieldAlert} title="Akses ditolak" description="Fitur pencarian data pegawai (HRIS2) hanya tersedia untuk admin atau superadmin." />
+        <EmptyState icon={ShieldAlert} title="Akses ditolak" description="Fitur pencarian data pegawai (HRIS2) hanya tersedia untuk superadmin." />
       </div>
     );
   }

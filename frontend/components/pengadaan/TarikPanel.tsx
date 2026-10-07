@@ -89,7 +89,7 @@ export function TarikPanel({ status, aktif, kuota, isAdmin, onMulai }: Props) {
   return (
     <div className="space-y-5">
       {!status.token_ada && <Alert tone="warning" message="Token Inaproc belum dikonfigurasi di server (INAPROC_TOKEN), jadi penarikan tidak bisa dijalankan." />}
-      {!isAdmin && <Alert tone="info" message="Hanya admin yang dapat menjalankan penarikan. Anda tetap dapat melihat status data, riwayat, dasbor, dan mengekspor data." />}
+      {!isAdmin && <Alert tone="info" message="Hanya superadmin yang dapat menjalankan penarikan. Anda tetap dapat melihat status data, riwayat, dasbor, dan mengekspor data." />}
       {galat && <Alert message={galat} />}
 
       <PanelBermasalah item={status.bermasalah} otomatis={status.otomatis} isAdmin={isAdmin} />
