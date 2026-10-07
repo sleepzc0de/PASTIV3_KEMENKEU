@@ -6,8 +6,9 @@ import { BarangEditor } from "./BarangEditor";
 import { BMNPilihan, PasanganBMN, useRefBMN } from "./BMNPilihan";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { CheckField, NoticeBox, Section, TextAreaField, TextField } from "./fields";
+import { KanwilField } from "./KanwilField";
 import { PenandatanganField } from "./PenandatanganField";
-import { muatanNDSatker, normNDSatker, normNDUE1, periksaBMN } from "./sapa";
+import { muatanNDSatker, muatanNDUE1, normNDSatker, normNDUE1, periksaBMN } from "./sapa";
 import { FormFooter, useTahapAksi } from "./useTahapAksi";
 
 interface Props {
@@ -32,6 +33,10 @@ export function NDSatkerForm({ usulan, tahap, saya, onChanged }: Props) {
       <NoticeBox>
         Nomor registrasi (Noreg) usulan ini: <span className="font-semibold">{usulan.noreg}</span>. Nama satker <span className="font-semibold">{usulan.nama_satker}</span>{" "}
         dan kode satker diambil dari usulan.
+      </NoticeBox>
+      <NoticeBox tone="warn">
+        <span className="font-semibold">Buat tiket di SIMAN lebih dulu.</span> Nota Dinas ini memuat nomor tiket SIMAN; buat tiket usulan penjualannya di SIMAN sebelum menyusun Nota Dinas, lalu isi nomornya pada kolom
+        &ldquo;Nomor tiket SIMAN&rdquo; di bawah.
       </NoticeBox>
 
       <Section title="Data surat">
@@ -61,14 +66,23 @@ export function NDSatkerForm({ usulan, tahap, saya, onChanged }: Props) {
               hint="Opsional, mis. KPKNL Jakarta I"
             />
             <BMNPilihan daftar={refBMN.daftar} error={refBMN.error} onCoba={refBMN.muat} nilai={{ jenis: v.jenis_bmn, satuan: v.satuan }} onChange={aturBMN} />
-            <TextField label="Nomor tiket SIMAN" required value={v.tiket_siman} onChange={(x) => set("tiket_siman", x)} maxLength={100} />
             <TextField
-              label="Tembusan: Kepala Kantor Wilayah"
+              label="Nomor tiket SIMAN"
               required
-              value={v.kepala_kanwil}
-              onChange={(x) => set("kepala_kanwil", x)}
-              maxLength={300}
-              placeholder="mis. Kepala Kantor Wilayah DJKN Jakarta"
+              value={v.tiket_siman}
+              onChange={(x) => set("tiket_siman", x)}
+              maxLength={100}
+              hint="Buat tiketnya di SIMAN lebih dulu, lalu isi nomornya di sini."
+            />
+            <KanwilField
+              kode={v.kode_kanwil}
+              teks={v.kepala_kanwil}
+              tanpa={v.tanpa_kanwil}
+              kodeSatker={usulan.kode_satker}
+              onPilih={(p) => setV((cur) => ({ ...cur, kode_kanwil: p.kode, kepala_kanwil: p.tembusan }))}
+              onLepas={() => set("kode_kanwil", "")}
+              onTeks={(x) => set("kepala_kanwil", x)}
+              onTanpa={(x) => set("tanpa_kanwil", x)}
             />
             <TextAreaField
               label="Alasan / pertimbangan penjualan"
@@ -131,8 +145,18 @@ export function NDUE1Form({ usulan, tahap, onChanged }: Props) {
 
       <Section title="Tujuan dan tembusan">
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField label="Sekretaris UE1" required value={v.sekretaris_ue1} onChange={(x) => set("sekretaris_ue1", x)} maxLength={300} />
-          <TextField label="Tembusan: Kepala Kantor Wilayah" required value={v.kepala_kanwil} onChange={(x) => set("kepala_kanwil", x)} maxLength={300} />
+          <TextField label="Sekretaris UE1" required value={v.sekretaris_ue1} onChange={(x) => set("sekretaris_ue1", x)} maxLength={300} className="sm:col-span-2" />
+          <KanwilField
+            kode={v.kode_kanwil}
+            teks={v.kepala_kanwil}
+            tanpa={v.tanpa_kanwil}
+            kodeSatker={usulan.kode_satker}
+            onPilih={(p) => setV((cur) => ({ ...cur, kode_kanwil: p.kode, kepala_kanwil: p.tembusan }))}
+            onLepas={() => set("kode_kanwil", "")}
+            onTeks={(x) => set("kepala_kanwil", x)}
+            onTanpa={(x) => set("tanpa_kanwil", x)}
+            hint="Mengikuti usulan Satker dan Referensi Kanwil; ubah bila tidak sesuai."
+          />
           <TextField
             label="Tembusan: pejabat pengelola"
             required
@@ -152,8 +176,8 @@ export function NDUE1Form({ usulan, tahap, onChanged }: Props) {
       <FormFooter
         aksi={aksi}
         templateTersedia={tahap.template_tersedia?.[tahap.jenis_dokumen ?? ""] !== false}
-        onSimpan={() => aksi.simpan(v)}
-        onBuat={() => aksi.buat(v)}
+        onSimpan={() => aksi.simpan(muatanNDUE1(v))}
+        onBuat={() => aksi.buat(muatanNDUE1(v))}
         labelBuat="Buat Nota Dinas (Word)"
       />
     </div>

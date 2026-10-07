@@ -441,3 +441,43 @@ func TestOpenRejectsGarbage(t *testing.T) {
 		t.Error("XML rusak harus ditolak")
 	}
 }
+
+// RemoveTagParagraphs: butir tembusan yang hanya berisi penanda dibuang utuh (bukan dibiarkan kosong); penanda di tengah kalimat dan satu-satunya paragraf sel tidak dibuang.
+func TestRemoveTagParagraphs(t *testing.T) {
+	p := func(s string) string { return `<w:p><w:r><w:t>` + s + `</w:t></w:r></w:p>` }
+	// penanda terpecah di beberapa run (seperti pada template asli) tetap dikenali
+	terpecah := `<w:p><w:r><w:t>&lt;&lt;</w:t></w:r><w:r><w:t>Kepala Kantor Wilayah</w:t></w:r><w:r><w:t>&gt;&gt;</w:t></w:r></w:p>`
+	body := p("Tembusan:") + p("Kepala Biro") + terpecah + p("Sesudah <<kepala kantor wilayah>> disampaikan") + p("Penutup")
+	body = strings.ReplaceAll(body, "<<", "&lt;&lt;")
+	body = strings.ReplaceAll(body, ">>", "&gt;&gt;")
+	d := open(t, miniDocx(t, body))
+	if n := d.RemoveTagParagraphs(" kepala  KANTOR wilayah "); n != 1 {
+		t.Fatalf("dibuang = %d, want 1 (hanya paragraf yang isinya penanda saja)", n)
+	}
+	teks := roundTrip(t, d).Text()
+	if strings.Contains(teks, "<<Kepala Kantor Wilayah>>") {
+		t.Errorf("butir tembusan tidak dibuang: %q", teks)
+	}
+	if !strings.Contains(teks, "Sesudah <<kepala kantor wilayah>> disampaikan") {
+		t.Errorf("penanda di tengah kalimat tidak boleh ikut dibuang: %q", teks)
+	}
+	if got := strings.Split(teks, "\n"); len(got) != 4 || got[1] != "Kepala Biro" || got[2] != "Sesudah <<kepala kantor wilayah>> disampaikan" {
+		t.Errorf("susunan sesudah dibuang = %q", got)
+	}
+	// penanda lain tidak terpengaruh dan penanda yang tidak ada mengembalikan 0
+	if n := open(t, miniDocx(t, body)).RemoveTagParagraphs("tidak ada"); n != 0 {
+		t.Errorf("penanda yang tidak ada: %d", n)
+	}
+
+	// satu-satunya paragraf dalam sel dibiarkan; sel berparagraf banyak boleh dibuang salah satunya
+	tabel := `<w:tbl><w:tr><w:tc>` + strings.ReplaceAll(strings.ReplaceAll(p("<<kanwil>>"), "<<", "&lt;&lt;"), ">>", "&gt;&gt;") + `</w:tc><w:tc>` +
+		strings.ReplaceAll(strings.ReplaceAll(p("<<kanwil>>")+p("Lain"), "<<", "&lt;&lt;"), ">>", "&gt;&gt;") + `</w:tc></w:tr></w:tbl>`
+	d2 := open(t, miniDocx(t, tabel))
+	if n := d2.RemoveTagParagraphs("kanwil"); n != 1 {
+		t.Errorf("sel: dibuang = %d, want 1 (paragraf tunggal dalam sel dibiarkan)", n)
+	}
+	sel := roundTrip(t, d2).Tables()[0].Rows()[0].Cells()
+	if sel[0].Text() != "<<kanwil>>" || sel[1].Text() != "Lain" {
+		t.Errorf("isi sel = %q dan %q", sel[0].Text(), sel[1].Text())
+	}
+}

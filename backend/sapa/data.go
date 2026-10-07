@@ -13,6 +13,13 @@ type galat []string
 
 func (g *galat) add(format string, a ...interface{}) { *g = append(*g, fmt.Sprintf(format, a...)) }
 
+// kodeKanwil memeriksa kode Kanwil yang dipilih dari referensi: boleh kosong (diketik manual), selain itu harus 9 digit angka.
+func (g *galat) kodeKanwil(k string) {
+	if k != "" && !kode9Sah(k) {
+		g.add("Kode Kanwil harus 9 digit angka")
+	}
+}
+
 func (g *galat) wajib(label, v string, max int) {
 	v = strings.TrimSpace(v)
 	switch {
@@ -239,7 +246,9 @@ type DataNDSatker struct {
 	Satuan          string                  `json:"satuan"`
 	Alasan          string                  `json:"alasan"`
 	TiketSiman      string                  `json:"tiket_siman"`
-	KepalaKanwil    string                  `json:"kepala_kanwil"`
+	KepalaKanwil    string                  `json:"kepala_kanwil"` // tembusan Kepala Kantor Wilayah; kosong dan tidak wajib bila TanpaKanwil
+	KodeKanwil      string                  `json:"kode_kanwil"`   // kode 9 digit pada Referensi Kanwil yang dipilih (penghubung ke referensi); boleh kosong bila diketik manual
+	TanpaKanwil     bool                    `json:"tanpa_kanwil"`  // tidak semua satker punya Kanwil: butir tembusan Kanwil dibuang dari dokumen
 	Penandatangan   Penandatangan           `json:"penandatangan"`
 	Barang          []Barang                `json:"barang"`
 	Dokumen         map[string]DokPendukung `json:"dokumen"`
@@ -251,6 +260,10 @@ func (d *DataNDSatker) Rapikan() {
 		rapikan(s)
 	}
 	d.Penandatangan.NIP = strings.Join(strings.Fields(d.Penandatangan.NIP), "")
+	d.KodeKanwil = strings.TrimSpace(d.KodeKanwil)
+	if d.TanpaKanwil {
+		d.KepalaKanwil, d.KodeKanwil = "", ""
+	}
 	for i := range d.Barang {
 		b := &d.Barang[i]
 		for _, s := range []*string{&b.Nama, &b.Kode, &b.NUP, &b.Lokasi, &b.Kondisi, &b.TahunPerolehan, &b.NilaiPerolehan, &b.NilaiLimit, &b.Keterangan} {
@@ -333,7 +346,10 @@ func (d DataNDSatker) Validasi() []string {
 	g.wajib("Satuan jumlah BMN", d.Satuan, 30)
 	g.wajib("Alasan/pertimbangan penjualan", d.Alasan, 2000)
 	g.wajib("Nomor tiket SIMAN", d.TiketSiman, 100)
-	g.wajib("Tembusan Kepala Kantor Wilayah", d.KepalaKanwil, 300)
+	if !d.TanpaKanwil {
+		g.wajib("Tembusan Kepala Kantor Wilayah (centang \"Satker ini tidak punya Kanwil\" bila tidak ada)", d.KepalaKanwil, 300)
+		g.kodeKanwil(d.KodeKanwil)
+	}
 	g.wajib("Nama pejabat penandatangan", d.Penandatangan.Nama, 150)
 	g.wajib("Jabatan pejabat penandatangan", d.Penandatangan.Jabatan, 300)
 	if nip := d.Penandatangan.NIP; len(nip) != 18 || strings.Trim(nip, "0123456789") != "" {
@@ -372,6 +388,8 @@ type DataNDUE1 struct {
 	HalND            string        `json:"hal_nd"`
 	SekretarisUE1    string        `json:"sekretaris_ue1"`
 	KepalaKanwil     string        `json:"kepala_kanwil"`
+	KodeKanwil       string        `json:"kode_kanwil"`  // kode 9 digit pada Referensi Kanwil yang dipilih; boleh kosong bila diketik manual
+	TanpaKanwil      bool          `json:"tanpa_kanwil"` // satker tidak punya Kanwil: butir tembusan Kanwil dibuang dari dokumen
 	PejabatPengelola string        `json:"pejabat_pengelola"`
 	Penandatangan    Penandatangan `json:"penandatangan"` // NIP tidak dipakai pada template UE1
 }
@@ -379,6 +397,10 @@ type DataNDUE1 struct {
 func (d *DataNDUE1) Rapikan() {
 	for _, s := range []*string{&d.NomorND, &d.TanggalND, &d.HalND, &d.SekretarisUE1, &d.KepalaKanwil, &d.PejabatPengelola, &d.Penandatangan.Nama, &d.Penandatangan.Jabatan} {
 		rapikan(s)
+	}
+	d.KodeKanwil = strings.TrimSpace(d.KodeKanwil)
+	if d.TanpaKanwil {
+		d.KepalaKanwil, d.KodeKanwil = "", ""
 	}
 }
 
@@ -388,7 +410,10 @@ func (d DataNDUE1) Validasi() []string {
 	g.tanggal("Tanggal Nota Dinas usulan Satker", d.TanggalND, true)
 	g.wajib("Hal Nota Dinas usulan Satker", d.HalND, 500)
 	g.wajib("Sekretaris UE1", d.SekretarisUE1, 300)
-	g.wajib("Tembusan Kepala Kantor Wilayah", d.KepalaKanwil, 300)
+	if !d.TanpaKanwil {
+		g.wajib("Tembusan Kepala Kantor Wilayah (centang \"Satker ini tidak punya Kanwil\" bila tidak ada)", d.KepalaKanwil, 300)
+		g.kodeKanwil(d.KodeKanwil)
+	}
 	g.wajib("Tembusan pejabat pengelola", d.PejabatPengelola, 300)
 	g.wajib("Nama pejabat UE1 penandatangan", d.Penandatangan.Nama, 150)
 	g.wajib("Jabatan pejabat UE1 penandatangan", d.Penandatangan.Jabatan, 300)

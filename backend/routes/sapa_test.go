@@ -616,7 +616,7 @@ func TestSapaJenisDanSatuanBMN(t *testing.T) {
 			tanah = m
 		}
 	}
-	if len(jenis) != 7 || tanah == nil || len(tanah["satuan"].([]interface{})) != 1 || tanah["satuan_bawaan"] != "bidang" {
+	if len(jenis) != 7 || tanah == nil || len(tanah["satuan"].([]interface{})) != 3 || tanah["satuan_bawaan"] != "bidang" {
 		t.Errorf("referensi BMN = %v", j)
 	}
 	e.harap(e.kirim("tanpa", "GET", "/referensi/bmn", nil, ""), http.StatusForbidden)
@@ -625,7 +625,7 @@ func TestSapaJenisDanSatuanBMN(t *testing.T) {
 	e.harap(e.json("admin", "PUT", "/bmn/satuan", map[string]interface{}{"nama": "meter lari", "aktif": true, "urutan": 7}), 200)
 	e.harap(e.json("admin", "PUT", "/bmn/jenis", map[string]interface{}{"nama": "Pagar, Jalan & Taman – Kantor", "aktif": true, "urutan": 8, "satuan": []string{"meter lari", "unit"}}), 200)
 	all := e.harap(e.kirim("admin", "GET", "/bmn", nil, ""), 200).data()
-	if len(all["jenis"].([]interface{})) != 8 || len(all["satuan"].([]interface{})) != 7 {
+	if len(all["jenis"].([]interface{})) != 8 || len(all["satuan"].([]interface{})) != 9 {
 		t.Errorf("daftar lengkap = %v", all)
 	}
 	// Dihapus lewat query (bukan segmen jalur) walau namanya memuat karakter khusus.
@@ -636,10 +636,13 @@ func TestSapaJenisDanSatuanBMN(t *testing.T) {
 	e.harap(e.json("admin", "PUT", "/bmn/satuan", map[string]interface{}{"nama": "a/b", "aktif": true}), http.StatusBadRequest)
 	e.harap(e.json("admin", "PUT", "/bmn/jenis", map[string]interface{}{"nama": "Kosong", "aktif": true, "satuan": []string{}}), http.StatusBadRequest)
 	e.harap(e.kirim("admin", "PUT", "/bmn/jenis", []byte("{bukan json"), ""), http.StatusBadRequest)
-	k := e.harap(e.kirim("admin", "DELETE", "/bmn/satuan?nama=bidang", nil, ""), http.StatusConflict) // satu-satunya satuan Tanah
-	if msg, _ := k.m["message"].(string); !strings.Contains(msg, "Tanah") {
+	// Satuan yang menjadi satu-satunya satuan suatu jenis tidak boleh dihapus, dan pesannya menyebut jenisnya.
+	e.harap(e.json("admin", "PUT", "/bmn/jenis", map[string]interface{}{"nama": "Jenis Meter Saja", "aktif": true, "urutan": 9, "satuan": []string{"meter lari"}}), 200)
+	k := e.harap(e.kirim("admin", "DELETE", "/bmn/satuan?nama=meter+lari", nil, ""), http.StatusConflict)
+	if msg, _ := k.m["message"].(string); !strings.Contains(msg, "Jenis Meter Saja") {
 		t.Errorf("pesan konflik = %q", msg)
 	}
+	e.harap(e.kirim("admin", "DELETE", "/bmn/jenis?nama=Jenis+Meter+Saja", nil, ""), 200)
 
 	// Nota Dinas dengan pasangan tidak masuk akal ditolak (400) dan menyebut satuan yang boleh.
 	id := e.buatUsulan()
@@ -784,4 +787,43 @@ func TestSapaTemplateImporDanEksporBarang(t *testing.T) {
 	// Ekspor: JSON rusak dan daftar melebihi batas ditolak.
 	e.harap(e.kirim("satkA", "POST", "/barang/ekspor", []byte("{bukan json"), ""), http.StatusBadRequest)
 	e.harap(e.json("satkA", "POST", "/barang/ekspor", map[string]interface{}{"barang": make([]sapa.Barang, sapa.MaksBarang+1)}), http.StatusBadRequest)
+}
+
+// Keterangan tahap yang dilewati (nomor dan tanggal SK yang dibuat di luar aplikasi) dapat diubah lewat PUT .../keterangan oleh pemilik tahap.
+func TestSapaUbahKeteranganTahapDilewati(t *testing.T) {
+	e := siapkan(t, nil)
+	id := e.buatUsulan()
+	base := "/penjualan/" + id
+	e.harap(e.json("satkA", "POST", base+"/tahap/tim/lewati", map[string]string{"catatan": "SK Tim nomor KEP-1/2026 tanggal 2 Januari 2026"}), 200)
+
+	tahapTim := func(user string) map[string]interface{} {
+		t.Helper()
+		for _, x := range e.harap(e.kirim(user, "GET", base, nil, ""), 200).data()["tahap"].([]interface{}) {
+			if m := x.(map[string]interface{}); m["kunci"] == "tim" {
+				return m
+			}
+		}
+		t.Fatal("tahap tim tidak ada")
+		return nil
+	}
+	if m := tahapTim("satkA"); m["dapat_ubah_keterangan"] != true || m["status"] != "dilewati" {
+		t.Errorf("tahap tim = %v", m)
+	}
+	// diubah oleh pemilik tahap
+	e.harap(e.json("satkA", "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "SK Tim nomor KEP-12/2026 tanggal 5 Januari 2026"}), 200)
+	if m := tahapTim("satkA"); m["catatan"] != "SK Tim nomor KEP-12/2026 tanggal 5 Januari 2026" || m["status"] != "dilewati" {
+		t.Errorf("setelah diubah = %v", m)
+	}
+	// masukan tidak sah, JSON rusak, tahap yang belum dilewati, tahap tak dikenal
+	e.harap(e.json("satkA", "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "abc"}), http.StatusBadRequest)
+	e.harap(e.kirim("satkA", "PUT", base+"/tahap/tim/keterangan", []byte("{bukan json"), ""), http.StatusBadRequest)
+	e.harap(e.json("satkA", "PUT", base+"/tahap/ba/keterangan", map[string]string{"catatan": "keterangan apa pun"}), http.StatusConflict)
+	e.harap(e.json("satkA", "PUT", base+"/tahap/aneh/keterangan", map[string]string{"catatan": "keterangan apa pun"}), http.StatusNotFound)
+	// hak: Kanwil, UE1, dan Pengguna Barang bukan pemilik tahap (403); satker lain tidak melihat usulan (404); tanpa peran (403); superadmin boleh
+	for _, u := range []string{"kanwil", "ue1", "barang"} {
+		e.harap(e.json(u, "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "keterangan dari bukan pemilik"}), http.StatusForbidden)
+	}
+	e.harap(e.json("satkB", "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "keterangan dari satker lain"}), http.StatusNotFound)
+	e.harap(e.json("tanpa", "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "keterangan tanpa peran"}), http.StatusForbidden)
+	e.harap(e.json("admin", "PUT", base+"/tahap/tim/keterangan", map[string]string{"catatan": "SK Tim nomor KEP-77/2026 oleh superadmin"}), 200)
 }

@@ -37,6 +37,41 @@ func UnduhTemplateBarang(c *gin.Context) {
 	sapaKirimUnduhan(c, "Template Daftar Barang SAPA.xlsx", sapaXLSXType, "template.xlsx", berkas)
 }
 
+// bacaBerkasImpor membaca berkas .xlsx dari bidang multipart "berkas" dengan batas ukuran. Bila gagal, jawaban galat sudah dikirim dan ok=false.
+func bacaBerkasImpor(c *gin.Context) (berkas []byte, ok bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, sapaMaksImpor)
+	fh, err := c.FormFile("berkas")
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			utils.ErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("Berkas terlalu besar (maksimal %d MB)", sapa.MaksUkuranXLSX>>20))
+			return nil, false
+		}
+		utils.ErrorResponse(c, http.StatusBadRequest, "Pilih berkas Excel (.xlsx)")
+		return nil, false
+	}
+	if !strings.HasSuffix(strings.ToLower(fh.Filename), ".xlsx") {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas harus berformat .xlsx (simpan dari Excel sebagai Excel Workbook)")
+		return nil, false
+	}
+	if fh.Size > sapa.MaksUkuranXLSX {
+		utils.ErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("Berkas terlalu besar (maksimal %d MB)", sapa.MaksUkuranXLSX>>20))
+		return nil, false
+	}
+	f, err := fh.Open()
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas tidak dapat dibaca")
+		return nil, false
+	}
+	defer f.Close()
+	berkas, err = io.ReadAll(io.LimitReader(f, sapa.MaksUkuranXLSX+1))
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas tidak dapat dibaca")
+		return nil, false
+	}
+	return berkas, true
+}
+
 // POST /sapa/barang/impor (multipart: berkas). Baris bermasalah tetap dikembalikan bersama daftar galatnya agar bisa
 // diperbaiki di formulir; hanya masalah pada berkas itu sendiri yang dijawab sebagai galat.
 func ImporBarang(c *gin.Context) {
@@ -45,39 +80,33 @@ func ImporBarang(c *gin.Context) {
 	if _, ok := sapaMasuk(c, ctx); !ok {
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, sapaMaksImpor)
-	fh, err := c.FormFile("berkas")
-	if err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			utils.ErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("Berkas terlalu besar (maksimal %d MB)", sapa.MaksUkuranXLSX>>20))
-			return
-		}
-		utils.ErrorResponse(c, http.StatusBadRequest, "Pilih berkas Excel (.xlsx)")
-		return
-	}
-	if !strings.HasSuffix(strings.ToLower(fh.Filename), ".xlsx") {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas harus berformat .xlsx (simpan dari Excel sebagai Excel Workbook)")
-		return
-	}
-	if fh.Size > sapa.MaksUkuranXLSX {
-		utils.ErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("Berkas terlalu besar (maksimal %d MB)", sapa.MaksUkuranXLSX>>20))
-		return
-	}
-	f, err := fh.Open()
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas tidak dapat dibaca")
-		return
-	}
-	defer f.Close()
-	berkas, err := io.ReadAll(io.LimitReader(f, sapa.MaksUkuranXLSX+1))
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Berkas tidak dapat dibaca")
+	berkas, ok := bacaBerkasImpor(c)
+	if !ok {
 		return
 	}
 	hasil, err := sapa.ImporBarangXLSX(berkas)
 	if err != nil {
 		sapaGagal(c, "impor barang", err)
+		return
+	}
+	utils.SuccessResponse(c, http.StatusOK, "OK", hasil)
+}
+
+// POST /sapa/barang/impor-siman (multipart: berkas): daftar barang dari hasil ekspor data aset SIMAN (Nama/Kode Barang, NUP, Merk, Kondisi, tahun Tanggal Perolehan,
+// Nilai Perolehan, Nilai Permohonan sebagai nilai limit, Keterangan). Jawabannya sama dengan /barang/impor.
+func ImporBarangSIMAN(c *gin.Context) {
+	ctx, cancel := sapaCtx(c)
+	defer cancel()
+	if _, ok := sapaMasuk(c, ctx); !ok {
+		return
+	}
+	berkas, ok := bacaBerkasImpor(c)
+	if !ok {
+		return
+	}
+	hasil, err := sapa.ImporSIMANXLSX(berkas)
+	if err != nil {
+		sapaGagal(c, "impor data SIMAN", err)
 		return
 	}
 	utils.SuccessResponse(c, http.StatusOK, "OK", hasil)

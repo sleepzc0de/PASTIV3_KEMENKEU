@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ClipboardPaste, FileDown, FileSpreadsheet, FileUp, Plus, Trash2, X } from "lucide-react";
-import { SapaBarang, SapaHasilImpor, eksporSapaBarang, imporSapaBarang, unduhSapaTemplateBarang } from "@/lib/sapa";
+import { ClipboardPaste, Database, FileDown, FileSpreadsheet, FileUp, Plus, Trash2, X } from "lucide-react";
+import { SapaBarang, SapaHasilImpor, eksporSapaBarang, imporSapaBarang, imporSapaBarangSIMAN, unduhSapaTemplateBarang } from "@/lib/sapa";
 import { simpanBlob } from "./download";
 import { ErrorBox, NoticeBox, PrimaryButton, SecondaryButton, TextField, inputCls } from "./fields";
 import {
@@ -35,11 +35,12 @@ export function BarangEditor({ barang, onChange, satuan }: { barang: SapaBarang[
   const [tempel, setTempel] = useState<string | null>(null);
   const [pesanTempel, setPesanTempel] = useState("");
   const [unduh, setUnduh] = useState<"template" | "daftar" | null>(null);
-  const [mengunggah, setMengunggah] = useState(false);
+  const [mengunggah, setMengunggah] = useState<"excel" | "siman" | null>(null);
   const [galat, setGalat] = useState<ErrorInfo | null>(null);
   const [menunggu, setMenunggu] = useState<{ hasil: SapaHasilImpor; nama: string } | null>(null);
   const [laporan, setLaporan] = useState<Laporan | null>(null);
   const inputBerkas = useRef<HTMLInputElement>(null);
+  const jenisBerkas = useRef<"excel" | "siman">("excel"); // tombol yang membuka pilihan berkas: template SAPA atau ekspor data aset SIMAN
   const total = totalBarang(barang);
   const terisi = barang.filter((b) => !barangKosong(b));
 
@@ -93,31 +94,42 @@ export function BarangEditor({ barang, onChange, satuan }: { barang: SapaBarang[
     setMenunggu(null);
   };
 
+  const bukaPilihan = (jenis: "excel" | "siman") => {
+    jenisBerkas.current = jenis;
+    inputBerkas.current?.click();
+  };
+
   const pilihBerkas = async (f: File | null) => {
     if (inputBerkas.current) inputBerkas.current.value = ""; // berkas yang sama boleh dipilih lagi
     if (!f) return;
+    const dariSIMAN = jenisBerkas.current === "siman";
     setGalat(null);
     setLaporan(null);
     setMenunggu(null);
     if (!f.name.toLowerCase().endsWith(".xlsx")) {
-      setGalat({ message: "Berkas harus berformat .xlsx. Simpan dari Excel sebagai Excel Workbook, atau gunakan template dari tombol Unduh template.", errors: [] });
+      setGalat({
+        message: dariSIMAN
+          ? "Berkas harus berformat .xlsx: gunakan berkas hasil ekspor data aset dari SIMAN tanpa mengubah formatnya."
+          : "Berkas harus berformat .xlsx. Simpan dari Excel sebagai Excel Workbook, atau gunakan template dari tombol Unduh template.",
+        errors: [],
+      });
       return;
     }
     if (f.size > MAKS_BYTE_XLSX) {
       setGalat({ message: `Berkas terlalu besar (${formatUkuran(f.size)}); maksimal ${formatUkuran(MAKS_BYTE_XLSX)}.`, errors: [] });
       return;
     }
-    setMengunggah(true);
+    setMengunggah(dariSIMAN ? "siman" : "excel");
     try {
-      const res = await imporSapaBarang(f);
+      const res = dariSIMAN ? await imporSapaBarangSIMAN(f) : await imporSapaBarang(f);
       const hasil = { ...res.data, barang: res.data.barang ?? [], galat: res.data.galat ?? [], peringatan: res.data.peringatan ?? [] };
       // Daftar yang masih kosong langsung diisi; bila sudah ada isinya, pengguna memilih mengganti atau menambahkan.
       if (terisi.length === 0) terapkanImpor(hasil, f.name, "ganti");
       else setMenunggu({ hasil, nama: f.name });
     } catch (err) {
-      setGalat(errorInfo(err, "Gagal membaca berkas Excel"));
+      setGalat(errorInfo(err, dariSIMAN ? "Gagal membaca data SIMAN" : "Gagal membaca berkas Excel"));
     } finally {
-      setMengunggah(false);
+      setMengunggah(null);
     }
   };
 
@@ -138,16 +150,20 @@ export function BarangEditor({ barang, onChange, satuan }: { barang: SapaBarang[
           Tempel dari Excel
         </SecondaryButton>
         <span className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" aria-hidden="true" />
-        <SecondaryButton onClick={unduhTemplate} busy={unduh === "template"} disabled={mengunggah}>
+        <SecondaryButton onClick={unduhTemplate} busy={unduh === "template"} disabled={mengunggah !== null}>
           <FileDown className="h-4 w-4" aria-hidden="true" />
           Unduh template Excel
         </SecondaryButton>
-        <SecondaryButton onClick={() => inputBerkas.current?.click()} busy={mengunggah} disabled={unduh !== null}>
+        <SecondaryButton onClick={() => bukaPilihan("excel")} busy={mengunggah === "excel"} disabled={unduh !== null || mengunggah === "siman"}>
           <FileUp className="h-4 w-4" aria-hidden="true" />
           Unggah Excel
         </SecondaryButton>
+        <SecondaryButton onClick={() => bukaPilihan("siman")} busy={mengunggah === "siman"} disabled={unduh !== null || mengunggah === "excel"}>
+          <Database className="h-4 w-4" aria-hidden="true" />
+          Unggah Data SIMAN
+        </SecondaryButton>
         {terisi.length > 0 && (
-          <SecondaryButton onClick={unduhDaftar} busy={unduh === "daftar"} disabled={mengunggah}>
+          <SecondaryButton onClick={unduhDaftar} busy={unduh === "daftar"} disabled={mengunggah !== null}>
             <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
             Unduh daftar ini
           </SecondaryButton>
@@ -158,12 +174,14 @@ export function BarangEditor({ barang, onChange, satuan }: { barang: SapaBarang[
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="sr-only"
           tabIndex={-1}
-          aria-label="Pilih berkas Excel daftar barang"
+          aria-label="Pilih berkas Excel daftar barang (template SAPA atau ekspor data aset SIMAN)"
           onChange={(e) => void pilihBerkas(e.target.files?.[0] ?? null)}
         />
       </div>
       <p className="text-xs text-slate-500">
-        Cara cepat: unduh template Excel, isi daftar barang, lalu unggah kembali. Baris yang bermasalah tetap dimuat sehingga dapat diperbaiki di bawah.
+        Cara cepat: unduh template Excel, isi daftar barang, lalu unggah kembali. Atau pilih <span className="font-medium text-slate-700">Unggah Data SIMAN</span> untuk memuat daftar langsung dari berkas hasil
+        ekspor data aset SIMAN (Nama, Kode, NUP, Merk, Kondisi, tahun Tanggal Perolehan, Nilai Perolehan, Nilai Permohonan sebagai nilai limit, dan Keterangan). Baris yang bermasalah tetap dimuat sehingga
+        dapat diperbaiki di bawah.
       </p>
 
       <ErrorBox error={galat} />
@@ -210,7 +228,7 @@ export function BarangEditor({ barang, onChange, satuan }: { barang: SapaBarang[
 
       {barang.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
-          Belum ada barang. Tambahkan satu per satu, tempel dari Excel, atau unggah berkas template Excel.
+          Belum ada barang. Tambahkan satu per satu, tempel dari Excel, unggah berkas template Excel, atau unggah data SIMAN.
         </p>
       ) : (
         <ol className="space-y-3">

@@ -269,6 +269,9 @@ func IsiNDSatker(tpl []byte, k Kasus, d DataNDSatker) (*Hasil, error) {
 	if err != nil {
 		return nil, err
 	}
+	if d.TanpaKanwil {
+		doc.RemoveTagParagraphs("kepala kantor wilayah") // satker tanpa Kanwil: butir tembusannya dibuang, bukan dibiarkan kosong
+	}
 	peringatan = append(peringatan, peringatanDari(doc.Replace(ndTags(k, d, jumlah, perolehan, limit)))...)
 	return selesaikan(doc, namaFile("ND Usulan Penjualan Satker", k.Noreg), peringatan)
 }
@@ -294,6 +297,9 @@ func IsiNDUE1(tpl []byte, k Kasus, satker DataNDSatker, ue DataNDUE1) (*Hasil, e
 	peringatan, err := isiTabelND(doc, satker, jumlah, perolehan, limit)
 	if err != nil {
 		return nil, err
+	}
+	if ue.TanpaKanwil {
+		doc.RemoveTagParagraphs("kepala kantor wilayah")
 	}
 	tags := ndTags(k, satker, jumlah, perolehan, limit)
 	tags["sekretaris ue1"] = ue.SekretarisUE1
