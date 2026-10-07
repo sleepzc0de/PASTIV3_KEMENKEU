@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 // Jalankan dari folder frontend (Node 22.18+ membaca .ts langsung):
 //   node --test lib/peran.test.mjs
-const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, bolehLihatPengadaan, peranEfektif, adalahSuperadmin, adalahTamu, bolehKelolaPengguna, bolehLihatPengguna, PERAN_LIHAT_PENGGUNA, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
+const { labelPeran, panjangKode, kodePeranSah, namaPeranBerkode, teksCakupan, bolehSemuaData, bolehLihatPengadaan, peranEfektif, adalahSuperadmin, adalahTamu, bolehKelolaPengguna, bolehLihatPengguna, bolehLihatSinkronisasi, PERAN_LIHAT_PENGGUNA, opsiPeran, perluPemilih, peranTampil, saranBaru } = await import(
   new URL("./peran.ts", import.meta.url).href
 );
 
@@ -140,4 +140,13 @@ test("saran yang sudah dimiliki tidak disarankan lagi", () => {
   assert.deepEqual(saranBaru(saran, [baris(1, "ue1", "01504")]).map((s) => s.role), ["kanwil", "satker"]);
   assert.deepEqual(saranBaru(saran, [baris(1, "ue1", "01509")]).map((s) => s.role), ["ue1", "kanwil", "satker"]); // kode lain bukan duplikat
   assert.deepEqual(saranBaru([], [baris(1, "ue1", "01504")]), []);
+});
+
+test("tab Sinkronisasi Digitalisasi Aset: hanya superadmin dan Pengguna Barang; UE1, Kanwil, Satker, dan tamu tidak melihatnya", () => {
+  for (const p of ["superadmin", "pengguna_barang"]) assert.equal(bolehLihatSinkronisasi(p), true, p);
+  for (const p of ["ue1", "kanwil", "satker", "user", "", "admin"]) assert.equal(bolehLihatSinkronisasi(p), false, p);
+  // memakai peran efektif: superadmin yang bertindak sebagai Satker tidak melihatnya, kembali ke peran bawaan melihatnya
+  assert.equal(bolehLihatSinkronisasi(peranEfektif(info({ peran: "satker" }), "user")), false);
+  assert.equal(bolehLihatSinkronisasi(peranEfektif(info({ peran: "superadmin" }), "superadmin")), true);
+  assert.equal(bolehLihatSinkronisasi(peranEfektif(undefined, "user")), false); // profil belum dimuat: disembunyikan dulu
 });

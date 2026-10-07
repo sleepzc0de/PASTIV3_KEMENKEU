@@ -19,6 +19,9 @@ type Repo interface {
 	StatusTahapBanyak(ctx context.Context, ids []int64) (map[int64]StatusTahap, error)
 	TahapPenjualan(ctx context.Context, id int64) (map[string]TahapRow, error)
 	SimpanTahap(ctx context.Context, id int64, t TahapRow) error
+	// HapusPenjualan menghapus usulan beserta tahap dan dokumen hasilnya, tetapi HANYA bila belum selesai (pemeriksaan dan penghapusan dalam satu pernyataan, supaya
+	// usulan yang baru saja diselesaikan tidak ikut terhapus). Mengembalikan false bila usulan tidak ada atau sudah selesai.
+	HapusPenjualan(ctx context.Context, id int64) (bool, error)
 
 	// dokumen hasil
 	SimpanDokumen(ctx context.Context, d DokumenBaru) (DokumenInfo, error)

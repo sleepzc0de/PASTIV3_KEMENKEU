@@ -32,11 +32,12 @@ import { AsyncState } from "./useDigitalisasi";
 interface Props {
   overview: AsyncState<DGOverview>;
   isAdmin: boolean;
+  bolehSinkron: boolean; // melihat tab Sinkronisasi (superadmin dan Pengguna Barang); peran lain tidak melihatnya
   onGoSync: () => void;
   onOpenData: (p: { dataset: DGDatasetKey; tanpaKoordinat?: boolean }) => void;
 }
 
-export function DigitalisasiOverview({ overview, isAdmin, onGoSync, onOpenData }: Props) {
+export function DigitalisasiOverview({ overview, isAdmin, bolehSinkron, onGoSync, onOpenData }: Props) {
   const { data, isLoading, error, reload } = overview;
 
   if (!data) {
@@ -69,7 +70,9 @@ export function DigitalisasiOverview({ overview, isAdmin, onGoSync, onOpenData }
             Buka Sinkronisasi
           </button>
         ) : (
-          <p className="text-xs text-slate-400">Hanya superadmin yang dapat menjalankan sinkronisasi.</p>
+          <p className="text-xs text-slate-400">
+            {bolehSinkron ? "Hanya superadmin yang dapat menjalankan sinkronisasi." : "Data muncul setelah superadmin menjalankan sinkronisasi dari SLDK."}
+          </p>
         )}
       </div>
     );

@@ -163,7 +163,8 @@ export interface SapaTahapDetail extends Omit<SapaTahapDef, "dokumen"> {
   dapat_dikerjakan: boolean; // semua tahap sebelumnya sudah selesai/dilewati
   alasan_terkunci?: string;
   boleh_aksi: boolean; // peran pengguna sesuai dengan tahap
-  dapat_diubah: boolean; // belum ada tahap sesudahnya yang selesai
+  dapat_diubah: boolean; // belum ada tahap sesudahnya yang selesai DAN usulan belum selesai (usulan yang selesai terkunci seluruhnya)
+  dapat_dibuka_ulang: boolean; // sudah selesai/dilewati dan belum ada tahap sesudahnya yang selesai; hanya yang boleh_buka_kunci yang boleh
   data?: unknown; // isian tersimpan (draf atau yang dipakai membuat dokumen)
   saran?: unknown; // nilai awal formulir bila belum ada isian tersimpan
   nomor?: string;
@@ -179,7 +180,9 @@ export interface SapaDetail {
   usulan: SapaUsulan;
   tahap: SapaTahapDetail[];
   tahap_saat_ini: string;
-  selesai: boolean;
+  selesai: boolean; // seluruh tahap selesai: usulan terkunci total sampai kuncinya dibuka
+  boleh_buka_kunci: boolean; // superadmin dan Pengguna Barang: membuka kunci usulan dan membuka ulang tahap
+  boleh_hapus: boolean; // pengguna berhak menghapus usulan ini sekarang (Satker pemilik, Pengguna Barang, superadmin) dan usulan belum selesai
 }
 
 export interface SapaPenandaInfo {
@@ -283,6 +286,13 @@ export async function skipSapaTahap(id: string, tahap: string, catatan: string) 
   return res.data;
 }
 
+// Menghapus usulan yang belum selesai beserta isian dan dokumennya (tidak dapat dikembalikan). Usulan yang selesai terkunci (409) sampai kuncinya dibuka.
+export async function deleteSapaPenjualan(id: string) {
+  const res = await api.delete<SapaRes<null>>(`/sapa/penjualan/${id}`);
+  return res.data;
+}
+
+// Membuka ulang tahap yang sudah selesai. Pada usulan yang selesai (terkunci), membuka ulang tahap terakhir adalah membuka kunci usulan.
 export async function reopenSapaTahap(id: string, tahap: string) {
   const res = await api.post<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/buka-ulang`);
   return res.data;

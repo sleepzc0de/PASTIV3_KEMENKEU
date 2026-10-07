@@ -85,6 +85,7 @@ func (l *Layanan) SatkerSaya(ctx context.Context, id Identitas) ([]SatkerInfo, e
 	}
 	return l.Repo.SatkerDenganKode6(ctx, strings.TrimSpace(id.KodeSatker))
 }
+
 // ---------------------------------------------------------------- usulan: membuat dan melihat
 
 // judul: huruf awal setiap kata kapital, sisanya kecil ("KOTA JAKARTA" -> "Kota Jakarta").
@@ -251,19 +252,22 @@ func (l *Layanan) DaftarUsulan(ctx context.Context, id Identitas, f FilterDaftar
 // TahapDetail: satu tahap beserta keadaannya untuk pengguna yang melihat.
 type TahapDetail struct {
 	Tahap
-	Urutan          int             `json:"urutan"`
-	Status          string          `json:"status"`
-	DapatDikerjakan bool            `json:"dapat_dikerjakan"` // urutan sudah sampai
-	AlasanTerkunci  string          `json:"alasan_terkunci,omitempty"`
-	BolehAksi       bool            `json:"boleh_aksi"` // peran pengguna sesuai
-	DapatDiubah     bool            `json:"dapat_diubah"`
-	Data            json.RawMessage `json:"data,omitempty"`
-	Saran           interface{}     `json:"saran,omitempty"`
-	Nomor           string          `json:"nomor,omitempty"`
-	Tanggal         string          `json:"tanggal,omitempty"`
-	Catatan         string          `json:"catatan,omitempty"`
-	DiperbaruiOleh  string          `json:"diperbarui_oleh,omitempty"`
-	DiperbaruiPada  *time.Time      `json:"diperbarui_pada,omitempty"`
+	Urutan          int    `json:"urutan"`
+	Status          string `json:"status"`
+	DapatDikerjakan bool   `json:"dapat_dikerjakan"` // urutan sudah sampai
+	AlasanTerkunci  string `json:"alasan_terkunci,omitempty"`
+	BolehAksi       bool   `json:"boleh_aksi"` // peran pengguna sesuai
+	// DapatDiubah: belum ada tahap sesudahnya yang selesai DAN usulan belum selesai (usulan yang selesai terkunci seluruhnya).
+	DapatDiubah bool `json:"dapat_diubah"`
+	// DapatDibukaUlang: tahap sudah selesai/dilewati dan belum ada tahap sesudahnya yang selesai; hanya yang berhak membuka kunci (DetailUsulan.BolehBukaKunci) yang boleh.
+	DapatDibukaUlang bool            `json:"dapat_dibuka_ulang"`
+	Data             json.RawMessage `json:"data,omitempty"`
+	Saran            interface{}     `json:"saran,omitempty"`
+	Nomor            string          `json:"nomor,omitempty"`
+	Tanggal          string          `json:"tanggal,omitempty"`
+	Catatan          string          `json:"catatan,omitempty"`
+	DiperbaruiOleh   string          `json:"diperbarui_oleh,omitempty"`
+	DiperbaruiPada   *time.Time      `json:"diperbarui_pada,omitempty"`
 	// Dokumen (hasil) menutupi bidang Dokumen milik Tahap pada JSON, sehingga jenis dokumen yang dihasilkan tahap form
 	// disajikan terpisah di JenisDokumen.
 	Dokumen          []DokumenInfo   `json:"dokumen"`
@@ -275,7 +279,12 @@ type DetailUsulan struct {
 	Usulan       KasusInfo     `json:"usulan"`
 	Tahap        []TahapDetail `json:"tahap"`
 	TahapSaatIni string        `json:"tahap_saat_ini"`
-	Selesai      bool          `json:"selesai"`
+	// Selesai: seluruh tahap selesai atau dilewati. Usulan yang selesai terkunci total (PesanTerkunci).
+	Selesai bool `json:"selesai"`
+	// BolehBukaKunci: pengguna boleh membuka kunci usulan dan membuka ulang tahap (superadmin dan Pengguna Barang).
+	BolehBukaKunci bool `json:"boleh_buka_kunci"`
+	// BolehHapus: pengguna boleh menghapus usulan ini sekarang (berhak dan usulan belum selesai).
+	BolehHapus bool `json:"boleh_hapus"`
 }
 
 func statusDari(rows map[string]TahapRow) StatusTahap {
@@ -309,6 +318,8 @@ func (l *Layanan) DetailUsulan(ctx context.Context, id Identitas, pid int64) (*D
 	}
 	status := statusDari(rows)
 	out := &DetailUsulan{Usulan: *k, TahapSaatIni: TahapSaatIni(status), Selesai: Selesai(status)}
+	out.BolehBukaKunci = BolehBukaKunci(id, k.Kasus())
+	out.BolehHapus = !out.Selesai && BolehMenghapus(id, k.Kasus())
 	for i, def := range TahapPenjualan {
 		row := rows[def.Kunci]
 		td := TahapDetail{Tahap: def, Urutan: i + 1, Status: status.get(def.Kunci), Dokumen: []DokumenInfo{}}
@@ -318,7 +329,9 @@ func (l *Layanan) DetailUsulan(ctx context.Context, id Identitas, pid int64) (*D
 			td.DapatDikerjakan = true
 		}
 		td.BolehAksi = BolehBertindak(id, k.Kasus(), def)
-		td.DapatDiubah = BolehDiubah(status, def.Kunci) == nil
+		urutanBolehUbah := BolehDiubah(status, def.Kunci) == nil
+		td.DapatDiubah = urutanBolehUbah && !out.Selesai
+		td.DapatDibukaUlang = urutanBolehUbah && selesaiAtauDilewati(td.Status)
 		if len(row.Data) > 0 {
 			td.Data = json.RawMessage(row.Data)
 		}
@@ -417,6 +430,10 @@ func (l *Layanan) siapKerja(ctx context.Context, id Identitas, pid int64, kunci 
 		return nil, err
 	}
 	status := statusDari(rows)
+	// Usulan yang seluruh tahapnya sudah selesai terkunci total, tahap terakhir pun tidak bisa diubah lagi, sampai kuncinya dibuka (BukaUlang).
+	if Selesai(status) {
+		return nil, &ErrKonflik{Pesan: PesanTerkunci}
+	}
 	if err := BolehDikerjakan(status, kunci); err != nil {
 		return nil, &ErrKonflik{Pesan: capital(err.Error())}
 	}
@@ -604,17 +621,16 @@ func (l *Layanan) Lewati(ctx context.Context, id Identitas, pid int64, kunci, ca
 	return l.Repo.SimpanTahap(ctx, pid, TahapRow{Kunci: kunci, Status: StatusDilewati, Data: prev.Data, Catatan: catatan, DiperbaruiOleh: id.Nama, DiperbaruiPada: time.Now().UTC()})
 }
 
-// BukaUlang (khusus admin) mengembalikan tahap yang sudah selesai atau dilewati menjadi draf, selama belum ada tahap
-// sesudahnya yang selesai. Dokumen yang pernah dibuat tetap tersimpan sebagai riwayat.
+// BukaUlang (superadmin dan Pengguna Barang) mengembalikan tahap yang sudah selesai atau dilewati menjadi draf, selama belum ada tahap
+// sesudahnya yang selesai. Pada usulan yang sudah selesai (terkunci), membuka ulang tahap terakhir adalah membuka kunci usulan: usulan kembali berjalan.
+// Dokumen yang pernah dibuat tetap tersimpan sebagai riwayat.
 func (l *Layanan) BukaUlang(ctx context.Context, id Identitas, pid int64, kunci string) error {
-	if err := Akses(id); err != nil {
+	k, err := l.muat(ctx, id, pid)
+	if err != nil {
 		return err
 	}
-	if !id.Admin {
-		return ErrTidakBerhak
-	}
-	if _, err := l.muat(ctx, id, pid); err != nil {
-		return err
+	if !BolehBukaKunci(id, k.Kasus()) {
+		return fmt.Errorf("%w: hanya Pengguna Barang atau superadmin yang dapat membuka kunci atau membuka ulang tahap", ErrTidakBerhak)
 	}
 	if _, _, ok := TahapByKunci(kunci); !ok {
 		return ErrTidakDitemukan
@@ -632,6 +648,34 @@ func (l *Layanan) BukaUlang(ctx context.Context, id Identitas, pid int64, kunci 
 	}
 	prev := rows[kunci]
 	return l.Repo.SimpanTahap(ctx, pid, TahapRow{Kunci: kunci, Status: StatusDraft, Data: prev.Data, Nomor: prev.Nomor, Tanggal: prev.Tanggal, Catatan: prev.Catatan, DiperbaruiOleh: id.Nama, DiperbaruiPada: time.Now().UTC()})
+}
+
+// HapusUsulan menghapus usulan yang belum selesai beserta seluruh isian dan dokumen hasilnya (tidak dapat dikembalikan). Usulan yang sudah selesai terkunci dan
+// tidak dapat dihapus; kuncinya dibuka dulu oleh Pengguna Barang atau superadmin (BukaUlang). Mengembalikan usulan yang dihapus untuk dicatat di log.
+func (l *Layanan) HapusUsulan(ctx context.Context, id Identitas, pid int64) (*KasusInfo, error) {
+	k, err := l.muat(ctx, id, pid)
+	if err != nil {
+		return nil, err
+	}
+	if !BolehMenghapus(id, k.Kasus()) {
+		return nil, fmt.Errorf("%w: usulan hanya dapat dihapus oleh Satuan Kerja pemilik usulan, Pengguna Barang, atau superadmin", ErrTidakBerhak)
+	}
+	rows, err := l.Repo.TahapPenjualan(ctx, pid)
+	if err != nil {
+		return nil, err
+	}
+	if Selesai(statusDari(rows)) {
+		return nil, &ErrKonflik{Pesan: "Usulan yang sudah selesai tidak dapat dihapus. Buka kuncinya dulu (Pengguna Barang atau superadmin)."}
+	}
+	ok, err := l.Repo.HapusPenjualan(ctx, pid)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		// Antara pemeriksaan di atas dan penghapusan, usulan selesai atau sudah dihapus pengguna lain.
+		return nil, &ErrKonflik{Pesan: "Usulan tidak dapat dihapus: sudah selesai atau sudah dihapus. Muat ulang halaman."}
+	}
+	return k, nil
 }
 
 // UnduhDokumen mengembalikan berkas dokumen hasil bila pengguna boleh melihat usulannya.

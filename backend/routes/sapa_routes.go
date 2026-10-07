@@ -9,7 +9,8 @@ import (
 
 // RegisterSapa memasang rute SAPA (Sistem Administrasi Pengelolaan Aset) pada grup yang sudah memakai autentikasi.
 // Hak akses per usulan dan per tahap diperiksa di paket sapa menurut peran data pengguna di aplikasi (Satker, Kanwil, UE1, Pengguna Barang, superadmin);
-// SAPA tidak menetapkan peran sendiri. Pengaturan (template, BMN, sebutan Sekretaris UE1) dan buka-ulang tahap khusus superadmin. Dipisah dari SetupRoutes agar tabel rute ini bisa diuji.
+// SAPA tidak menetapkan peran sendiri. Pengaturan (template, BMN, sebutan Sekretaris UE1) khusus superadmin; buka kunci usulan (buka ulang tahap) bagi superadmin dan
+// Pengguna Barang; menghapus usulan bagi Satker pemilik, Pengguna Barang, dan superadmin selama usulan belum selesai. Dipisah dari SetupRoutes agar tabel rute ini bisa diuji.
 func RegisterSapa(g *gin.RouterGroup) {
 	g.GET("/saya", handlers.GetSapaSaya)
 	g.GET("/referensi/satker", handlers.GetSapaSatker)
@@ -27,11 +28,13 @@ func RegisterSapa(g *gin.RouterGroup) {
 	g.GET("/penjualan", handlers.ListSapaPenjualan)
 	g.POST("/penjualan", handlers.CreateSapaPenjualan)
 	g.GET("/penjualan/:id", handlers.GetSapaPenjualan)
+	g.DELETE("/penjualan/:id", handlers.DeleteSapaPenjualan) // usulan yang belum selesai; hak dan keadaan diperiksa di paket sapa
 	g.PUT("/penjualan/:id/tahap/:kunci", handlers.SaveSapaTahap)
 	g.POST("/penjualan/:id/tahap/:kunci/dokumen", handlers.GenerateSapaDokumen)
 	g.POST("/penjualan/:id/tahap/:kunci/selesai", handlers.CompleteSapaTahap)
 	g.POST("/penjualan/:id/tahap/:kunci/lewati", handlers.SkipSapaTahap)
-	g.POST("/penjualan/:id/tahap/:kunci/buka-ulang", middleware.RequireSuperadmin(), handlers.ReopenSapaTahap)
+	// Buka ulang tahap = buka kunci usulan yang selesai: superadmin dan Pengguna Barang. Hak ini bergantung pada peran data pengguna, jadi diperiksa di paket sapa.
+	g.POST("/penjualan/:id/tahap/:kunci/buka-ulang", handlers.ReopenSapaTahap)
 	g.GET("/dokumen/:id/unduh", handlers.DownloadSapaDokumen)
 
 	admin := g.Group("", middleware.RequireSuperadmin())

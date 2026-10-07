@@ -58,7 +58,7 @@ export const NAV_ENTRIES: NavEntry[] = [
         label: "Digitalisasi Aset",
         href: "/dashboard/digitalisasi",
         icon: MapPinned,
-        description: "Peta, daftar (dengan unduhan Excel, CSV, dan PDF), dan sinkronisasi data aset KL 015 dari SLDK",
+        description: "Ringkasan, peta, dan daftar (dengan unduhan Excel, CSV, dan PDF) data aset KL 015 yang disalin dari SLDK",
       },
       {
         label: "SAPA",

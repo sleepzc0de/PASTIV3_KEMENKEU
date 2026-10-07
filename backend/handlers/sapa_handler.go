@@ -355,6 +355,8 @@ func SkipSapaTahap(c *gin.Context) {
 	utils.SuccessResponse(c, http.StatusOK, "Tahap dilewati", nil)
 }
 
+// POST /sapa/penjualan/:id/tahap/:kunci/buka-ulang: membuka ulang tahap yang sudah selesai atau dilewati. Pada usulan yang sudah selesai (terkunci), membuka ulang
+// tahap terakhir adalah membuka kunci usulan. Hanya superadmin dan Pengguna Barang (diperiksa Layanan).
 func ReopenSapaTahap(c *gin.Context) {
 	ctx, cancel := sapaCtx(c)
 	defer cancel()
@@ -370,7 +372,29 @@ func ReopenSapaTahap(c *gin.Context) {
 		sapaGagal(c, "buka ulang tahap", err)
 		return
 	}
+	log.Printf("[SAPA] tahap %s usulan %s dibuka ulang oleh %s", c.Param("kunci"), c.Param("id"), c.GetString("username"))
 	utils.SuccessResponse(c, http.StatusOK, "Tahap dibuka ulang", nil)
+}
+
+// DELETE /sapa/penjualan/:id: menghapus usulan yang belum selesai beserta isian dan dokumennya. Usulan yang sudah selesai terkunci (409).
+func DeleteSapaPenjualan(c *gin.Context) {
+	ctx, cancel := sapaCtx(c)
+	defer cancel()
+	id, ok := sapaMasuk(c, ctx)
+	if !ok {
+		return
+	}
+	pid, ok := sapaUsulanID(c, ctx, id)
+	if !ok {
+		return
+	}
+	k, err := sapaLayanan().HapusUsulan(ctx, id, pid)
+	if err != nil {
+		sapaGagal(c, "hapus usulan", err)
+		return
+	}
+	log.Printf("[SAPA] usulan %s (satker %s) dihapus oleh %s", k.Noreg, k.KodeSatker, c.GetString("username"))
+	utils.SuccessResponse(c, http.StatusOK, "Usulan dihapus", nil)
 }
 
 // sapaKirimBerkas mengirim berkas Word sebagai unduhan. Nama berkas dikodekan agar aman (termasuk huruf non-ASCII).

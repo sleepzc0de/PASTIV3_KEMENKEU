@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, Search, Loader2, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Search, Loader2, Lock } from "lucide-react";
 import { SapaHalaman, SapaRingkasan, SapaSatkerRef, SapaSaya, cariSapaSatker, createSapaPenjualan, listSapaPenjualan } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
@@ -179,8 +179,8 @@ function BarisUsulan({ u, sayaPeran, admin }: { u: SapaRingkasan; sayaPeran: str
           <div className="flex flex-wrap items-center gap-1.5">
             {u.selesai ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                Selesai
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                Selesai · terkunci
               </span>
             ) : (
               <>
