@@ -158,7 +158,7 @@ func BolehDiubah(s StatusTahap, kunci string) error {
 	}
 	for _, t := range TahapPenjualan[idx+1:] {
 		if selesaiAtauDilewati(s.get(t.Kunci)) {
-			return errors.New("tahap \"" + t.Label + "\" sudah selesai; tahap ini tidak bisa diubah lagi (minta admin membuka ulang tahap sesudahnya)")
+			return errors.New("tahap \"" + t.Label + "\" sudah selesai; tahap ini tidak bisa diubah lagi (minta Pengguna Barang atau superadmin membuka ulang tahap sesudahnya)")
 		}
 	}
 	return nil
@@ -286,6 +286,22 @@ func BolehBertindak(i Identitas, k Kasus, t Tahap) bool {
 		return false
 	}
 	return i.Admin || i.Peran == t.Peran
+}
+
+// PesanTerkunci: usulan yang seluruh tahapnya sudah selesai atau dilewati terkunci total (tidak ada tahap yang dapat diubah, termasuk tahap terakhir, dan usulan tidak
+// dapat dihapus) sampai kuncinya dibuka.
+const PesanTerkunci = "Usulan ini sudah selesai dan terkunci. Hanya Pengguna Barang atau superadmin yang dapat membuka kuncinya."
+
+// BolehBukaKunci: apakah pengguna boleh membuka kunci usulan, yaitu membuka ulang tahap yang sudah selesai atau dilewati. Hanya superadmin dan Pengguna Barang
+// (yang memang harus bisa melihat usulannya).
+func BolehBukaKunci(i Identitas, k Kasus) bool {
+	return Terlihat(i, k) && (i.Admin || i.Peran == PeranPenggunaBarang)
+}
+
+// BolehMenghapus: apakah pengguna boleh menghapus usulan yang belum selesai. Satker pemilik usulan (kode satker 6 digitnya sama), Pengguna Barang, dan superadmin;
+// Kanwil dan UE1 hanya memproses usulan, jadi tidak menghapusnya. Usulan yang sudah selesai tidak dapat dihapus selama masih terkunci (diperiksa pemanggil).
+func BolehMenghapus(i Identitas, k Kasus) bool {
+	return Terlihat(i, k) && (i.Admin || i.Peran == PeranPenggunaBarang || i.Peran == PeranSatker)
 }
 
 // BolehMembuat: pembuat usulan adalah satker untuk satkernya sendiri; admin untuk satker mana pun.

@@ -24,7 +24,8 @@ Aturan tahap:
 
 - Tahap hanya bisa dikerjakan setelah **semua tahap sebelumnya selesai atau dilewati**.
 - Tahap yang sudah selesai boleh diubah/dibuat ulang selama **belum ada tahap sesudahnya yang selesai** (agar dokumen tahap
-  berikutnya tidak berselisih dengan data baru). Dokumen lama tetap tersimpan sebagai riwayat. Superadmin dapat **membuka ulang** tahap.
+  berikutnya tidak berselisih dengan data baru). Dokumen lama tetap tersimpan sebagai riwayat. Superadmin dan Pengguna Barang dapat **membuka ulang** tahap
+  (lihat [Usulan selesai: terkunci](#usulan-selesai-terkunci-dan-hapus-usulan)).
 - Hanya tahap 1 dan 2 yang boleh dilewati. Di kartu tahapnya ada kotak centang **"... sudah dibuat di luar aplikasi"**; bila dicentang,
   formulir diganti isian keterangan dokumen (mis. nomor dan tanggal SK, minimal 5 karakter) lalu tombol *Simpan dan lewati tahap*.
   Membatalkan centang mengembalikan formulir dengan isiannya utuh. Tahap yang sudah dilewati masih bisa dibuat di aplikasi lewat
@@ -43,8 +44,8 @@ peran data memakai kunci kode satker lengkap yang sama: 5 karakter pertama = UE1
 | Satker | kode satker 6 digit (karakter ke-10 sampai ke-15 kode satker usulan; induk dan anak satker sama-sama terhitung) | Membuat usulan untuk satkernya, mengerjakan tahap 1-5, melihat usulan satkernya |
 | Kanwil | kode Kanwil 9 digit (9 karakter pertama kode satker usulan) | Mengerjakan tahap 6, melihat usulan di bawah Kanwil-nya |
 | UE1 | kode UE1 5 digit | Mengerjakan tahap 7-10, melihat usulan satker di bawahnya |
-| Pengguna Barang | semua usulan | **Hanya melihat**: tidak punya tahap dan tidak membuat usulan (keputusan awal; ubah di `sapa/tahap.go` bila perlu) |
-| Super Admin (akun, dari `.env`) | semua | Semua tahap, membuka ulang tahap, Pengaturan SAPA |
+| Pengguna Barang | semua usulan | Melihat semua usulan, **membuka kunci usulan yang selesai (membuka ulang tahap)**, dan **menghapus usulan yang belum selesai**; tidak punya tahap dan tidak membuat usulan (keputusan awal; ubah di `sapa/tahap.go` bila perlu) |
+| Super Admin (akun, dari `.env`) | semua | Semua tahap, membuka kunci/membuka ulang tahap, menghapus usulan yang belum selesai, Pengaturan SAPA |
 
 - Pengguna **tanpa peran data** adalah tamu: seluruh aplikasi, termasuk SAPA, tertutup baginya sampai diberi peran (lihat [akses-pengguna.md](akses-pengguna.md)).
 - Superadmin yang sedang **bertindak sebagai peran data** (memilih peran itu di pemilih peran) diperlakukan sebagai peran itu di SAPA, bukan superadmin.
@@ -55,6 +56,23 @@ peran data memakai kunci kode satker lengkap yang sama: 5 karakter pertama = UE1
 - Tabel `sapa_peran` (penetapan lama) **tidak dibaca lagi**. Migrasi `054_sapa_peran_ke_peran_aplikasi.sql` menyalin isinya ke `user_roles` agar pengguna SAPA yang ada
   tidak kehilangan akses: Satker (kode satker 18 digit menjadi 6 digit), UE1 (kode apa adanya), dan Kanwil **hanya bila** pegawainya punya kode satker SSO yang sah (9
   karakter pertamanya menjadi kode Kanwil; `sapa_peran` tidak menyimpan kode Kanwil). Kanwil tanpa kode SSO harus diberi peran Kanwil oleh superadmin atau Pengguna Barang.
+
+## Usulan selesai: terkunci, dan hapus usulan
+
+- **Usulan yang belum selesai** (masih ada tahap yang belum selesai/dilewati) tetap dapat **diedit** (per tahap, sesuai aturan di atas) dan **dihapus**.
+- **Usulan yang seluruh tahapnya selesai terkunci total**: tidak ada tahap yang dapat diubah, **termasuk tahap terakhir** (sebelumnya masih bisa dicatat ulang), oleh siapa pun
+  termasuk pemilik tahap dan superadmin; usulan juga tidak dapat dihapus. Percobaan mengubah dijawab **409** dengan pesan "Usulan ini sudah selesai dan terkunci".
+  Di daftar tampil "Selesai · terkunci", di halaman usulan ada kotak "usulan terkunci".
+- **Buka kunci** hanya oleh **superadmin dan Pengguna Barang** (Satker pemilik, Kanwil, dan UE1 tidak). Tombol *Buka kunci usulan* membuka ulang **tahap terakhir** (kembali
+  menjadi draf): usulan berjalan lagi dan pemilik tahap itu dapat menyelesaikannya ulang (usulan terkunci lagi). Untuk mengoreksi tahap yang lebih awal, tahap-tahap
+  sesudahnya dibuka ulang satu per satu dari belakang lewat tombol *Buka ulang tahap* di kartu tahap (hak yang sama). Dokumen yang pernah dibuat tetap tersimpan sebagai riwayat.
+  Peran "admin" tidak ada lagi di aplikasi (akun admin lama menjadi Pengguna Barang, lihat [akses-pengguna.md](akses-pengguna.md)), jadi yang berhak adalah superadmin dan Pengguna Barang.
+- **Hapus usulan** (tombol *Hapus usulan* di halaman usulan, dengan dialog konfirmasi; `DELETE /sapa/penjualan/:id`): oleh **Satker pemilik usulan** (kode satker 6 digit sama),
+  **Pengguna Barang**, dan **superadmin**; Kanwil dan UE1 tidak (mereka hanya memproses usulan). Isian, tahap, dan dokumen hasilnya ikut terhapus dan tidak dapat dikembalikan;
+  Noreg tidak dipakai ulang. Usulan yang sudah selesai harus dibuka kuncinya dulu (409). Penghapusan dicatat di log server (`[SAPA] usulan ... dihapus oleh ...`).
+  Syarat "belum selesai" diperiksa di Layanan **dan** dalam satu pernyataan SQL `DELETE` (`Repo.HapusPenjualan`), sehingga usulan yang diselesaikan bersamaan tidak ikut terhapus.
+- Detail usulan (`GET /sapa/penjualan/:id`) memberi penanda ke UI: `selesai` (terkunci), `boleh_buka_kunci`, `boleh_hapus`, serta per tahap `dapat_diubah` (usulan belum selesai dan belum ada
+  tahap sesudahnya yang selesai) dan `dapat_dibuka_ulang`.
 
 ## Anggota tim dari HRIS2
 
@@ -202,7 +220,7 @@ pembuat usulan mengetik nama satker manual.
 | `frontend/lib/sapa.ts`, `frontend/components/sapa/` | tipe, API, dan halaman |
 
 Rute (`:id` = UUID usulan): `GET /sapa/saya` (peran, kode satker 6/18 digit, kode Kanwil/UE1, `satker_pilihan`), `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
-`PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (superadmin),
+`DELETE /sapa/penjualan/:id` (usulan yang belum selesai), `PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (superadmin dan Pengguna Barang),
 `GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`,
 `POST /sapa/barang/ekspor`; superadmin: `/sapa/template`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
 `PUT|DELETE /sapa/bmn/satuan`, `PUT|DELETE /sapa/bmn/jenis` (nama lewat badan JSON atau `?nama=`).

@@ -50,7 +50,8 @@ func SetupRoutes(r *gin.Engine) {
 			}
 		}
 
-		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna yang punya peran; sinkronisasi khusus superadmin).
+		// Digitalisasi Aset: data hasil sinkronisasi dari SLDK (dibaca semua pengguna yang punya peran, dibatasi menurut peran). Tab Sinkronisasi (status dan riwayat)
+		// hanya bagi peran yang melihat seluruh data (superadmin dan Pengguna Barang); UE1, Kanwil, dan Satker tidak melihatnya. Menjalankan sinkronisasi khusus superadmin.
 		digitalisasi := api.Group("/digitalisasi", middleware.AuthRequired())
 		{
 			digitalisasi.GET("/ringkasan", handlers.GetDigitalisasiRingkasan)
@@ -58,7 +59,7 @@ func SetupRoutes(r *gin.Engine) {
 			digitalisasi.GET("/ekspor/:dataset", handlers.EksporDigitalisasiData)
 			digitalisasi.GET("/data/:dataset", handlers.ListDigitalisasiData)
 			digitalisasi.GET("/data/:dataset/:id", handlers.GetDigitalisasiDetail)
-			digitalisasi.GET("/sinkronisasi", handlers.GetDigitalisasiSinkronisasi)
+			digitalisasi.GET("/sinkronisasi", middleware.RequireCakupanSemuaPesan("Status dan riwayat sinkronisasi hanya tersedia bagi Pengguna Barang dan superadmin. Data aset satker Anda ada di tab Ringkasan, Peta, dan Data."), handlers.GetDigitalisasiSinkronisasi)
 			digitalisasi.POST("/sinkronisasi", middleware.RequireSuperadmin(), handlers.StartDigitalisasiSync)
 			digitalisasi.POST("/sinkronisasi/batal", middleware.RequireSuperadmin(), handlers.CancelDigitalisasiSync)
 		}

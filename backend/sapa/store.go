@@ -297,6 +297,20 @@ func (s *Store) SimpanTahap(ctx context.Context, id int64, t TahapRow) error {
 	})
 }
 
+// HapusPenjualan: tahap dan dokumen ikut terhapus lewat ON DELETE CASCADE (migrasi 021). Syarat "belum selesai" ada di pernyataan yang sama dengan DELETE.
+func (s *Store) HapusPenjualan(ctx context.Context, id int64) (bool, error) {
+	res, err := s.DB.ExecContext(ctx,
+		`DELETE FROM sapa_penjualan
+		  WHERE id = @p1
+		    AND (SELECT COUNT(1) FROM sapa_penjualan_tahap t WHERE t.penjualan_id = @p1 AND t.status IN ('selesai', 'dilewati')) < @p2`,
+		id, len(TahapPenjualan))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // ---------------------------------------------------------------- dokumen
 
 func (s *Store) SimpanDokumen(ctx context.Context, d DokumenBaru) (DokumenInfo, error) {

@@ -10,7 +10,9 @@ SLDK ke database PASTI**. Halaman tidak membaca SLDK langsung; SLDK hanya dibaca
 | Data | Daftar tiap dataset dengan pencarian, filter UE1/provinsi/kondisi, filter "belum punya koordinat", halaman, dan detail per baris (tombol *Lihat di peta*). |
 | Sinkronisasi | Status tiap dataset, tombol sinkronisasi (superadmin), kemajuan, pembatalan, dan riwayat. |
 
-Semua pengguna login boleh melihat keempat tab; menjalankan dan membatalkan sinkronisasi khusus superadmin.
+Tab **Sinkronisasi hanya tampil bagi superadmin dan Pengguna Barang**; peran UE1, Kanwil, dan Satker hanya melihat tab Ringkasan, Peta, dan Data. Ini ditegakkan di dua sisi:
+frontend menyembunyikan tab (tautan `?tab=sinkronisasi` jatuh ke Ringkasan dan status sinkronisasi tidak diminta), dan backend menjawab **403** pada `GET /digitalisasi/sinkronisasi`
+bagi peran yang tidak melihat seluruh data (`middleware.RequireCakupanSemuaPesan`). Menjalankan dan membatalkan sinkronisasi tetap khusus superadmin (Pengguna Barang hanya melihat).
 
 ## Dashboard Aset
 
@@ -19,7 +21,7 @@ yang sama dengan tab Ringkasan di sini) ditambah blok **Wawasan analitik** yang 
 (`frontend/lib/wawasanAset.ts`, fungsi murni dengan tes `lib/wawasanAset.test.mjs`). Wawasannya: skala aset, konsentrasi nilai pada satu UE1,
 sebaran provinsi, aset rusak berat, kelengkapan koordinat/foto/kondisi, cakupan asuransi gedung, satker tanpa satker induk, status hukum tanah
 kosong, hunian, dan kesegaran data sinkronisasi. Semua ambangnya ada di blok konstanta di awal berkas. Dashboard hanya **membaca salinan** di
-database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk superadmin). Klik pada grafik
+database PASTI; bila belum ada sinkronisasi sama sekali, tampil keadaan kosong dengan tombol ke tab Sinkronisasi (untuk superadmin; peran lain hanya diberi keterangan). Klik pada grafik
 membuka tab Data lewat `/dashboard/digitalisasi?tab=data&dataset=<kunci>[&tanpa_koordinat=1][&q=<kata kunci>]`.
 Label UE1 (mis. `01504 · DJP`) dan uraiannya dibaca dari referensi UE1 (lihat [referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)); tab **Satker** di Dashboard
 menghubungkan data aset dengan data pengadaan per satker.

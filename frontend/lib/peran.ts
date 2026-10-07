@@ -68,6 +68,10 @@ export function peranEfektif(info: PeranInfo | undefined | null, role?: string):
 // Fitur khusus superadmin (ditetapkan di .env): penarikan data Inaproc, sinkronisasi SLDK, template SAPA, referensi UE1, HRIS2.
 export const adalahSuperadmin = (info: PeranInfo | undefined | null, role?: string): boolean => peranEfektif(info, role) === "superadmin";
 
+// Tab Sinkronisasi di Digitalisasi Aset (status dan riwayat sinkronisasi dari SLDK): hanya peran yang melihat seluruh data (superadmin dan Pengguna Barang). UE1, Kanwil,
+// dan Satker tidak melihatnya (backend menolak GET /digitalisasi/sinkronisasi untuk mereka). Menjalankan sinkronisasi tetap khusus superadmin.
+export const bolehLihatSinkronisasi = (peran: string): boolean => peran === "superadmin" || peran === "pengguna_barang";
+
 // Manajemen pengguna: superadmin dan Pengguna Barang mengelola (Pengguna Barang tanpa superadmin); UE1, Kanwil, dan Satker hanya melihat pengguna dalam cakupan kode satkernya.
 export const bolehKelolaPengguna = (peran: string): boolean => peran === "superadmin" || peran === "pengguna_barang";
 export const bolehLihatPengguna = (peran: string): boolean => bolehKelolaPengguna(peran) || peran === "ue1" || peran === "kanwil" || peran === "satker";

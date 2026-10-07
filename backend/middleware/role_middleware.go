@@ -80,9 +80,15 @@ func RequireLihatPengguna() gin.HandlerFunc {
 // RequireCakupanSemua membatasi endpoint untuk peran yang boleh melihat seluruh data (Superadmin dan Pengguna Barang). Dipakai pada keadaan yang memuat seluruh
 // data, seperti status dan riwayat penarikan Pengadaan.
 func RequireCakupanSemua() gin.HandlerFunc {
+	return RequireCakupanSemuaPesan("Keadaan dan pengaturan penarikan data hanya tersedia bagi peran yang melihat seluruh data. Data pengadaan satker Anda ada di menu Pengadaan dan Dashboard.")
+}
+
+// RequireCakupanSemuaPesan sama seperti RequireCakupanSemua dengan pesan penolakan sendiri, untuk fitur selain penarikan Pengadaan (mis. status sinkronisasi
+// Digitalisasi Aset).
+func RequireCakupanSemuaPesan(pesan string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !peran.DariGin(c).SemuaData() {
-			utils.ErrorResponse(c, http.StatusForbidden, "Keadaan dan pengaturan penarikan data hanya tersedia bagi peran yang melihat seluruh data. Data pengadaan satker Anda ada di menu Pengadaan dan Dashboard.")
+			utils.ErrorResponse(c, http.StatusForbidden, pesan)
 			c.Abort()
 			return
 		}

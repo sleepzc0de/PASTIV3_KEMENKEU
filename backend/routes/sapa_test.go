@@ -201,12 +201,10 @@ func TestSapaSaya(t *testing.T) {
 
 func TestSapaRuteAdminDijaga(t *testing.T) {
 	e := siapkan(t, nil)
-	id := e.buatUsulan()
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/template"}, {"POST", "/template/nd_satker"}, {"GET", "/template/nd_satker/unduh"},
 		{"GET", "/ref-ue1"}, {"PUT", "/ref-ue1/01501"}, {"DELETE", "/ref-ue1/01501"},
 		{"GET", "/bmn"}, {"PUT", "/bmn/satuan"}, {"DELETE", "/bmn/satuan?nama=unit"}, {"PUT", "/bmn/jenis"}, {"DELETE", "/bmn/jenis?nama=Tanah"},
-		{"POST", fmt.Sprintf("/penjualan/%s/tahap/tim/buka-ulang", id)},
 	} {
 		for _, u := range []string{"satkA", "kanwil", "ue1", "barang", "tanpa"} {
 			if j := e.kirim(u, c.method, c.path, []byte("{}"), ""); j.kode != http.StatusForbidden {
@@ -292,9 +290,139 @@ func TestSapaAlurSatkerSampaiUnduh(t *testing.T) {
 	e.harap(e.json("ue1", "POST", base+"/tahap/ue1_terima/selesai", map[string]string{}), 200)
 	e.harap(e.json("ue1", "POST", base+"/tahap/nd_ue1/dokumen", sapa.ContohNDUE1()), http.StatusCreated)
 
-	// Buka ulang hanya admin.
+	// Buka ulang hanya superadmin dan Pengguna Barang (lihat TestSapaUsulanSelesaiTerkunciDanDihapus).
 	e.harap(e.json("admin", "POST", base+"/tahap/ue1_terima/buka-ulang", nil), http.StatusConflict) // nd_ue1 sudah selesai
 	e.harap(e.json("admin", "POST", base+"/tahap/nd_ue1/buka-ulang", nil), 200)
+}
+
+// selesaikanSemua mengerjakan 10 tahap usulan lewat HTTP, masing-masing oleh perannya.
+func (e *lingkungan) selesaikanSemua(base string) {
+	e.t.Helper()
+	for _, k := range []string{"tim", "ba"} {
+		e.harap(e.json("satkA", "POST", base+"/tahap/"+k+"/lewati", map[string]string{"catatan": "dibuat di luar aplikasi"}), 200)
+	}
+	e.harap(e.json("satkA", "POST", base+"/tahap/nd_satker/dokumen", sapa.ContohNDSatker()), http.StatusCreated)
+	e.harap(e.json("satkA", "POST", base+"/tahap/nadine_satker/selesai", map[string]string{"nomor": "ND-1/2026", "tanggal": "2026-10-01"}), 200)
+	e.harap(e.json("satkA", "POST", base+"/tahap/siman_satker/selesai", map[string]string{}), 200)
+	e.harap(e.json("kanwil", "POST", base+"/tahap/siman_kanwil/selesai", map[string]string{}), 200)
+	e.harap(e.json("ue1", "POST", base+"/tahap/ue1_terima/selesai", map[string]string{}), 200)
+	e.harap(e.json("ue1", "POST", base+"/tahap/nd_ue1/dokumen", sapa.ContohNDUE1()), http.StatusCreated)
+	e.harap(e.json("ue1", "POST", base+"/tahap/nadine_ue1/selesai", map[string]string{}), 200)
+	e.harap(e.json("ue1", "POST", base+"/tahap/siman_ue1/selesai", map[string]string{}), 200)
+}
+
+// Usulan yang belum selesai dapat diedit dan dihapus; yang sudah selesai terkunci total dan hanya superadmin atau Pengguna Barang yang dapat membuka kuncinya.
+func TestSapaUsulanSelesaiTerkunciDanDihapus(t *testing.T) {
+	e := siapkan(t, nil)
+
+	// --- Belum selesai: penanda pada detail, hak menghapus per peran, dan buka ulang yang tidak berlaku.
+	id := e.buatUsulan()
+	base := "/penjualan/" + id
+	for u, boleh := range map[string]bool{"satkA": true, "barang": true, "admin": true, "kanwil": false, "ue1": false} {
+		d := e.harap(e.kirim(u, "GET", base, nil, ""), 200).data()
+		if d["boleh_hapus"] != boleh || d["selesai"] != false {
+			t.Errorf("%s: boleh_hapus = %v, selesai = %v; want %v, false", u, d["boleh_hapus"], d["selesai"], boleh)
+		}
+		if bk := u == "barang" || u == "admin"; d["boleh_buka_kunci"] != bk {
+			t.Errorf("%s: boleh_buka_kunci = %v, want %v", u, d["boleh_buka_kunci"], bk)
+		}
+	}
+	e.harap(e.json("satkA", "PUT", base+"/tahap/tim", map[string]string{"jabatan_pimpinan": "Kepala Kantor"}), 200) // masih dapat diedit
+
+	// Kanwil dan UE1 tidak menghapus; satker lain tidak melihatnya (404); tanpa peran 403; tanpa login 401.
+	e.harap(e.kirim("kanwil", "DELETE", base, nil, ""), http.StatusForbidden)
+	e.harap(e.kirim("ue1", "DELETE", base, nil, ""), http.StatusForbidden)
+	e.harap(e.kirim("satkB", "DELETE", base, nil, ""), http.StatusNotFound)
+	e.harap(e.kirim("kanwilLain", "DELETE", base, nil, ""), http.StatusNotFound)
+	if j := e.harap(e.kirim("tanpa", "DELETE", base, nil, ""), http.StatusForbidden); j.m["code"] != "sapa_tanpa_akses" {
+		t.Errorf("tanpa peran: code = %v", j.m["code"])
+	}
+	e.harap(e.kirim("siapa", "DELETE", base, nil, ""), http.StatusUnauthorized)
+	// Buka ulang pada tahap yang belum selesai bukan galat hak, melainkan konflik; satker tetap tidak berhak.
+	e.harap(e.json("satkA", "POST", base+"/tahap/tim/buka-ulang", nil), http.StatusForbidden)
+	e.harap(e.json("kanwil", "POST", base+"/tahap/tim/buka-ulang", nil), http.StatusForbidden)
+	e.harap(e.json("ue1", "POST", base+"/tahap/tim/buka-ulang", nil), http.StatusForbidden)
+	e.harap(e.json("barang", "POST", base+"/tahap/tim/buka-ulang", nil), http.StatusConflict)
+	e.harap(e.kirim("satkA", "GET", base, nil, ""), 200) // tidak ada yang terhapus oleh percobaan yang ditolak
+
+	// Satker pemilik menghapus usulan yang masih berjalan.
+	e.harap(e.kirim("satkA", "DELETE", base, nil, ""), 200)
+	e.harap(e.kirim("satkA", "GET", base, nil, ""), http.StatusNotFound)
+	e.harap(e.kirim("admin", "GET", base, nil, ""), http.StatusNotFound)
+	e.harap(e.kirim("satkA", "DELETE", base, nil, ""), http.StatusNotFound)
+	if l := e.harap(e.kirim("admin", "GET", "/penjualan", nil, ""), 200).data(); l["total"] != float64(0) {
+		t.Errorf("daftar setelah hapus = %v", l)
+	}
+
+	// Pengguna Barang dan superadmin juga dapat menghapus usulan yang belum selesai.
+	for _, u := range []string{"barang", "admin"} {
+		e.harap(e.kirim(u, "DELETE", "/penjualan/"+e.buatUsulan(), nil, ""), 200)
+	}
+
+	// --- Selesai: terkunci total.
+	id = e.buatUsulan()
+	base = "/penjualan/" + id
+	e.selesaikanSemua(base)
+	for u, bk := range map[string]bool{"satkA": false, "kanwil": false, "ue1": false, "barang": true, "admin": true} {
+		d := e.harap(e.kirim(u, "GET", base, nil, ""), 200).data()
+		if d["selesai"] != true || d["boleh_hapus"] != false || d["boleh_buka_kunci"] != bk {
+			t.Errorf("%s: selesai=%v boleh_hapus=%v boleh_buka_kunci=%v", u, d["selesai"], d["boleh_hapus"], d["boleh_buka_kunci"])
+		}
+		for _, x := range d["tahap"].([]interface{}) {
+			th := x.(map[string]interface{})
+			if th["dapat_diubah"] != false || th["dapat_dibuka_ulang"] != (th["kunci"] == "siman_ue1") {
+				t.Errorf("%s: tahap %v dapat_diubah=%v dapat_dibuka_ulang=%v", u, th["kunci"], th["dapat_diubah"], th["dapat_dibuka_ulang"])
+			}
+		}
+	}
+	// Tidak ada yang dapat mengedit, termasuk tahap terakhir oleh pemiliknya dan oleh superadmin; pesan menyebut terkunci.
+	for _, c := range []struct{ u, method, path string }{
+		{"ue1", "POST", base + "/tahap/siman_ue1/selesai"},
+		{"admin", "POST", base + "/tahap/siman_ue1/selesai"},
+		{"ue1", "POST", base + "/tahap/siman_ue1/lewati"},
+		{"ue1", "PUT", base + "/tahap/nd_ue1"},
+		{"ue1", "POST", base + "/tahap/nd_ue1/dokumen"},
+		{"satkA", "PUT", base + "/tahap/nd_satker"},
+		{"admin", "PUT", base + "/tahap/tim"},
+	} {
+		body := interface{}(map[string]string{"catatan": "diubah setelah selesai"})
+		if c.path == base+"/tahap/nd_ue1/dokumen" {
+			body = sapa.ContohNDUE1()
+		}
+		j := e.harap(e.json(c.u, c.method, c.path, body), http.StatusConflict)
+		if msg, _ := j.m["message"].(string); !strings.Contains(msg, "terkunci") {
+			t.Errorf("%s %s oleh %s: pesan = %q, want memuat \"terkunci\"", c.method, c.path, c.u, msg)
+		}
+	}
+	// Tidak dapat dihapus selama terkunci, siapa pun.
+	for _, u := range []string{"satkA", "barang", "admin"} {
+		e.harap(e.kirim(u, "DELETE", base, nil, ""), http.StatusConflict)
+	}
+	e.harap(e.kirim("kanwil", "DELETE", base, nil, ""), http.StatusForbidden)
+	e.harap(e.kirim("admin", "GET", base, nil, ""), 200)
+
+	// Hanya superadmin dan Pengguna Barang yang membuka kunci; Satker pemilik, Kanwil, UE1, dan yang tidak melihat usulan tidak bisa.
+	for _, u := range []string{"satkA", "kanwil", "ue1"} {
+		e.harap(e.json(u, "POST", base+"/tahap/siman_ue1/buka-ulang", nil), http.StatusForbidden)
+	}
+	e.harap(e.json("satkB", "POST", base+"/tahap/siman_ue1/buka-ulang", nil), http.StatusNotFound)
+	e.harap(e.json("tanpa", "POST", base+"/tahap/siman_ue1/buka-ulang", nil), http.StatusForbidden)
+	if d := e.harap(e.kirim("admin", "GET", base, nil, ""), 200).data(); d["selesai"] != true {
+		t.Fatal("usulan harus tetap terkunci setelah percobaan buka kunci yang ditolak")
+	}
+
+	e.harap(e.json("barang", "POST", base+"/tahap/siman_ue1/buka-ulang", nil), 200)
+	d := e.harap(e.kirim("ue1", "GET", base, nil, ""), 200).data()
+	if d["selesai"] != false || d["tahap_saat_ini"] != "siman_ue1" || d["boleh_hapus"] != false { // UE1 tidak berhak menghapus
+		t.Errorf("setelah dibuka kuncinya: selesai=%v tahap_saat_ini=%v boleh_hapus=%v", d["selesai"], d["tahap_saat_ini"], d["boleh_hapus"])
+	}
+	if d := e.harap(e.kirim("satkA", "GET", base, nil, ""), 200).data(); d["boleh_hapus"] != true {
+		t.Errorf("satker pemilik boleh menghapus setelah dibuka kuncinya: %v", d["boleh_hapus"])
+	}
+	e.harap(e.json("ue1", "POST", base+"/tahap/siman_ue1/selesai", map[string]string{"catatan": "selesai ulang"}), 200) // tahap terakhir dapat dikerjakan lagi
+	e.harap(e.json("admin", "POST", base+"/tahap/siman_ue1/buka-ulang", nil), 200)                                      // superadmin juga
+	e.harap(e.kirim("satkA", "DELETE", base, nil, ""), 200)                                                             // dapat dihapus setelah kuncinya dibuka
+	e.harap(e.kirim("admin", "GET", base, nil, ""), http.StatusNotFound)
 }
 
 func TestSapaMasukanTidakValid(t *testing.T) {

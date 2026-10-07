@@ -48,7 +48,8 @@ Cakupan dibaca dari `context` (`peran.CakupanDari`) oleh semua pembaca data beri
 
 | Area | Pembatasan |
 |---|---|
-| Digitalisasi Aset: ringkasan, peta, daftar, rincian, ekspor, pilihan filter, status sinkronisasi (jumlah baris) | Hanya baris satker dalam cakupan; rincian baris di luar cakupan dijawab 404 |
+| Digitalisasi Aset: ringkasan, peta, daftar, rincian, ekspor, pilihan filter | Hanya baris satker dalam cakupan; rincian baris di luar cakupan dijawab 404 |
+| Digitalisasi Aset: tab Sinkronisasi (`GET /digitalisasi/sinkronisasi`: status, jumlah baris, riwayat) | **Ditolak (403) bagi peran UE1/Kanwil/Satker** dan tabnya disembunyikan; hanya superadmin dan Pengguna Barang. Menjalankan/membatalkan: superadmin. |
 | Dashboard > Aset | Mengikuti ringkasan di atas |
 | Dashboard > Satker (`/satker/keterhubungan`) | Aset dalam cakupan; pengadaan hanya untuk satker yang dikenal di data aset dalam cakupan (Satker: satkernya sendiri) |
 | Referensi UE1: daftar kode yang belum terdaftar | Menurut cakupan |

@@ -174,6 +174,22 @@ func (m *MemRepo) SimpanTahap(_ context.Context, id int64, t TahapRow) error {
 	return nil
 }
 
+func (m *MemRepo) HapusPenjualan(_ context.Context, id int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.kasus[id]; !ok || Selesai(m.statusLocked(id)) {
+		return false, nil
+	}
+	delete(m.kasus, id)
+	delete(m.tahap, id)
+	for did, d := range m.dokumen {
+		if d.info.PenjualanID == id {
+			delete(m.dokumen, did)
+		}
+	}
+	return true, nil
+}
+
 func (m *MemRepo) SimpanDokumen(_ context.Context, d DokumenBaru) (DokumenInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

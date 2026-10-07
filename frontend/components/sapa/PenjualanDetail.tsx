@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, Lock, RotateCcw, SkipForward, Hourglass } from "lucide-react";
-import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ChevronDown, Lock, LockOpen, RotateCcw, SkipForward, Hourglass, Trash2 } from "lucide-react";
+import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, deleteSapaPenjualan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 import { Segmented } from "../digitalisasi/controls";
 import { formatDateTime } from "@/lib/dasbor";
 import { AlurRingkas } from "./AlurRingkas";
@@ -20,7 +23,8 @@ import { BAForm, TimForm } from "./TimForm";
 // Halaman satu usulan penjualan: linimasa 10 tahap. Tampilan mengikuti peran: pengguna Satker/Kanwil/UE1 langsung melihat
 // formulir tahap miliknya (ringkasan alur tetap menunjukkan posisi usulan di seluruh alur), sedangkan admin melihat semua
 // tahap dan bisa menyaring per peran. Tahap yang sedang berjalan terbuka; tiap tahap menampilkan formulir, panel pencatatan
-// (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan.
+// (tahap di aplikasi lain), atau alasan mengapa belum bisa dikerjakan. Usulan yang belum selesai masih dapat diedit (per tahap) dan dihapus; usulan yang sudah
+// selesai terkunci total dan hanya Pengguna Barang atau superadmin yang dapat membuka kuncinya.
 export function PenjualanDetail({ id }: { id: string }) {
   const saya = useSapa();
   const [lihat, setLihat] = useState<Lihat>(() => lihatAwal(saya.admin, saya.peran));
@@ -86,19 +90,23 @@ export function PenjualanDetail({ id }: { id: string }) {
   return (
     <div className="space-y-5">
       {kembali}
-      <Ringkasan usulan={detail.usulan} selesai={selesai} total={detail.tahap.length} sudahSelesai={detail.selesai} />
+      <Ringkasan usulan={detail.usulan} selesai={selesai} total={detail.tahap.length} sudahSelesai={detail.selesai} aksi={detail.boleh_hapus ? <HapusUsulan usulan={detail.usulan} /> : null} />
       {error && <Alert message={error.message} />}
 
       <AlurRingkas tahap={detail.tahap} aktifKunci={detail.tahap_saat_ini} peranSaya={saya.admin ? "" : saya.peran} onPilih={pilihTahap} />
 
-      <GiliranBanner
-        giliran={giliran}
-        admin={saya.admin}
-        onLihatSemua={() => setLihat("semua")}
-        lihat={lihat}
-        tahapSayaTuntas={punyaTahap(saya.peran) && detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
-        hanyaMelihat={!saya.admin && !punyaTahap(saya.peran)}
-      />
+      {detail.selesai ? (
+        <UsulanTerkunci usulanId={detail.usulan.id} tahapTerakhir={detail.tahap[detail.tahap.length - 1]} bolehBukaKunci={detail.boleh_buka_kunci} onChanged={muat} />
+      ) : (
+        <GiliranBanner
+          giliran={giliran}
+          admin={saya.admin}
+          onLihatSemua={() => setLihat("semua")}
+          lihat={lihat}
+          tahapSayaTuntas={punyaTahap(saya.peran) && detail.tahap.filter((t) => t.peran === saya.peran).every((t) => t.status === "selesai" || t.status === "dilewati")}
+          hanyaMelihat={!saya.admin && !punyaTahap(saya.peran)}
+        />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PilihTampilan lihat={lihat} onChange={setLihat} saya={saya} />
@@ -116,6 +124,8 @@ export function PenjualanDetail({ id }: { id: string }) {
             saya={saya}
             aktif={t.kunci === detail.tahap_saat_ini}
             terakhir={i === tampil.length - 1}
+            terkunci={detail.selesai}
+            bolehBukaKunci={detail.boleh_buka_kunci}
             onChanged={muat}
           />
         ))}
@@ -170,9 +180,7 @@ function GiliranBanner({
   tahapSayaTuntas: boolean; // semua tahap milik peran pengguna sudah selesai/dilewati
   hanyaMelihat: boolean; // peran tanpa tahap sendiri (Pengguna Barang): hanya memantau
 }) {
-  if (giliran.jenis === "selesai") {
-    return <NoticeBox tone="ok">Seluruh tahap usulan ini sudah selesai.</NoticeBox>;
-  }
+  if (giliran.jenis === "selesai") return null; // usulan selesai ditampilkan oleh UsulanTerkunci
   if (giliran.jenis === "saya") {
     return (
       <NoticeBox tone="info">
@@ -204,7 +212,7 @@ function GiliranBanner({
   );
 }
 
-function Ringkasan({ usulan, selesai, total, sudahSelesai }: { usulan: SapaUsulan; selesai: number; total: number; sudahSelesai: boolean }) {
+function Ringkasan({ usulan, selesai, total, sudahSelesai, aksi }: { usulan: SapaUsulan; selesai: number; total: number; sudahSelesai: boolean; aksi?: ReactNode }) {
   const persen = Math.round((selesai / total) * 100);
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
@@ -214,9 +222,15 @@ function Ringkasan({ usulan, selesai, total, sudahSelesai }: { usulan: SapaUsula
           <h2 className="break-words text-xl font-bold text-slate-900">{usulan.noreg}</h2>
           <p className="mt-1 break-words text-sm text-slate-700">{usulan.nama_satker}</p>
         </div>
-        {sudahSelesai && (
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">Seluruh tahap selesai</span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {sudahSelesai && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+              <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+              Selesai dan terkunci
+            </span>
+          )}
+          {aksi}
+        </div>
       </div>
       <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs text-slate-500 sm:grid-cols-3">
         <div>
@@ -256,7 +270,16 @@ function Ringkasan({ usulan, selesai, total, sudahSelesai }: { usulan: SapaUsula
   );
 }
 
-function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTahapDetail; usulan: SapaUsulan; saya: SapaSaya; aktif: boolean; terakhir: boolean; onChanged: () => void }) {
+interface TahapProps {
+  t: SapaTahapDetail;
+  usulan: SapaUsulan;
+  saya: SapaSaya;
+  terkunci: boolean; // usulan sudah selesai: tidak ada tahap yang dapat diubah
+  bolehBukaKunci: boolean; // superadmin dan Pengguna Barang
+  onChanged: () => void;
+}
+
+function TahapCard({ t, usulan, saya, aktif, terakhir, terkunci, bolehBukaKunci, onChanged }: TahapProps & { aktif: boolean; terakhir: boolean }) {
   const [open, setOpen] = useState(aktif);
   // Tahap yang menjadi tahap berjalan (mis. setelah tahap sebelumnya selesai) otomatis terbuka.
   useEffect(() => {
@@ -291,7 +314,7 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
         </button>
         {open && (
           <div id={panelId} className="space-y-4 border-t border-slate-100 p-3 sm:p-4">
-            <TahapBody t={t} usulan={usulan} saya={saya} onChanged={onChanged} />
+            <TahapBody t={t} usulan={usulan} saya={saya} terkunci={terkunci} bolehBukaKunci={bolehBukaKunci} onChanged={onChanged} />
           </div>
         )}
       </div>
@@ -299,7 +322,7 @@ function TahapCard({ t, usulan, saya, aktif, terakhir, onChanged }: { t: SapaTah
   );
 }
 
-function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan: SapaUsulan; saya: SapaSaya; onChanged: () => void }) {
+function TahapBody({ t, usulan, saya, terkunci, bolehBukaKunci, onChanged }: TahapProps) {
   const [mengubah, setMengubah] = useState(false);
   // Tahap yang boleh dikerjakan di luar aplikasi (SK Tim, Berita Acara): kotak centang menggantikan formulir dengan isian
   // keterangan dokumen. Formulir tetap terpasang (hanya disembunyikan) supaya isiannya tidak hilang bila centang dibatalkan.
@@ -354,7 +377,11 @@ function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
         <NoticeBox>
           <span className="inline-flex items-start gap-1.5">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>Tahap ini terkunci karena tahap sesudahnya sudah selesai, agar dokumen tidak berselisih. Admin dapat membuka ulang tahap sesudahnya.</span>
+            <span>
+              {terkunci
+                ? "Usulan sudah selesai dan terkunci, sehingga isian tidak dapat diubah. Pengguna Barang atau superadmin dapat membuka kuncinya."
+                : "Tahap ini terkunci karena tahap sesudahnya sudah selesai, agar dokumen tidak berselisih. Pengguna Barang atau superadmin dapat membuka ulang tahap sesudahnya."}
+            </span>
           </span>
         </NoticeBox>
       )}
@@ -388,7 +415,8 @@ function TahapBody({ t, usulan, saya, onChanged }: { t: SapaTahapDetail; usulan:
         </div>
       )}
 
-      {saya.admin && tuntas && t.dapat_diubah && <BukaUlang usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
+      {/* Pada usulan yang terkunci, membuka kunci dilakukan dari kotak di atas halaman (membuka ulang tahap terakhir). */}
+      {bolehBukaKunci && !terkunci && t.dapat_dibuka_ulang && <BukaUlang usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
     </>
   );
 }
@@ -484,6 +512,112 @@ function LewatiTahap({ usulanId, tahap, onChanged }: { usulanId: string; tahap: 
     </div>
   );
 }
+// Usulan yang seluruh tahapnya selesai: terkunci total. Pengguna Barang dan superadmin dapat membuka kuncinya; itu membuka ulang tahap terakhir sehingga usulan
+// berjalan lagi dan tahap itu dapat dikerjakan ulang (tahap sebelumnya dapat dibuka ulang satu per satu dari belakang bila perlu).
+function UsulanTerkunci({ usulanId, tahapTerakhir, bolehBukaKunci, onChanged }: { usulanId: string; tahapTerakhir: SapaTahapDetail; bolehBukaKunci: boolean; onChanged: () => void }) {
+  const [konfirmasi, setKonfirmasi] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ErrorInfo | null>(null);
+
+  const buka = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await reopenSapaTahap(usulanId, tahapTerakhir.kunci);
+      setKonfirmasi(false);
+      onChanged();
+    } catch (err) {
+      setError(errorInfo(err, "Gagal membuka kunci usulan"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-sm text-emerald-900 sm:p-4">
+      <div className="flex items-start gap-2">
+        <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          <span className="font-semibold">Seluruh tahap usulan ini sudah selesai, sehingga usulan terkunci.</span> Isian tidak dapat diubah dan usulan tidak dapat dihapus.{" "}
+          {bolehBukaKunci ? "Buka kunci bila ada yang perlu dikoreksi." : "Hanya Pengguna Barang atau superadmin yang dapat membuka kuncinya."}
+        </p>
+      </div>
+      {bolehBukaKunci && !konfirmasi && (
+        <div>
+          <SecondaryButton onClick={() => setKonfirmasi(true)}>
+            <LockOpen className="h-4 w-4" aria-hidden="true" />
+            Buka kunci usulan
+          </SecondaryButton>
+        </div>
+      )}
+      {bolehBukaKunci && konfirmasi && (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+          <p>
+            Tahap terakhir, &ldquo;{tahapTerakhir.label}&rdquo;, akan kembali menjadi draf dan usulan berjalan lagi. Dokumen yang sudah dibuat tetap tersimpan sebagai riwayat. Setelah
+            diselesaikan ulang, usulan terkunci kembali.
+          </p>
+          <div className="flex gap-2">
+            <SecondaryButton onClick={() => setKonfirmasi(false)}>Batal</SecondaryButton>
+            <PrimaryButton onClick={buka} busy={busy}>
+              Ya, buka kunci
+            </PrimaryButton>
+          </div>
+        </div>
+      )}
+      <ErrorBox error={error} />
+    </div>
+  );
+}
+
+// Hapus usulan yang belum selesai (Satker pemilik, Pengguna Barang, superadmin). Konfirmasi lewat dialog karena tidak dapat dikembalikan.
+function HapusUsulan({ usulan }: { usulan: SapaUsulan }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [buka, setBuka] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const hapus = async () => {
+    setBusy(true);
+    try {
+      await deleteSapaPenjualan(usulan.id);
+      toast.success(`Usulan ${usulan.noreg} dihapus`);
+      router.push("/dashboard/sapa/penjualan");
+    } catch (err) {
+      toast.error(errorInfo(err, "Gagal menghapus usulan").message);
+      setBusy(false);
+      setBuka(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setBuka(true)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+        Hapus usulan
+      </button>
+      {buka && (
+        <ConfirmDialog
+          title="Hapus usulan ini?"
+          message={
+            <>
+              Usulan <span className="font-semibold text-slate-800">{usulan.noreg}</span> ({usulan.nama_satker}) beserta seluruh isian dan dokumen hasilnya akan dihapus dan tidak dapat
+              dikembalikan.
+            </>
+          }
+          confirmLabel="Ya, hapus usulan"
+          busy={busy}
+          onConfirm={hapus}
+          onCancel={() => !busy && setBuka(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: string; tahap: SapaTahapDetail; onChanged: () => void }) {
   const [konfirmasi, setKonfirmasi] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -508,7 +642,7 @@ function BukaUlang({ usulanId, tahap, onChanged }: { usulanId: string; tahap: Sa
       {!konfirmasi ? (
         <button type="button" onClick={() => setKonfirmasi(true)} className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 hover:text-amber-800">
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
-          Buka ulang tahap (admin)
+          Buka ulang tahap
         </button>
       ) : (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
