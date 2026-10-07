@@ -74,6 +74,13 @@ type Config struct {
 	TokenEncryptionKey string
 	InaprocBaseURL     string
 	InaprocToken       string
+
+	// ============ Log audit dan pemantauan resource (khusus superadmin) ============
+	// AuditRetensiHari: entri log audit yang lebih lama dari ini dihapus otomatis (0 = tidak pernah dihapus). MonitorAktif: pengukur resource berjalan di latar belakang
+	// dan menyimpan riwayatnya; MonitorRetensiHari: riwayat yang lebih lama dihapus.
+	AuditRetensiHari   int
+	MonitorAktif       bool
+	MonitorRetensiHari int
 }
 
 var Cfg *Config
@@ -142,6 +149,10 @@ func LoadConfig() {
 		TokenEncryptionKey: getEnv("TOKEN_ENCRYPTION_KEY", ""),
 		InaprocBaseURL:     getEnv("INAPROC_BASE_URL", "https://data.inaproc.id"),
 		InaprocToken:       getEnv("INAPROC_TOKEN", ""),
+
+		AuditRetensiHari:   getEnvInt("AUDIT_RETENSI_HARI", 365),
+		MonitorAktif:       getEnvBool("MONITOR_AKTIF", true),
+		MonitorRetensiHari: getEnvInt("MONITOR_RETENSI_HARI", 30),
 	}
 
 	if Cfg.JWTSecret == "" || Cfg.PasswordPepper == "" {

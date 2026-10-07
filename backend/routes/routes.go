@@ -68,6 +68,23 @@ func SetupRoutes(r *gin.Engine) {
 		// paket sapa menurut peran data aplikasi pengguna (SAPA tidak punya peran sendiri); pengaturan (template, jenis/satuan BMN, referensi UE1) khusus superadmin.
 		RegisterSapa(api.Group("/sapa", middleware.AuthRequired()))
 
+		// Log audit aktivitas pengguna dan pemantauan resource: khusus superadmin, hanya membaca. Setiap rute memakai AuthRequired lalu RequireSuperadmin; superadmin yang sedang
+		// bertindak sebagai peran data tidak punya hak ini selama peran itu aktif. Mengekspor log audit sendiri tercatat sebagai aksi audit.ekspor.
+		auditGrup := api.Group("/audit", middleware.AuthRequired(), middleware.RequireSuperadmin())
+		{
+			auditGrup.GET("", handlers.GetAuditLog)
+			auditGrup.GET("/ringkasan", handlers.GetAuditRingkasan)
+			auditGrup.GET("/pengguna", handlers.GetAuditPengguna)
+			auditGrup.GET("/opsi", handlers.GetAuditOpsi)
+			auditGrup.GET("/ekspor", handlers.EksporAuditLog)
+		}
+		monitorGrup := api.Group("/monitor", middleware.AuthRequired(), middleware.RequireSuperadmin())
+		{
+			monitorGrup.GET("/ringkasan", handlers.GetMonitorRingkasan)
+			monitorGrup.GET("/riwayat", handlers.GetMonitorRiwayat)
+			monitorGrup.GET("/database", handlers.GetMonitorDatabase)
+		}
+
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.
 		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireSuperadmin())
 		{

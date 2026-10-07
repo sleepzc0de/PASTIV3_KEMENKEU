@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	mssql "github.com/microsoft/go-mssqldb"
 
+	"pasti-v3-backend/audit"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
 	"pasti-v3-backend/peran"
@@ -230,6 +231,7 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
+	audit.Tandai(c, audit.Tanda{ObjekTipe: "pengguna", ObjekID: newID, Detail: map[string]interface{}{"username": req.Username, "role": req.Role}})
 	utils.SuccessResponse(c, http.StatusCreated, "User berhasil dibuat", gin.H{
 		"id":       newID,
 		"username": req.Username,
@@ -295,6 +297,7 @@ func DeleteUser(c *gin.Context) {
 		return
 	}
 
+	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"username": usernameDariID(targetID)}}) // dicatat sebelum akunnya hilang
 	_, err = database.DB.Exec(`DELETE FROM users WHERE id = @p1`, targetID)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal menghapus user")
@@ -425,6 +428,7 @@ func UpdateUser(c *gin.Context) {
 		}
 	}
 
+	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"aktif": req.IsActive, "kata_sandi_diganti": req.Password != ""}})
 	utils.SuccessResponse(c, http.StatusOK, "User berhasil diperbarui", nil)
 }
 

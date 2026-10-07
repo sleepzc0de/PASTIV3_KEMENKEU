@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"pasti-v3-backend/audit"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
@@ -96,6 +97,7 @@ func PostPeranAktif(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Peran berpindah, tetapi gagal dibaca ulang")
 		return
 	}
+	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"peran_id": m.ID}})
 	utils.SuccessResponse(c, http.StatusOK, "Peran aktif diubah", h)
 }
 
@@ -180,6 +182,7 @@ func PostPeranPengguna(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memberi peran")
 		return
 	}
+	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"peran": m.Peran, "kode": m.Kode, "baru": dibuat}})
 	status, pesan := http.StatusOK, "Peran sudah dimiliki pengguna ini"
 	if dibuat {
 		status, pesan = http.StatusCreated, "Peran diberikan"
@@ -212,5 +215,6 @@ func DeletePeranPengguna(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mencabut peran")
 		return
 	}
+	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"peran_id": peranID}})
 	utils.SuccessResponse(c, http.StatusOK, "Peran dicabut", gin.H{"id": peranID})
 }

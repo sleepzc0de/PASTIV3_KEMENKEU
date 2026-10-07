@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	mssql "github.com/microsoft/go-mssqldb"
 
+	"pasti-v3-backend/audit"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
 	"pasti-v3-backend/models"
@@ -67,6 +68,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
+	audit.Tandai(c, audit.Tanda{Kategori: audit.KatAuth, Aksi: "auth.daftar", Label: "Mendaftarkan akun baru", UserID: newID, Username: req.Username, ObjekTipe: "pengguna", ObjekID: newID})
 	utils.SuccessResponse(c, http.StatusCreated, "Registrasi berhasil", gin.H{
 		"id":       newID,
 		"username": req.Username,
@@ -77,12 +79,14 @@ func Register(c *gin.Context) {
 func Login(c *gin.Context) {
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		auditLoginGagal(c, "permintaan_tidak_valid", "", "", nil)
 		utils.ErrorResponse(c, http.StatusBadRequest, "Username, password, dan captcha wajib diisi")
 		return
 	}
 
 	// ============ Validasi Captcha (WAJIB sebelum cek kredensial) ============
 	if !VerifyCaptcha(req.CaptchaID, req.CaptchaAnswer) {
+		auditLoginGagal(c, "captcha_salah", "", "", nil)
 		utils.ErrorResponse(c, http.StatusBadRequest, "Kode captcha salah atau sudah kedaluwarsa")
 		return
 	}
@@ -104,6 +108,7 @@ func Login(c *gin.Context) {
 		&user.FullName, &user.Role, &user.IsActive, &user.FailedLoginAttempts, &lockedUntil)
 
 	if err == sql.ErrNoRows {
+		auditLoginGagal(c, "pengguna_tidak_ditemukan", "", "", nil)
 		utils.ErrorResponse(c, http.StatusUnauthorized, "Username atau password salah")
 		return
 	} else if err != nil {
@@ -114,16 +119,19 @@ func Login(c *gin.Context) {
 	user.ID = idRaw.String()
 
 	if !user.IsActive {
+		auditLoginGagal(c, "akun_tidak_aktif", user.ID, user.Username, nil)
 		utils.ErrorResponse(c, http.StatusForbidden, "Akun tidak aktif, hubungi administrator")
 		return
 	}
 
 	if lockedUntil.Valid && lockedUntil.Time.After(time.Now()) {
+		auditLoginGagal(c, "akun_terkunci", user.ID, user.Username, nil)
 		utils.ErrorResponse(c, http.StatusForbidden, "Akun terkunci sementara akibat percobaan login gagal berulang. Coba lagi nanti")
 		return
 	}
 
 	if !passwordHash.Valid || !passwordSalt.Valid || passwordHash.String == "" || passwordSalt.String == "" {
+		auditLoginGagal(c, "akun_sso", user.ID, user.Username, nil)
 		utils.ErrorResponse(c, http.StatusUnauthorized, "Akun ini terdaftar melalui SSO Kemenkeu, silakan login menggunakan tombol SSO")
 		return
 	}
@@ -136,10 +144,12 @@ func Login(c *gin.Context) {
 				`UPDATE users SET failed_login_attempts = @p1, locked_until = @p2 WHERE id = @p3`,
 				newAttempts, lockUntil, user.ID,
 			)
+			auditLoginGagal(c, "akun_dikunci", user.ID, user.Username, map[string]interface{}{"percobaan": newAttempts})
 			utils.ErrorResponse(c, http.StatusForbidden, "Terlalu banyak percobaan gagal. Akun dikunci 15 menit")
 			return
 		}
 		database.DB.Exec(`UPDATE users SET failed_login_attempts = @p1 WHERE id = @p2`, newAttempts, user.ID)
+		auditLoginGagal(c, "kata_sandi_salah", user.ID, user.Username, map[string]interface{}{"percobaan": newAttempts})
 		utils.ErrorResponse(c, http.StatusUnauthorized, "Username atau password salah")
 		return
 	}
@@ -154,6 +164,7 @@ func Login(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal membuat token")
 		return
 	}
+	auditLoginBerhasil(c, user.ID, user.Username, "password")
 
 	utils.SuccessResponse(c, http.StatusOK, "Login berhasil", dto.LoginResponse{
 		AccessToken: accessToken,

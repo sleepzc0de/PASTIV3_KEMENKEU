@@ -74,6 +74,7 @@ func SSOCallback(c *gin.Context) {
 	redirectError := func(reason string) {
 		// Halaman login frontend tidak di /login (alamatnya diatur frontend), jadi galat dikirim ke /kembali-masuk; frontend yang
 		// meneruskannya ke halaman login beserta pesan galatnya.
+		auditLoginGagal(c, "sso_ditolak", "", "", map[string]interface{}{"sebab": truncateString(reason, 200), "metode": "sso"})
 		errURL := cfg.FrontendURL + "/kembali-masuk?error=sso_failed&reason=" + url.QueryEscape(reason)
 		c.Redirect(http.StatusFound, errURL)
 	}
@@ -222,6 +223,11 @@ func SSOCallback(c *gin.Context) {
 	}
 
 	log.Println("[SSO SUCCESS] Login berhasil untuk sub:", sub, "email:", email)
+	if nama := usernameDariID(userID); nama != "" {
+		auditLoginBerhasil(c, userID, nama, "sso")
+	} else {
+		auditLoginBerhasil(c, userID, email, "sso")
+	}
 
 	redirectURL := cfg.FrontendURL + "/sso/callback#token=" + accessToken + "&expires_in=" + urlItoa(expiresIn)
 	c.Redirect(http.StatusFound, redirectURL)
