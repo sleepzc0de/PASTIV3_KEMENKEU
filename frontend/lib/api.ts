@@ -845,6 +845,77 @@ export async function deleteRefUE1(kode: string) {
   return res.data;
 }
 
+// ---- Referensi Kantor Wilayah (Kanwil) ----
+
+// Kode Kanwil = 9 karakter pertama kode satker (KL 3 + UE1 2 + wilayah 4). sumber: "satker" (dari nama satker pada data Digitalisasi Aset), "sldk" (ditarik dari
+// SLDK, DJKN.SIMAN2_R_KORWIL), atau "manual" (diisi superadmin; tidak pernah ditimpa penarikan SLDK).
+export type SumberRefKanwil = "manual" | "satker" | "sldk";
+
+export interface RefKanwil {
+  kode: string;
+  kode_ue1: string;
+  nama: string;
+  singkatan: string;
+  urutan: number;
+  aktif: boolean;
+  sumber: SumberRefKanwil;
+  status_sldk?: string; // status_korwil dari SLDK apa adanya (informasi; tidak mengubah aktif)
+  diubah_oleh?: string;
+  diubah_pada?: string;
+}
+
+// Kode Kanwil pada data satker Digitalisasi Aset yang belum punya referensi, beserta jumlah satkernya dan saran uraian dari nama satker (kosong bila tidak ada).
+export interface KanwilBelumTerdaftar {
+  kode: string;
+  kode_ue1: string;
+  satker: number;
+  saran: string;
+}
+
+export interface RefKanwilDaftar {
+  daftar: RefKanwil[];
+  belum_terdaftar: KanwilBelumTerdaftar[];
+  sldk_tersedia: boolean; // koneksi SLDK di server tersedia untuk penarikan
+}
+
+export interface HasilTarikKanwil {
+  dibaca: number;
+  ditambahkan: number;
+  diperbarui: number;
+  tanpa_perubahan: number;
+  dilewati_manual: number;
+  tidak_sah: number;
+  dipotong: number;
+}
+
+export async function getRefKanwil() {
+  const res = await api.get<Amplop<RefKanwilDaftar>>("/referensi/kanwil");
+  return res.data;
+}
+
+// Membuat kode baru atau mengubah yang ada (superadmin); barisnya menjadi "manual". urutan/aktif yang tidak dikirim tidak berubah.
+export async function putRefKanwil(kode: string, body: { nama: string; singkatan: string; urutan?: number; aktif?: boolean }) {
+  const res = await api.put<Amplop<RefKanwil>>(`/referensi/kanwil/${encodeURIComponent(kode)}`, body);
+  return res.data;
+}
+
+export async function deleteRefKanwil(kode: string) {
+  const res = await api.delete<Amplop<{ kode: string }>>(`/referensi/kanwil/${encodeURIComponent(kode)}`);
+  return res.data;
+}
+
+// Menambahkan semua kode Kanwil di data satker yang belum terdaftar dan punya saran uraian (superadmin).
+export async function tambahKanwilDariSatker() {
+  const res = await api.post<Amplop<{ ditambahkan: number; tanpa_saran: number }>>("/referensi/kanwil/dari-satker");
+  return res.data;
+}
+
+// Menarik referensi dari SLDK (DJKN.SIMAN2_R_KORWIL, KL 015). Baris "manual" tidak ditimpa (superadmin).
+export async function tarikKanwilDariSLDK() {
+  const res = await api.post<Amplop<HasilTarikKanwil>>("/referensi/kanwil/tarik-sldk");
+  return res.data;
+}
+
 // ---- Keterhubungan satker (aset dan pengadaan) ----
 
 export type SatkerStatus = "terhubung" | "hanya_aset" | "hanya_pengadaan";
