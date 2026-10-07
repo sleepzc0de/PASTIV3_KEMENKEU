@@ -10,6 +10,8 @@ import {
   DatabaseBackup,
   ListTree,
   Network,
+  ScrollText,
+  Gauge,
 } from "lucide-react";
 
 export interface NavItem {
@@ -124,6 +126,22 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: Users,
     description: "Kelola akun dan peran pengguna (Pengguna Barang tanpa superadmin); UE1, Kanwil, dan Satker melihat pengguna dalam cakupannya",
     roles: ["superadmin", "pengguna_barang", "ue1", "kanwil", "satker"],
+  },
+  {
+    type: "item",
+    label: "Log Audit",
+    href: "/dashboard/audit",
+    icon: ScrollText,
+    description: "Aktivitas pengguna: siapa mengubah data, mengekspor, login (berhasil dan gagal), dan mencoba fitur di luar haknya",
+    roles: ["superadmin"],
+  },
+  {
+    type: "item",
+    label: "Monitor Resource",
+    href: "/dashboard/monitor",
+    icon: Gauge,
+    description: "Pemakaian CPU, memori, disk, dan database, riwayatnya, dan resource mana yang perlu ditambah",
+    roles: ["superadmin"],
   },
 ];
 
