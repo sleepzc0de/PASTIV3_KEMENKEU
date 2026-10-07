@@ -24,7 +24,7 @@ Aturan tahap:
 
 - Tahap hanya bisa dikerjakan setelah **semua tahap sebelumnya selesai atau dilewati**.
 - Tahap yang sudah selesai boleh diubah/dibuat ulang selama **belum ada tahap sesudahnya yang selesai** (agar dokumen tahap
-  berikutnya tidak berselisih dengan data baru). Dokumen lama tetap tersimpan sebagai riwayat. Admin dapat **membuka ulang** tahap.
+  berikutnya tidak berselisih dengan data baru). Dokumen lama tetap tersimpan sebagai riwayat. Superadmin dapat **membuka ulang** tahap.
 - Hanya tahap 1 dan 2 yang boleh dilewati. Di kartu tahapnya ada kotak centang **"... sudah dibuat di luar aplikasi"**; bila dicentang,
   formulir diganti isian keterangan dokumen (mis. nomor dan tanggal SK, minimal 5 karakter) lalu tombol *Simpan dan lewati tahap*.
   Membatalkan centang mengembalikan formulir dengan isiannya utuh. Tahap yang sudah dilewati masih bisa dibuat di aplikasi lewat
@@ -35,7 +35,7 @@ Aturan tahap:
 ## Peran SAPA dan hak akses
 
 SAPA **tidak menetapkan peran sendiri**. Peran pengguna di SAPA adalah **peran data aplikasi yang sedang aktif** (lihat [peran-data.md](peran-data.md)):
-admin memberinya di **Manajemen Pengguna** (ikon perisai), dan pengguna dengan beberapa peran memilihnya lewat pemilih peran di menu pengguna. Semua
+superadmin atau Pengguna Barang memberinya di **Manajemen Pengguna** (ikon perisai), dan pengguna dengan beberapa peran memilihnya lewat pemilih peran di menu pengguna. Semua
 peran data memakai kunci kode satker lengkap yang sama: 5 karakter pertama = UE1, 9 karakter pertama = Kanwil, karakter ke-10 sampai ke-15 = satker.
 
 | Peran aplikasi | Cakupan usulan | Boleh di SAPA |
@@ -44,17 +44,17 @@ peran data memakai kunci kode satker lengkap yang sama: 5 karakter pertama = UE1
 | Kanwil | kode Kanwil 9 digit (9 karakter pertama kode satker usulan) | Mengerjakan tahap 6, melihat usulan di bawah Kanwil-nya |
 | UE1 | kode UE1 5 digit | Mengerjakan tahap 7-10, melihat usulan satker di bawahnya |
 | Pengguna Barang | semua usulan | **Hanya melihat**: tidak punya tahap dan tidak membuat usulan (keputusan awal; ubah di `sapa/tahap.go` bila perlu) |
-| Super Admin / Admin (akun) | semua | Semua tahap, membuka ulang tahap, Pengaturan SAPA |
+| Super Admin (akun, dari `.env`) | semua | Semua tahap, membuka ulang tahap, Pengaturan SAPA |
 
-- Pengguna **tanpa peran data** (dan bukan admin) melihat penjelasan "belum dapat memakai SAPA" yang menyuruh meminta peran ke admin, bukan galat.
-- Admin yang sedang **bertindak sebagai peran data** (memilih peran itu di pemilih peran) diperlakukan sebagai peran itu di SAPA, bukan admin.
+- Pengguna **tanpa peran data** adalah tamu: seluruh aplikasi, termasuk SAPA, tertutup baginya sampai diberi peran (lihat [akses-pengguna.md](akses-pengguna.md)).
+- Superadmin yang sedang **bertindak sebagai peran data** (memilih peran itu di pemilih peran) diperlakukan sebagai peran itu di SAPA, bukan superadmin.
 - Usulan yang tidak boleh dilihat dijawab **404** (bukan 403) supaya keberadaannya tidak bocor.
 - Kode UE1 usulan = 5 digit pertama kode satker. Kode satker di data aset berakhiran `KP`; aplikasi memakai 18 digit pertamanya. Bagi peran Satker, kode lengkap
   untuk usulan baru diisi dari data Digitalisasi Aset (induk lebih dulu; bila ada beberapa anak satker, dipilih dari daftar). Bila satkernya belum ada di data aset,
   kodenya diketik dan backend memastikan karakter ke-10 sampai ke-15 sama dengan kode perannya.
 - Tabel `sapa_peran` (penetapan lama) **tidak dibaca lagi**. Migrasi `054_sapa_peran_ke_peran_aplikasi.sql` menyalin isinya ke `user_roles` agar pengguna SAPA yang ada
   tidak kehilangan akses: Satker (kode satker 18 digit menjadi 6 digit), UE1 (kode apa adanya), dan Kanwil **hanya bila** pegawainya punya kode satker SSO yang sah (9
-  karakter pertamanya menjadi kode Kanwil; `sapa_peran` tidak menyimpan kode Kanwil). Kanwil tanpa kode SSO harus diberi peran Kanwil oleh admin.
+  karakter pertamanya menjadi kode Kanwil; `sapa_peran` tidak menyimpan kode Kanwil). Kanwil tanpa kode SSO harus diberi peran Kanwil oleh superadmin atau Pengguna Barang.
 
 ## Anggota tim dari HRIS2
 
@@ -62,7 +62,7 @@ Pada tahap Pembentukan Tim, setiap anggota punya kotak **Cari pegawai di HRIS2**
 menghitung spasi). Memilih hasilnya mengisi **nama (dengan gelar), jabatan aktif, dan NIP** otomatis; kedudukan diisi pengguna
 (saran: Ketua, Sekretaris, Anggota) dan semua bidang tetap bisa diubah.
 
-- Memakai **sesi SSO pengguna** (sama dengan fitur HRIS2 di halaman admin). Akun lokal atau sesi SSO yang berakhir mendapat
+- Memakai **sesi SSO pengguna** (sama dengan fitur HRIS2 di halaman superadmin). Akun lokal atau sesi SSO yang berakhir mendapat
   penjelasan di kotak pencarian dan tetap bisa mengisi manual.
 - Backend (`GET /sapa/pegawai?q=` dan `GET /sapa/pegawai/:nip`, khusus pengguna yang sudah punya akses SAPA) **hanya meneruskan NIP,
   nama, jabatan, dan satuan kerja**. Tanggal lahir, kontak, dan data pribadi lain tidak pernah diteruskan.
@@ -74,9 +74,9 @@ menghitung spasi). Memilih hasilnya mengisi **nama (dengan gelar), jabatan aktif
   Anggota tanpa NIP mencetak sel kosong.
 ## Template Word
 
-Template **diunggah admin** (Pengaturan SAPA → Template dokumen) dan disimpan di database dengan versi; versi terbaru
+Template **diunggah superadmin** (Pengaturan SAPA → Template dokumen) dan disimpan di database dengan versi; versi terbaru
 langsung dipakai. Dua template bawaan (T01 ND Satker, T02 ND UE1) ada di `backend/sapa/templates/` dan dipakai bila belum ada
-unggahan. **SK Tim dan Berita Acara belum punya template bawaan**: sebelum diunggah admin, tahap itu hanya bisa menyimpan draf
+unggahan. **SK Tim dan Berita Acara belum punya template bawaan**: sebelum diunggah superadmin, tahap itu hanya bisa menyimpan draf
 atau dilewati.
 
 Saat unggah, aplikasi:
@@ -102,12 +102,12 @@ sejalan dengan template bawaan).
 ## Referensi UE1
 
 Kode UE1 (5 digit) → nama dibaca dari referensi UE1 aplikasi (lihat [referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)); **sebutan Sekretaris** disimpan di
-`sapa_ref_ue1` dan dipakai mengisi **tujuan Nota Dinas**. Diisi admin di Pengaturan SAPA → Referensi UE1. Bila belum diisi, pengguna mengetik tujuan manual.
+`sapa_ref_ue1` dan dipakai mengisi **tujuan Nota Dinas**. Diisi superadmin di Pengaturan SAPA → Referensi UE1. Bila belum diisi, pengguna mengetik tujuan manual.
 
 ## Jenis BMN dan satuan jumlahnya
 
 Pada Nota Dinas usulan Satker, **jenis BMN dipilih dari daftar** (satu jenis per usulan) dan **satuan jumlah BMN** dipilih dari
-satuan yang diizinkan untuk jenis itu. Daftar dan pemetaannya diatur admin di Pengaturan SAPA → **Jenis & satuan BMN**.
+satuan yang diizinkan untuk jenis itu. Daftar dan pemetaannya diatur superadmin di Pengaturan SAPA → **Jenis & satuan BMN**.
 
 - Aturan kewajaran ada di pemetaan: tiap jenis hanya boleh memakai satuan yang dicentang padanya, sehingga Peralatan dan Mesin
   tidak mungkin ber-satuan "meter" dan Tanah tidak mungkin ber-satuan "unit". Memilih jenis lain mengganti satuan ke satuan
@@ -117,7 +117,7 @@ satuan yang diizinkan untuk jenis itu. Daftar dan pemetaannya diatur admin di Pe
 - Daftar awal (disemai migrasi 022 dan dijaga selaras dengan `sapa.DefaultRefBMN()` oleh tes): satuan bidang, unit, buah,
   set, paket, eksemplar; jenis Tanah (bidang), Gedung dan Bangunan (unit, buah), Tanah dan Bangunan (bidang, unit, paket),
   Peralatan dan Mesin (unit, buah, set, paket), Kendaraan Bermotor (unit), Jalan, Irigasi, dan Jaringan (unit, paket),
-  Aset Tetap Lainnya (unit, buah, set, eksemplar). Admin bebas mengubahnya.
+  Aset Tetap Lainnya (unit, buah, set, eksemplar). Superadmin bebas mengubahnya.
 - Jenis/satuan yang **dinonaktifkan** tidak muncul di formulir; jenis tanpa satuan aktif juga disembunyikan. Satuan yang
   menjadi satu-satunya satuan sebuah jenis tidak bisa dihapus (dijawab 409 dengan nama jenisnya).
 - Draf lama yang berisi teks bebas (sebelum fitur ini) tetap terbaca: formulir menandai jenis/satuan yang tidak sesuai daftar
@@ -202,9 +202,9 @@ pembuat usulan mengetik nama satker manual.
 | `frontend/lib/sapa.ts`, `frontend/components/sapa/` | tipe, API, dan halaman |
 
 Rute (`:id` = UUID usulan): `GET /sapa/saya` (peran, kode satker 6/18 digit, kode Kanwil/UE1, `satker_pilihan`), `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
-`PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (admin),
+`PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (superadmin),
 `GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`,
-`POST /sapa/barang/ekspor`; admin: `/sapa/template`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
+`POST /sapa/barang/ekspor`; superadmin: `/sapa/template`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
 `PUT|DELETE /sapa/bmn/satuan`, `PUT|DELETE /sapa/bmn/jenis` (nama lewat badan JSON atau `?nama=`).
 
 ## Pengujian
@@ -227,7 +227,7 @@ cd frontend && node --test components/sapa/sapa.test.mjs
 ## Menjalankan pertama kali
 
 1. `./deploy.sh` (migrasi 021, 022, 023, dan 054 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal, 023 memberi UUID pada usulan, 054 menyalin peran SAPA lama ke peran aplikasi).
-2. Admin membuka **Pengaturan SAPA**: isi **Referensi UE1**, periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
+2. Superadmin membuka **Pengaturan SAPA**: isi **Referensi UE1**, periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
    unggah template SK Tim dan Berita Acara (bila ingin dibuat di aplikasi). Peran pengguna **tidak** diatur di SAPA: beri peran
    data (Satker, Kanwil, UE1, Pengguna Barang) di **Manajemen Pengguna**.
 3. Pengguna Satker membuka SAPA → Penjualan → *Buat usulan penjualan*.
@@ -244,6 +244,6 @@ cd frontend && node --test components/sapa/sapa.test.mjs
   dengan berkas yang disimpan oleh aplikasi Microsoft Excel/LibreOffice sungguhan**. Buka template di Excel sekali untuk memastikan
   daftar pilihan Kondisi dan validasi isian tampil.
 - Template T02 (ND UE1) memuat salah ketik "Pengadaab" pada tembusan; template tidak diubah aplikasi, perbaiki di berkas Word lalu unggah ulang.
-- Peran Kanwil dibatasi 9 karakter pertama kode satker; ketepatannya bergantung pada kode Kanwil yang diberikan admin (atau saran dari kode satker SSO pegawai) sama dengan awalan kode satker pada data aset.
+- Peran Kanwil dibatasi 9 karakter pertama kode satker; ketepatannya bergantung pada kode Kanwil yang diberikan superadmin atau Pengguna Barang (atau saran dari kode satker SSO pegawai) sama dengan awalan kode satker pada data aset.
 - Tidak ada pengiriman email: dokumen diunduh dari aplikasi.
 - Hanya modul Penjualan; Sewa dan lainnya belum ada.

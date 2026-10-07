@@ -117,57 +117,65 @@ func TestSelesaikan(t *testing.T) {
 	satker := Baris{ID: 9, Peran: Satker, Kode: "119091"}
 	barang := Baris{ID: 2, Peran: PenggunaBarang}
 
-	t.Run("admin tanpa pilihan: peran akun, semua data, hak admin", func(t *testing.T) {
-		e := Selesaikan(AkunAdmin, []Baris{ue1}, true)
-		if e.Role != AkunAdmin || e.Peran != AkunAdmin || !e.Cakupan.SemuaData() || e.PeranID != 0 {
+	t.Run("superadmin tanpa pilihan: peran akun, semua data, hak superadmin", func(t *testing.T) {
+		e := Selesaikan(AkunSuperadmin, nil)
+		if e.Role != AkunSuperadmin || e.Peran != AkunSuperadmin || !e.Cakupan.SemuaData() || e.PeranID != 0 || e.Tamu() {
 			t.Errorf("%+v", e)
 		}
-		e = Selesaikan(AkunSuperadmin, nil, true)
+		// peran data yang dipegang tidak mengubah apa pun selama tidak dipilih aktif
+		e = Selesaikan(AkunSuperadmin, []Baris{ue1})
 		if e.Role != AkunSuperadmin || e.Peran != AkunSuperadmin || !e.Cakupan.SemuaData() {
 			t.Errorf("%+v", e)
 		}
 	})
-	t.Run("admin yang bertindak sebagai peran data kehilangan hak admin", func(t *testing.T) {
+	t.Run("superadmin yang bertindak sebagai peran data kehilangan hak superadmin", func(t *testing.T) {
 		a := ue1
 		a.Aktif = true
-		e := Selesaikan(AkunAdmin, []Baris{a, satker}, false)
-		if e.Role != AkunUser || e.Peran != UE1 || e.Cakupan != (Cakupan{Tingkat: TingkatUE1, Kode: "01504"}) || e.PeranID != 5 || e.AkunRole != AkunAdmin {
+		e := Selesaikan(AkunSuperadmin, []Baris{a, satker})
+		if e.Role != AkunUser || e.Peran != UE1 || e.Cakupan != (Cakupan{Tingkat: TingkatUE1, Kode: "01504"}) || e.PeranID != 5 || e.AkunRole != AkunSuperadmin {
 			t.Errorf("%+v", e)
 		}
 	})
 	t.Run("pengguna biasa tanpa pilihan memakai peran pertama", func(t *testing.T) {
-		e := Selesaikan(AkunUser, []Baris{barang, ue1}, false)
-		if e.Peran != PenggunaBarang || !e.Cakupan.SemuaData() || e.Role != AkunUser {
+		e := Selesaikan(AkunUser, []Baris{barang, ue1})
+		if e.Peran != PenggunaBarang || !e.Cakupan.SemuaData() || e.Role != AkunUser || e.Tamu() {
 			t.Errorf("%+v", e)
 		}
 	})
 	t.Run("pilihan aktif didahulukan atas urutan", func(t *testing.T) {
 		s := satker
 		s.Aktif = true
-		e := Selesaikan(AkunUser, []Baris{barang, s}, false)
+		e := Selesaikan(AkunUser, []Baris{barang, s})
 		if e.Peran != Satker || e.Cakupan != (Cakupan{Tingkat: TingkatSatk, Kode: "119091"}) {
 			t.Errorf("%+v", e)
 		}
 	})
-	t.Run("tanpa peran: semua data kecuali pembatasan wajib", func(t *testing.T) {
-		if e := Selesaikan(AkunUser, nil, false); !e.Cakupan.SemuaData() || e.Peran != "" || e.Role != AkunUser {
-			t.Errorf("tidak wajib: %+v", e)
+	t.Run("tanpa peran adalah tamu: tanpa data dan tanpa hak apa pun", func(t *testing.T) {
+		e := Selesaikan(AkunUser, nil)
+		if !e.Tamu() || e.Peran != "" || e.Role != AkunUser || e.Cakupan.Tingkat != Kosong || e.SemuaData() {
+			t.Errorf("%+v", e)
 		}
-		if e := Selesaikan(AkunUser, nil, true); e.Cakupan.Tingkat != Kosong || e.SemuaData() {
-			t.Errorf("wajib: %+v", e)
+		// role akun "admin" yang tersisa dari masa lalu tidak lagi punya hak istimewa
+		e = Selesaikan("admin", nil)
+		if !e.Tamu() || e.Role != AkunUser || e.SemuaData() {
+			t.Errorf("admin lama tanpa peran harus jadi tamu: %+v", e)
+		}
+		e = Selesaikan("admin", []Baris{barang})
+		if e.Tamu() || e.Role != AkunUser || e.Peran != PenggunaBarang {
+			t.Errorf("admin lama dengan peran memakai perannya sebagai pengguna biasa: %+v", e)
 		}
 	})
 	t.Run("peran rusak di database tidak membuka data", func(t *testing.T) {
 		for _, b := range []Baris{{ID: 1, Peran: UE1, Kode: "abc", Aktif: true}, {ID: 2, Peran: "peretas", Kode: "01504", Aktif: true}, {ID: 3, Peran: Satker, Kode: "", Aktif: true}} {
-			if e := Selesaikan(AkunUser, []Baris{b}, false); e.Cakupan.Tingkat != Kosong {
+			if e := Selesaikan(AkunUser, []Baris{b}); e.Cakupan.Tingkat != Kosong {
 				t.Errorf("%+v -> %+v, want kosong", b, e)
 			}
 		}
 	})
-	t.Run("pengguna barang melihat semua data tetapi bukan admin", func(t *testing.T) {
+	t.Run("pengguna barang melihat semua data tetapi bukan superadmin", func(t *testing.T) {
 		b := barang
 		b.Aktif = true
-		e := Selesaikan(AkunSuperadmin, []Baris{b}, true)
+		e := Selesaikan(AkunSuperadmin, []Baris{b})
 		if !e.Cakupan.SemuaData() || e.Role != AkunUser || e.Peran != PenggunaBarang {
 			t.Errorf("%+v", e)
 		}

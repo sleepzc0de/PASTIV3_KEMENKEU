@@ -50,13 +50,36 @@ func Daftar(ctx context.Context, userID string) ([]Baris, error) {
 	return out, rows.Err()
 }
 
-// Muat menentukan peran yang berlaku bagi pengguna saat ini (satu query). wajib = config.Cfg.PeranDataWajib.
-func Muat(ctx context.Context, userID, akunRole string, wajib bool) (Efektif, error) {
+// DaftarSemua: peran semua pengguna sekaligus, dikelompokkan menurut ID pengguna (UUID huruf besar), untuk daftar pengguna.
+func DaftarSemua(ctx context.Context) (map[string][]Baris, error) {
+	rows, err := database.DB.QueryContext(ctx, `SELECT CONVERT(NVARCHAR(36), user_id), id, role, kode, aktif, dibuat_oleh, dibuat_pada FROM user_roles ORDER BY user_id, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]Baris{}
+	for rows.Next() {
+		var uid, p, kode string
+		var id int64
+		var aktif bool
+		var oleh sql.NullString
+		var pada time.Time
+		if err := rows.Scan(&uid, &id, &p, &kode, &aktif, &oleh, &pada); err != nil {
+			return nil, err
+		}
+		uid = strings.ToUpper(uid)
+		out[uid] = append(out[uid], baris(id, p, kode, aktif, oleh, pada))
+	}
+	return out, rows.Err()
+}
+
+// Muat menentukan peran yang berlaku bagi pengguna saat ini (satu query).
+func Muat(ctx context.Context, userID, akunRole string) (Efektif, error) {
 	daftar, err := Daftar(ctx, userID)
 	if err != nil {
 		return Efektif{}, err
 	}
-	return Selesaikan(akunRole, daftar, wajib), nil
+	return Selesaikan(akunRole, daftar), nil
 }
 
 // Tambah memberikan peran (admin). Peran yang sama persis (peran + kode) tidak digandakan: baris yang ada dikembalikan, dengan dibuat=false.

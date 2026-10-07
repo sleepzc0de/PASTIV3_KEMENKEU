@@ -12,6 +12,8 @@ export interface Profile {
   role: string; // hak administrasi saat ini (turun menjadi "user" selama bertindak sebagai peran data)
   akun_role?: string; // role akun yang sebenarnya
   peran?: PeranInfo; // peran data yang berlaku dan yang tersedia
+  tamu?: boolean; // belum punya peran apa pun: hanya melihat pernyataan penggunaan aplikasi
+  persetujuan?: { sudah: boolean; versi: string; isi_profil: boolean };
   auth_provider?: string;
   is_protected?: boolean;
   jabatan?: string;

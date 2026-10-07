@@ -113,7 +113,7 @@ func TestPengadaanDibatasiPerSatkerDenganSQLServer(t *testing.T) {
 	seedAsetUji(t, db)
 	seedPengadaanUji(t, db)
 
-	admin := buatPenggunaUji(t, db, "admin", "admin")
+	admin := buatPenggunaUji(t, db, "admin", "superadmin")
 	sebagai := func(nama, role, kode string) penggunaUji {
 		p := buatPenggunaUji(t, db, nama, "user")
 		pilihPeran(t, p, beriPeran(t, admin, p, role, kode))

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { DashboardProvider } from "@/lib/dashboard-context";
+import { GerbangAkses } from "@/components/akses/GerbangAkses";
 import { flattenNav, pageTitleFor } from "@/lib/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
@@ -28,7 +29,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const t = pageTitleFor(pathname);
     document.title = t === "Beranda" ? "PASTI V3 - Pemantauan Aset Terintegrasi" : `${t} · PASTI V3`;
-    if (flattenNav().some((i) => i.href === pathname) || flattenNav("admin").some((i) => i.href === pathname)) rememberPage(pathname);
+    if (flattenNav().some((i) => i.href === pathname) || flattenNav("superadmin").some((i) => i.href === pathname)) rememberPage(pathname);
   }, [pathname]);
 
   // Ctrl/Cmd + K membuka pencarian menu dari halaman mana pun.
@@ -57,6 +58,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <DashboardProvider>
+      <GerbangAkses>
       <div className="flex min-h-dvh bg-slate-50">
         <Sidebar collapsed={collapsed} onToggleCollapse={toggleCollapse} mobileOpen={mobileOpen} onCloseMobile={closeMobile} />
 
@@ -75,6 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <CommandPalette open={paletteOpen} onClose={closePalette} />
       </div>
+      </GerbangAkses>
     </DashboardProvider>
   );
 }

@@ -23,7 +23,6 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"user" | "admin">("user");
   const [isActive, setIsActive] = useState(true);
   const [newPassword, setNewPassword] = useState("");
 
@@ -40,7 +39,6 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
         setUser(u);
         setFullName(u.full_name);
         setEmail(u.email);
-        setRole(u.role === "admin" ? "admin" : "user");
         setIsActive(u.is_active);
       })
       .catch((err) => {
@@ -76,7 +74,6 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
       await updateUser(userId, {
         full_name: fullName,
         email,
-        role,
         is_active: isActive,
         password: newPassword || undefined,
       });
@@ -128,18 +125,6 @@ export function EditUserModal({ userId, onClose, onUpdated }: EditUserModalProps
 
               <FormField label="Nama Lengkap" value={fullName} onChange={setFullName} />
               <FormField label="Email" value={email} onChange={setEmail} type="email" />
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as "user" | "admin")}
-                  className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
 
               <div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">

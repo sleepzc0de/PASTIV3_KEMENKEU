@@ -18,7 +18,7 @@ function dariPengaturan(p: PenarikanPengaturan): Form {
   return { ...form, dataset: [...p.dataset] };
 }
 
-// Pengaturan penarikan otomatis (bawaan: tiap 2 hari). Admin bisa mengubah; pengguna lain hanya membaca.
+// Pengaturan penarikan otomatis (bawaan: tiap 2 hari). Superadmin bisa mengubah; pengguna lain hanya membaca.
 export function JadwalPanel({
   status,
   isAdmin,
@@ -100,7 +100,7 @@ export function JadwalPanel({
         {otomatis.ditahan_sampai && <p className="mt-1 text-xs font-medium text-amber-700">Penarikan otomatis ditahan sementara sampai {formatWaktu(otomatis.ditahan_sampai)}.</p>}
       </section>
 
-      {baca && <Alert tone="info" message="Hanya admin yang dapat mengubah pengaturan penarikan otomatis." />}
+      {baca && <Alert tone="info" message="Hanya superadmin yang dapat mengubah pengaturan penarikan otomatis." />}
       {galat && <Alert message={galat} />}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">

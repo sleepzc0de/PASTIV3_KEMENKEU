@@ -10,11 +10,11 @@ export function parseTerms(query: string): string[] {
 }
 
 export function matchesUser(
-  u: Pick<UserListItem, "full_name" | "username" | "email" | "nip" | "jabatan" | "satker">,
+  u: Pick<UserListItem, "full_name" | "username" | "email" | "nip" | "jabatan" | "satker"> & Partial<Pick<UserListItem, "kode_satker" | "satker_aset">>,
   terms: string[]
 ): boolean {
   if (terms.length === 0) return true;
-  const haystack = [u.full_name, u.username, u.email, u.nip, u.jabatan, u.satker]
+  const haystack = [u.full_name, u.username, u.email, u.nip, u.jabatan, u.satker, u.kode_satker, u.satker_aset]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

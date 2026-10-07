@@ -74,10 +74,8 @@ func dgSumber(ctx context.Context, ds digitalisasi.Dataset) string {
 	return dgSumberTabel(ctx, ds.Table, ds.Roles.Satker)
 }
 
-func dgIsAdmin(c *gin.Context) bool {
-	role := c.GetString("role")
-	return role == "admin" || role == "superadmin"
-}
+// dgIsAdmin: hak superadmin (ditetapkan di .env): melihat detail galat dan keadaan operasi seluruh data.
+func dgIsAdmin(c *gin.Context) bool { return c.GetString("role") == peran.AkunSuperadmin }
 
 func dgFail(c *gin.Context, what string, err error) {
 	log.Println("[DIGITALISASI ERROR]", what+":", err)

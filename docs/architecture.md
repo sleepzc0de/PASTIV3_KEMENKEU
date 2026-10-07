@@ -129,7 +129,7 @@ erDiagram
         string password_hash "nullable, untuk user SSO"
         string password_salt "nullable, untuk user SSO"
         string full_name
-        string role "user/admin/superadmin"
+        string role "user/superadmin (superadmin hanya dari .env)"
         bool is_active
         string auth_provider "local/sso"
         bool is_protected "superadmin permanen"

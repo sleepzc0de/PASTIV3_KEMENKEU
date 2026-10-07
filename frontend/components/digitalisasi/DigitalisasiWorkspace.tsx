@@ -37,7 +37,7 @@ function awalDariAlamat(params: URLSearchParams): { tab: TabKey; preset?: DataPr
 
 export function DigitalisasiWorkspace() {
   const { profile } = useDashboard();
-  const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
+  const isAdmin = profile?.role === "superadmin";
 
   const params = useSearchParams();
   const [awal] = useState(() => awalDariAlamat(params));

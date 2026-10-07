@@ -5,6 +5,7 @@ import { UserPlus, ShieldCheck, Trash2, Ban, Pencil, Search, SearchX, X, Users }
 import axios from "axios";
 import { listUsers, UserListItem, deactivateUser, deleteUser } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
+import { bolehKelolaPengguna, namaPeranBerkode, peranEfektif } from "@/lib/peran";
 import { CreateUserModal } from "@/components/users/CreateUserModal";
 import { EditUserModal } from "@/components/users/EditUserModal";
 import { PeranPenggunaModal } from "@/components/users/PeranPenggunaModal";
@@ -23,14 +24,45 @@ function errorMessage(err: unknown, fallback: string): string {
   return axios.isAxiosError(err) && err.response?.data?.message ? err.response.data.message : fallback;
 }
 
-const ROLE_CLS: Record<string, string> = {
-  superadmin: "bg-violet-50 text-violet-700 ring-violet-200",
-  admin: "bg-blue-50 text-blue-700 ring-blue-200",
-  user: "bg-slate-100 text-slate-600 ring-slate-200",
-};
+const LENCANA = "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset";
 
-function RoleBadge({ role }: { role: string }) {
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${ROLE_CLS[role] ?? ROLE_CLS.user}`}>{role}</span>;
+// Peran pengguna: Super Admin (dari .env), peran data yang dipegang, atau Tamu bila belum punya peran apa pun. "Belum setuju" menandai pengguna yang belum
+// menyetujui pernyataan penggunaan aplikasi.
+function PeranBadges({ u }: { u: UserListItem }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {u.role === "superadmin" ? (
+        <span className={`${LENCANA} bg-violet-50 text-violet-700 ring-violet-200`}>Super Admin</span>
+      ) : u.peran_data.length === 0 ? (
+        <span className={`${LENCANA} bg-amber-50 text-amber-800 ring-amber-200`} title="Belum punya peran: belum dapat membuka fitur apa pun">
+          Tamu
+        </span>
+      ) : (
+        u.peran_data.map((b) => (
+          <span key={b.id} className={`${LENCANA} bg-blue-50 text-blue-700 ring-blue-200`}>
+            {namaPeranBerkode(b.role, b.kode)}
+          </span>
+        ))
+      )}
+      {u.role !== "superadmin" && !u.setuju && (
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500" title="Belum menyetujui pernyataan penggunaan aplikasi">
+          Belum setuju
+        </span>
+      )}
+    </div>
+  );
+}
+
+// Satker pengguna: nama pada data aset (dari kode 6 digit karakter ke-10 sampai ke-15 kode satker SSO) atau nama satker dari SSO, beserta kode lengkapnya.
+function SatkerSel({ u }: { u: UserListItem }) {
+  const nama = u.satker_aset || u.satker;
+  if (!nama && !u.kode_satker) return <span className="text-slate-300">-</span>;
+  return (
+    <div className="min-w-0 max-w-[16rem]">
+      {nama && <p className="truncate text-slate-700">{nama}</p>}
+      {u.kode_satker && <p className="font-mono text-[11px] text-slate-400">{u.kode_satker}</p>}
+    </div>
+  );
 }
 
 function StatusBadge({ active }: { active: boolean }) {
@@ -46,6 +78,8 @@ type Pending = { kind: "deactivate" | "delete"; user: UserListItem } | null;
 
 export default function UsersPage() {
   const { profile } = useDashboard();
+  // Superadmin dan Pengguna Barang mengelola pengguna; UE1, Kanwil, dan Satker hanya melihat pengguna dalam cakupan kode satkernya.
+  const kelola = bolehKelolaPengguna(peranEfektif(profile?.peran, profile?.role));
   const toast = useToast();
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -107,11 +141,17 @@ export default function UsersPage() {
       <PageHeader
         title="Manajemen Pengguna"
         icon={Users}
-        description="Kelola akun pengguna PASTI V3: tambah, ubah peran, nonaktifkan, atau hapus."
+        description={
+          kelola
+            ? "Kelola akun pengguna PASTI V3: tambah, beri peran, nonaktifkan, atau hapus. Pengguna baru berstatus tamu sampai diberi peran."
+            : "Pengguna yang kode satker SSO-nya berada dalam cakupan peran Anda. Anda hanya dapat melihat; peran ditetapkan oleh superadmin atau Pengguna Barang."
+        }
         actions={
-          <Button fullWidth={false} onClick={() => setShowCreateModal(true)} icon={<UserPlus className="h-4 w-4" />}>
-            Tambah Pengguna
-          </Button>
+          kelola ? (
+            <Button fullWidth={false} onClick={() => setShowCreateModal(true)} icon={<UserPlus className="h-4 w-4" />}>
+              Tambah Pengguna
+            </Button>
+          ) : undefined
         }
       />
 
@@ -127,7 +167,7 @@ export default function UsersPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && setQuery("")}
-              placeholder="Cari nama, username, email, NIP, atau satker…"
+              placeholder="Cari nama, username, email, NIP, kode atau nama satker…"
               className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm outline-none hover:border-slate-400 focus:border-blue-500 focus:shadow-glow"
             />
             {query && (
@@ -160,7 +200,7 @@ export default function UsersPage() {
       {isLoading ? (
         <SkeletonTable rows={6} cols={5} label="Memuat pengguna" />
       ) : !loadError && users.length === 0 ? (
-        <EmptyState icon={Users} title="Belum ada pengguna" description="Tambahkan pengguna pertama dengan tombol Tambah Pengguna." />
+        <EmptyState icon={Users} title="Belum ada pengguna" description={kelola ? "Tambahkan pengguna pertama dengan tombol Tambah Pengguna." : "Tidak ada pengguna dengan kode satker SSO dalam cakupan peran Anda."} />
       ) : !loadError && filtered.length === 0 ? (
         <EmptyState
           icon={SearchX}
@@ -180,7 +220,8 @@ export default function UsersPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold text-slate-500">Pengguna</th>
                   <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Username</th>
-                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Role</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Peran</th>
+                  <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 lg:table-cell">Satker</th>
                   <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Sumber</th>
                   <th className="hidden px-4 py-3 text-left font-semibold text-slate-500 md:table-cell">Status</th>
                   <th className="px-4 py-3 text-right font-semibold text-slate-500">Aksi</th>
@@ -212,7 +253,7 @@ export default function UsersPage() {
                           <p className="break-all text-xs text-slate-400">{u.email}</p>
                           {/* Di mobile kolom Username/Role/Sumber/Status disembunyikan; ringkasannya dipindah ke sini. */}
                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
-                            <RoleBadge role={u.role} />
+                            <PeranBadges u={u} />
                             <StatusBadge active={u.is_active} />
                             <span className="text-[11px] text-slate-400">
                               @{u.username} · {u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}
@@ -223,7 +264,10 @@ export default function UsersPage() {
                     </td>
                     <td className="hidden px-4 py-3 text-slate-600 md:table-cell">{u.username}</td>
                     <td className="hidden px-4 py-3 md:table-cell">
-                      <RoleBadge role={u.role} />
+                      <PeranBadges u={u} />
+                    </td>
+                    <td className="hidden px-4 py-3 text-xs lg:table-cell">
+                      <SatkerSel u={u} />
                     </td>
                     <td className="hidden px-4 py-3 text-xs text-slate-500 md:table-cell">{u.auth_provider === "sso" ? "SSO Kemenkeu" : "Lokal"}</td>
                     <td className="hidden px-4 py-3 md:table-cell">
@@ -239,6 +283,7 @@ export default function UsersPage() {
                         >
                           <ShieldCheck className="h-4 w-4" />
                         </button>
+                        {kelola && (
                         <button
                           onClick={() => setEditUserId(u.id)}
                           title="Edit"
@@ -247,8 +292,9 @@ export default function UsersPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
+                        )}
                         {/* Pengguna yang sudah nonaktif diaktifkan lagi lewat Edit; akun sendiri tidak boleh dinonaktifkan. */}
-                        {!u.is_protected && u.is_active && !isOwnAccount(u) && (
+                        {kelola && !u.is_protected && u.is_active && !isOwnAccount(u) && (
                           <button
                             onClick={() => setPending({ kind: "deactivate", user: u })}
                             title="Nonaktifkan"
@@ -258,7 +304,7 @@ export default function UsersPage() {
                             <Ban className="h-4 w-4" />
                           </button>
                         )}
-                        {!u.is_protected && (
+                        {kelola && !u.is_protected && (
                           <button
                             onClick={() => setPending({ kind: "delete", user: u })}
                             title="Hapus"
@@ -278,10 +324,10 @@ export default function UsersPage() {
         )
       )}
 
-      {showCreateModal && <CreateUserModal onClose={() => setShowCreateModal(false)} onCreated={fetchUsers} />}
+      {kelola && showCreateModal && <CreateUserModal onClose={() => setShowCreateModal(false)} onCreated={fetchUsers} />}
 
-      {editUserId && <EditUserModal userId={editUserId} onClose={() => setEditUserId(null)} onUpdated={fetchUsers} />}
-      {peranUser && <PeranPenggunaModal userId={peranUser.id} nama={peranUser.nama} onClose={() => setPeranUser(null)} />}
+      {kelola && editUserId && <EditUserModal userId={editUserId} onClose={() => setEditUserId(null)} onUpdated={fetchUsers} />}
+      {peranUser && <PeranPenggunaModal userId={peranUser.id} nama={peranUser.nama} onClose={() => setPeranUser(null)} bacaSaja={!kelola} />}
 
       {pending && (
         <ConfirmDialog

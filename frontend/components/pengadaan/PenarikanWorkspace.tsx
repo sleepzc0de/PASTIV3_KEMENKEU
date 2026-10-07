@@ -27,7 +27,7 @@ const TABS: { key: KunciTab; label: string; icon: typeof Table2 }[] = [
 // dan ekspor data (Excel, CSV, PDF), dan riwayat.
 export function PenarikanWorkspace() {
   const { profile } = useDashboard();
-  const isAdmin = profile ? ["admin", "superadmin"].includes(profile.role) : false;
+  const isAdmin = profile?.role === "superadmin";
   const [tab, setTab] = useState<KunciTab>("tarik");
   const [dikunjungi, setDikunjungi] = useState<Record<KunciTab, boolean>>({ tarik: true, data: false, riwayat: false, jadwal: false });
   // Dinaikkan tiap penarikan selesai supaya tampilan data dan riwayat memuat yang baru.

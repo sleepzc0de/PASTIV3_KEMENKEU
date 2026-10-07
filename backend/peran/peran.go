@@ -1,4 +1,4 @@
-// Paket peran: peran data pengguna (Super Admin, Pengguna Barang, UE1, Kanwil, Satker) dan cakupan data yang menyertainya.
+// Paket peran: peran data pengguna (Super Admin, Pengguna Barang, UE1, Kanwil, Satker, atau tanpa peran = tamu) dan cakupan data yang menyertainya.
 //
 // Kode satker lengkap (mis. 015040199119091000KP) memuat seluruh tingkat organisasi:
 //
@@ -7,7 +7,8 @@
 //	karakter 10-15 : satker                       -> peran Satker, kode 6 digit
 //
 // Seorang pengguna boleh memegang banyak peran tetapi bertindak sebagai satu peran dalam satu waktu (peran aktif). Peran aktif menentukan
-// cakupan data yang boleh dilihat. Akun admin/superadmin tanpa peran aktif memakai peran bawaan akunnya dan melihat seluruh data.
+// cakupan data yang boleh dilihat. Superadmin (ditetapkan di .env) tanpa peran aktif memakai peran bawaan akunnya dan melihat seluruh data. Pengguna tanpa peran apa
+// pun adalah tamu: tidak punya cakupan data sama sekali dan tidak dapat membuka fitur apa pun.
 package peran
 
 import (
@@ -25,7 +26,6 @@ const (
 	Satker         = "satker"
 
 	AkunSuperadmin = "superadmin"
-	AkunAdmin      = "admin"
 	AkunUser       = "user"
 )
 
@@ -40,7 +40,7 @@ const (
 var PeranDapatDiberikan = []string{PenggunaBarang, UE1, Kanwil, Satker}
 
 var label = map[string]string{
-	AkunSuperadmin: "Super Admin", AkunAdmin: "Admin", PenggunaBarang: "Pengguna Barang", UE1: "UE1", Kanwil: "Kanwil", Satker: "Satker", AkunUser: "Pengguna",
+	AkunSuperadmin: "Super Admin", PenggunaBarang: "Pengguna Barang", UE1: "UE1", Kanwil: "Kanwil", Satker: "Satker", AkunUser: "Pengguna",
 }
 
 // Label: nama peran untuk ditampilkan.
@@ -96,7 +96,7 @@ const (
 	TingkatUE1  Tingkat = "ue1"    // satker yang kode satkernya diawali kode UE1
 	TingkatKwl  Tingkat = "kanwil" // satker yang kode satkernya diawali kode Kanwil
 	TingkatSatk Tingkat = "satker" // satu satker (kode 6 digit)
-	Kosong      Tingkat = "kosong" // tidak ada data (pengguna belum diberi peran sementara pembatasan wajib)
+	Kosong      Tingkat = "kosong" // tidak ada data (tamu: pengguna yang belum diberi peran)
 )
 
 // Cakupan: data yang boleh dilihat peran aktif.
@@ -202,7 +202,7 @@ type Baris struct {
 type Efektif struct {
 	AkunRole string  // users.role
 	Role     string  // peran untuk pemeriksaan hak (RequireRole): peran akun bila bertindak sebagai dirinya sendiri, "user" bila bertindak sebagai peran data
-	Peran    string  // peran yang tampil: superadmin, admin, pengguna_barang, ue1, kanwil, satker, atau "" (pengguna tanpa peran)
+	Peran    string  // peran yang tampil: superadmin, pengguna_barang, ue1, kanwil, satker, atau "" (tamu: pengguna tanpa peran)
 	PeranID  int64   // id baris user_roles yang berlaku; 0 bila peran bawaan akun
 	Kode     string  // kode peran yang berlaku
 	Cakupan  Cakupan // data yang boleh dilihat
@@ -211,12 +211,15 @@ type Efektif struct {
 // SemuaData: peran yang berlaku boleh melihat seluruh data.
 func (e Efektif) SemuaData() bool { return e.Cakupan.SemuaData() }
 
+// Tamu: pengguna belum punya peran apa pun (dan bukan superadmin), jadi tidak boleh membuka fitur apa pun.
+func (e Efektif) Tamu() bool { return e.Peran == "" }
+
 // Selesaikan menentukan peran yang berlaku.
 //
-//   - Ada peran aktif yang dipilih: itu yang berlaku (admin/superadmin yang bertindak sebagai peran data kehilangan hak administrasi selama itu).
-//   - Tanpa pilihan: admin/superadmin memakai peran akunnya; pengguna biasa yang punya peran memakai peran pertamanya.
-//   - Pengguna biasa tanpa peran apa pun: melihat semua data seperti sebelum peran ada, kecuali wajib=true (data wajib dibatasi), yaitu tanpa data.
-func Selesaikan(akunRole string, daftar []Baris, wajib bool) Efektif {
+//   - Ada peran aktif yang dipilih: itu yang berlaku (superadmin yang bertindak sebagai peran data kehilangan hak superadmin selama itu).
+//   - Tanpa pilihan: superadmin memakai peran akunnya; pengguna biasa yang punya peran memakai peran pertamanya.
+//   - Pengguna biasa tanpa peran apa pun: tamu, tanpa data (cakupan kosong). Role akun selain superadmin dan user (mis. "admin" lama) diperlakukan seperti user.
+func Selesaikan(akunRole string, daftar []Baris) Efektif {
 	var dipilih *Baris
 	for i := range daftar {
 		if daftar[i].Aktif {
@@ -224,7 +227,7 @@ func Selesaikan(akunRole string, daftar []Baris, wajib bool) Efektif {
 			break
 		}
 	}
-	istimewa := akunRole == AkunSuperadmin || akunRole == AkunAdmin
+	istimewa := akunRole == AkunSuperadmin
 	if dipilih == nil && !istimewa && len(daftar) > 0 {
 		dipilih = &daftar[0]
 	}
@@ -232,10 +235,7 @@ func Selesaikan(akunRole string, daftar []Baris, wajib bool) Efektif {
 		if istimewa {
 			return Efektif{AkunRole: akunRole, Role: akunRole, Peran: akunRole, Cakupan: CakupanSemua}
 		}
-		if wajib {
-			return Efektif{AkunRole: akunRole, Role: akunRole, Peran: "", Cakupan: Cakupan{Tingkat: Kosong}}
-		}
-		return Efektif{AkunRole: akunRole, Role: akunRole, Peran: "", Cakupan: CakupanSemua}
+		return Efektif{AkunRole: akunRole, Role: AkunUser, Peran: "", Cakupan: Cakupan{Tingkat: Kosong}}
 	}
 	e := Efektif{AkunRole: akunRole, Role: AkunUser, Peran: dipilih.Peran, PeranID: dipilih.ID, Kode: dipilih.Kode}
 	switch dipilih.Peran {

@@ -20,14 +20,14 @@ func routerRefUE1(role string) *gin.Engine {
 	})
 	r.GET("/ue1", GetRefUE1)
 	r.PUT("/ue1/:kode", func(c *gin.Context) {
-		if c.GetString("role") != "admin" && c.GetString("role") != "superadmin" { // meniru RequireRole pada rute asli
+		if c.GetString("role") != "superadmin" { // meniru RequireRole pada rute asli
 			c.AbortWithStatus(403)
 			return
 		}
 		PutRefUE1(c)
 	})
 	r.DELETE("/ue1/:kode", func(c *gin.Context) {
-		if c.GetString("role") != "admin" && c.GetString("role") != "superadmin" {
+		if c.GetString("role") != "superadmin" {
 			c.AbortWithStatus(403)
 			return
 		}
@@ -148,7 +148,7 @@ func TestRefUE1DenganSQLServer(t *testing.T) {
 	}
 
 	// ---- admin: tambah kode baru (urutan bawaan 100, aktif), singkatan boleh kosong
-	admin := routerRefUE1("admin")
+	admin := routerRefUE1("superadmin")
 	code, body = call(admin, "PUT", "/ue1/09991", `{"nama":"  UNIT   BARU  ","singkatan":"UB"}`)
 	if code != 200 {
 		t.Fatalf("PUT baru: %d %v", code, body)

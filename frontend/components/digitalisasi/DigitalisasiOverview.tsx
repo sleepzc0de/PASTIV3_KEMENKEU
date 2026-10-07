@@ -69,7 +69,7 @@ export function DigitalisasiOverview({ overview, isAdmin, onGoSync, onOpenData }
             Buka Sinkronisasi
           </button>
         ) : (
-          <p className="text-xs text-slate-400">Hubungi administrator untuk menjalankan sinkronisasi.</p>
+          <p className="text-xs text-slate-400">Hanya superadmin yang dapat menjalankan sinkronisasi.</p>
         )}
       </div>
     );

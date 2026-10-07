@@ -27,11 +27,10 @@ const dariQuery = (v: string | null): KunciTab => (v === "pengadaan" || v === "s
 function IsiDashboard() {
   const router = useRouter();
   const params = useSearchParams();
-  // Pengadaan dibatasi per satker di backend (kd_satker_str): peran UE1/Kanwil/Satker melihat pengadaan satkernya. Yang disembunyikan hanya bagi pengguna yang belum diberi peran
-  // (API-nya pasti menolak).
+  // Pengadaan dibatasi per satker di backend (kd_satker_str): peran UE1/Kanwil/Satker melihat pengadaan satkernya. Tamu (belum punya peran) tidak sampai ke halaman ini:
+  // GerbangAkses di layout hanya menampilkan pernyataan penggunaan aplikasi atau layar menunggu peran.
   const { profile, isLoadingProfile } = useDashboard();
   const bolehPengadaan = !isLoadingProfile && bolehLihatPengadaan(profile?.peran);
-  const tanpaPeran = Boolean(profile?.peran?.wajib && !profile.peran.peran && profile.role === "user");
   const [tab, setTab] = useState<KunciTab>(dariQuery(params.get("tab")));
   // Tab dimuat saat pertama dibuka lalu tetap terpasang (disembunyikan): pindah tab tidak menghitung ulang dan filter dasbor tidak hilang.
   const [dibuka, setDibuka] = useState<Record<KunciTab, boolean>>({
@@ -60,11 +59,6 @@ function IsiDashboard() {
 
   return (
     <div className="space-y-5">
-      {tanpaPeran && (
-        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Akun Anda belum diberi peran data, sehingga belum ada data yang dapat ditampilkan. Hubungi administrator untuk diberi peran (Pengguna Barang, UE1, Kanwil, atau Satker).
-        </p>
-      )}
       <Tabs tabs={TABS.filter((t) => t.key !== "pengadaan" || bolehPengadaan)} value={aktif} onChange={pilih} label="Dashboard" idPrefix="db" />
       <div role="tabpanel" id="db-panel-aset" aria-labelledby="db-tab-aset" hidden={aktif !== "aset"}>
         <DasborAset />

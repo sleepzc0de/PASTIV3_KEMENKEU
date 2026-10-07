@@ -35,7 +35,7 @@ const ISIAN_BARU: Isian = { kode: "", nama: "", singkatan: "", urutan: "100", ak
 export function RefUE1Manager() {
   const { profile } = useDashboard();
   const toast = useToast();
-  const bolehUbah = profile ? ["admin", "superadmin"].includes(profile.role) : false;
+  const bolehUbah = profile?.role === "superadmin";
 
   const [data, setData] = useState<RefUE1Daftar | null>(null);
   const [error, setError] = useState("");

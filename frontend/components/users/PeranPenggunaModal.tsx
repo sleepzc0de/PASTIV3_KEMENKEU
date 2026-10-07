@@ -19,11 +19,12 @@ interface Props {
   userId: string;
   nama: string;
   onClose: () => void;
+  bacaSaja?: boolean; // UE1, Kanwil, dan Satker hanya melihat peran pengguna dalam cakupannya
 }
 
 // Peran data seorang pengguna: Pengguna Barang (seluruh data), UE1, Kanwil, atau Satker (data di bawah kode itu). Boleh lebih dari satu; pengguna
 // berpindah lewat menu pengguna. Saran diturunkan dari kode satker di data SSO-nya (5 digit pertama = UE1, 9 digit pertama = Kanwil, digit 10-15 = satker).
-export function PeranPenggunaModal({ userId, nama, onClose }: Props) {
+export function PeranPenggunaModal({ userId, nama, onClose, bacaSaja = false }: Props) {
   const toast = useToast();
   const ue1 = useRefUE1();
   const [data, setData] = useState<PeranPengguna | null>(null);
@@ -81,11 +82,11 @@ export function PeranPenggunaModal({ userId, nama, onClose }: Props) {
   const usulan = data ? saranBaru(data.saran, data.peran) : [];
 
   return (
-    <ModalShell title={`Peran data: ${nama}`} subtitle="Pengguna boleh memegang banyak peran dan berpindah lewat menu pengguna." onClose={onClose} size="lg">
+    <ModalShell title={`Peran data: ${nama}`} subtitle={bacaSaja ? "Peran yang dimiliki pengguna ini (hanya melihat)." : "Pengguna boleh memegang banyak peran dan berpindah lewat menu pengguna."} onClose={onClose} size="lg">
       <div className="space-y-5 px-4 py-4 sm:px-6">
-        {data && !data.wajib && (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Pengguna yang <b>belum</b> punya peran tetap melihat seluruh data (pembatasan belum diwajibkan). Begitu diberi peran, ia dibatasi sesuai peran yang sedang aktif.
+        {data && data.peran.length === 0 && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Pengguna ini <b>tamu</b>: belum punya peran, jadi belum dapat membuka fitur apa pun{bacaSaja ? "." : " sampai diberi peran."}
           </p>
         )}
         {error && <Alert message={error} />}
@@ -108,22 +109,24 @@ export function PeranPenggunaModal({ userId, nama, onClose }: Props) {
                     </p>
                     {b.dibuat_oleh && <p className="text-xs text-slate-400">Diberikan oleh {b.dibuat_oleh}</p>}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => cabut(b.id)}
-                    disabled={mencabut !== null}
-                    aria-label={`Cabut peran ${namaPeranBerkode(b.role, b.kode)}`}
-                    className="rounded p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </button>
+                  {!bacaSaja && (
+                    <button
+                      type="button"
+                      onClick={() => cabut(b.id)}
+                      disabled={mencabut !== null}
+                      aria-label={`Cabut peran ${namaPeranBerkode(b.role, b.kode)}`}
+                      className="rounded p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        {data && (usulan.length > 0 || data.kode_satker_sso) && (
+        {data && !bacaSaja && (usulan.length > 0 || data.kode_satker_sso) && (
           <section aria-labelledby="peran-saran" className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5">
             <h3 id="peran-saran" className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
               <Wand2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
@@ -157,6 +160,13 @@ export function PeranPenggunaModal({ userId, nama, onClose }: Props) {
           </section>
         )}
 
+        {bacaSaja && data?.kode_satker_sso && (
+          <p className="text-xs text-slate-500">
+            Kode satker pegawai di SSO: <span className="font-mono">{data.kode_satker_sso}</span>
+          </p>
+        )}
+
+        {!bacaSaja && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -222,6 +232,7 @@ export function PeranPenggunaModal({ userId, nama, onClose }: Props) {
             </Button>
           </div>
         </form>
+        )}
 
         <div className="flex justify-end">
           <Button type="button" variant="secondary" fullWidth={false} onClick={onClose}>

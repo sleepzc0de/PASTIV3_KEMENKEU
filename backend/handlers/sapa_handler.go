@@ -43,10 +43,8 @@ func sapaCtx(c *gin.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(c.Request.Context(), sapaTimeout)
 }
 
-func sapaAdmin(c *gin.Context) bool {
-	r := c.GetString("role")
-	return r == "admin" || r == "superadmin"
-}
+// sapaAdmin: hak superadmin (ditetapkan di .env). Admin lama tidak ada lagi.
+func sapaAdmin(c *gin.Context) bool { return c.GetString("role") == peran.AkunSuperadmin }
 
 // sapaIdentitas membaca identitas pengguna beserta perannya. SAPA tidak menetapkan peran sendiri: peran dan kodenya adalah peran data aplikasi yang sedang
 // aktif (Satker, Kanwil, UE1, Pengguna Barang, atau admin/superadmin), dipasang middleware autentikasi. Nama pengguna dipakai bila nama lengkap tidak ada.

@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/peran"
 	"pasti-v3-backend/utils"
@@ -22,16 +21,15 @@ import (
 
 const peranTimeout = 10 * time.Second
 
-func peranWajib() bool { return config.Cfg != nil && config.Cfg.PeranDataWajib }
-
 // ringkasPeran: peran yang berlaku dan yang tersedia bagi satu pengguna, dipakai /auth/me dan /auth/peran.
 //
 //	akun_role : users.role (hak administrasi akun)
 //	role      : peran untuk hak administrasi saat ini (turun menjadi "user" selama bertindak sebagai peran data)
-//	peran     : peran yang berlaku (superadmin, admin, pengguna_barang, ue1, kanwil, satker, atau "" bila belum punya peran)
+//	peran     : peran yang berlaku (superadmin, pengguna_barang, ue1, kanwil, satker, atau "" bila belum punya peran = tamu)
 //	cakupan   : data yang boleh dilihat peran itu
 //	tersedia  : peran data yang dipegang; peran_id = yang berlaku (0 = peran bawaan akun)
-//	bawaan    : akun admin/superadmin bisa kembali ke peran akunnya lewat pemilih peran
+//	bawaan    : superadmin bisa kembali ke peran akunnya lewat pemilih peran
+//	tamu      : belum punya peran apa pun, jadi belum boleh membuka fitur apa pun
 func ringkasPeran(ctx context.Context, userID, akunRole string) (gin.H, error) {
 	daftar, err := peran.Daftar(ctx, userID)
 	if err != nil {
@@ -40,7 +38,7 @@ func ringkasPeran(ctx context.Context, userID, akunRole string) (gin.H, error) {
 		}
 		daftar = []peran.Baris{} // migrasi 053 belum dijalankan: belum ada peran
 	}
-	ef := peran.Selesaikan(akunRole, daftar, peranWajib())
+	ef := peran.Selesaikan(akunRole, daftar)
 	return gin.H{
 		"akun_role":   akunRole,
 		"role":        ef.Role,
@@ -50,8 +48,8 @@ func ringkasPeran(ctx context.Context, userID, akunRole string) (gin.H, error) {
 		"kode":        ef.Kode,
 		"cakupan":     ef.Cakupan,
 		"tersedia":    daftar,
-		"bawaan":      akunRole == peran.AkunSuperadmin || akunRole == peran.AkunAdmin,
-		"wajib":       peranWajib(),
+		"bawaan":      akunRole == peran.AkunSuperadmin,
+		"tamu":        ef.Tamu(),
 	}, nil
 }
 
@@ -121,12 +119,16 @@ func penggunaDariParam(c *gin.Context, ctx context.Context) (string, bool) {
 	return id, true
 }
 
-// GetPeranPengguna: GET /users/:id/peran (admin). Peran yang dipegang pengguna, beserta saran yang diturunkan dari kode satker di data SSO-nya.
+// GetPeranPengguna: GET /users/:id/peran. Peran yang dipegang pengguna, beserta saran yang diturunkan dari kode satker di data SSO-nya. Hanya pengguna yang
+// boleh dilihat pemanggil (lihat kondisiPengguna): UE1/Kanwil/Satker hanya dalam cakupan kode satkernya, selain itu 404.
 func GetPeranPengguna(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), peranTimeout)
 	defer cancel()
 	id, ok := penggunaDariParam(c, ctx)
 	if !ok {
+		return
+	}
+	if !penggunaTerlihat(c, ctx, id) {
 		return
 	}
 	daftar, err := peran.Daftar(ctx, id)
@@ -143,7 +145,7 @@ func GetPeranPengguna(c *gin.Context) {
 	if saran == nil {
 		saran = []peran.Saran{}
 	}
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil peran pengguna", gin.H{"peran": daftar, "saran": saran, "kode_satker_sso": kode, "wajib": peranWajib()})
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil peran pengguna", gin.H{"peran": daftar, "saran": saran, "kode_satker_sso": kode})
 }
 
 type peranMasukan struct {
@@ -151,7 +153,8 @@ type peranMasukan struct {
 	Kode  string `json:"kode"`
 }
 
-// PostPeranPengguna: POST /users/:id/peran (admin). Memberikan satu peran; peran yang sama persis tidak digandakan.
+// PostPeranPengguna: POST /users/:id/peran (superadmin, Pengguna Barang). Memberikan satu peran; peran yang sama persis tidak digandakan. Pengguna Barang tidak dapat
+// menyentuh superadmin (dijawab 404).
 func PostPeranPengguna(c *gin.Context) {
 	var m peranMasukan
 	if err := c.ShouldBindJSON(&m); err != nil {
@@ -168,6 +171,9 @@ func PostPeranPengguna(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !penggunaTerlihat(c, ctx, id) {
+		return
+	}
 	b, dibuat, err := peran.Tambah(ctx, id, m.Peran, m.Kode, c.GetString("username"))
 	if err != nil {
 		log.Println("[PERAN ERROR] beri peran:", err)
@@ -181,7 +187,7 @@ func PostPeranPengguna(c *gin.Context) {
 	utils.SuccessResponse(c, status, pesan, b)
 }
 
-// DeletePeranPengguna: DELETE /users/:id/peran/:peranId (admin). Mencabut satu peran; bila itu peran aktifnya, pengguna kembali ke peran bawaan.
+// DeletePeranPengguna: DELETE /users/:id/peran/:peranId (superadmin, Pengguna Barang). Mencabut satu peran; bila itu peran aktifnya, pengguna kembali ke peran bawaan.
 func DeletePeranPengguna(c *gin.Context) {
 	peranID, err := strconv.ParseInt(c.Param("peranId"), 10, 64)
 	if err != nil || peranID <= 0 {
@@ -192,6 +198,9 @@ func DeletePeranPengguna(c *gin.Context) {
 	defer cancel()
 	id, ok := penggunaDariParam(c, ctx)
 	if !ok {
+		return
+	}
+	if !penggunaTerlihat(c, ctx, id) {
 		return
 	}
 	if err := peran.Hapus(ctx, id, peranID); err != nil {

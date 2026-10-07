@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +15,8 @@ import (
 
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/dto"
+	"pasti-v3-backend/peran"
+	"pasti-v3-backend/persetujuan"
 	"pasti-v3-backend/utils"
 )
 
@@ -22,32 +27,41 @@ func isSelf(c *gin.Context, targetID string) bool {
 	return me != "" && strings.EqualFold(me, targetID)
 }
 
-// ListUsers mengembalikan daftar semua user (admin/superadmin only)
-func ListUsers(c *gin.Context) {
-	rows, err := database.DB.Query(`
-		SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active,
-		       u.auth_provider, u.is_protected, e.nip, e.jabatan, e.satker, u.created_at
+// kuerPengguna membaca pengguna yang boleh dilihat pemanggil (kondisiPengguna), dengan profil pegawai, satker pada data aset, peran data, dan status persetujuan. id
+// kosong = semua; terisi = hanya pengguna itu.
+func kuerPengguna(c *gin.Context, ctx context.Context, id string) ([]dto.UserListItem, error) {
+	q := `
+		SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active, u.auth_provider, u.is_protected,
+		       COALESCE(u.nip, e.nip), e.jabatan, e.satker, e.kode_satker, sa.nama, u.created_at,
+		       CASE WHEN u.persetujuan_at IS NOT NULL AND u.persetujuan_versi = @p1 THEN 1 ELSE 0 END
 		FROM users u
 		LEFT JOIN employees e ON e.id = u.employee_id
-		ORDER BY u.created_at DESC`)
+		LEFT JOIN (SELECT SUBSTRING(Kode_Satker, 10, 6) AS k6, COALESCE(MAX(CASE WHEN Jenis_Satker = N'INDUK SATKER' THEN Nama_Satker END), MAX(Nama_Satker)) AS nama
+		           FROM DIGITALISASI_SATKER WHERE LEN(Kode_Satker) >= 15 GROUP BY SUBSTRING(Kode_Satker, 10, 6)) sa
+		       ON LEN(e.kode_satker) >= 15 AND SUBSTRING(e.kode_satker, 10, 6) = sa.k6
+		WHERE (` + kondisiPengguna(c) + `)`
+	args := []interface{}{persetujuan.Versi}
+	if id != "" {
+		q += " AND u.id = @p2"
+		args = append(args, id)
+	}
+	q += " ORDER BY u.created_at DESC"
+	rows, err := database.DB.QueryContext(ctx, q, args...)
 	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil daftar user")
-		return
+		return nil, err
 	}
 	defer rows.Close()
 
-	var users []dto.UserListItem
+	users := []dto.UserListItem{}
 	for rows.Next() {
 		var idRaw mssql.UniqueIdentifier
 		var u dto.UserListItem
-		var nip, jabatan, satker sql.NullString
+		var nip, jabatan, satker, kodeSatker, satkerAset sql.NullString
 		var createdAt sql.NullTime
-
-		if err := rows.Scan(&idRaw, &u.Username, &u.Email, &u.FullName, &u.Role, &u.IsActive,
-			&u.AuthProvider, &u.IsProtected, &nip, &jabatan, &satker, &createdAt); err != nil {
-			continue
+		if err := rows.Scan(&idRaw, &u.Username, &u.Email, &u.FullName, &u.Role, &u.IsActive, &u.AuthProvider, &u.IsProtected,
+			&nip, &jabatan, &satker, &kodeSatker, &satkerAset, &createdAt, &u.Setuju); err != nil {
+			return nil, err
 		}
-
 		u.ID = idRaw.String()
 		if nip.Valid {
 			u.NIP = &nip.String
@@ -58,13 +72,48 @@ func ListUsers(c *gin.Context) {
 		if satker.Valid {
 			u.Satker = &satker.String
 		}
+		if kodeSatker.Valid {
+			u.KodeSatker = &kodeSatker.String
+		}
+		if satkerAset.Valid {
+			u.SatkerAset = &satkerAset.String
+		}
 		if createdAt.Valid {
 			u.CreatedAt = createdAt.Time.Format("2006-01-02 15:04")
 		}
-
 		users = append(users, u)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
+	// Peran data tiap pengguna; gagal membacanya tidak menggagalkan daftar (peran dikosongkan).
+	semua, err := peran.DaftarSemua(ctx)
+	if err != nil {
+		log.Println("[PENGGUNA WARN] gagal membaca peran semua pengguna:", err)
+		semua = map[string][]peran.Baris{}
+	}
+	for i := range users {
+		users[i].PeranData = semua[strings.ToUpper(users[i].ID)]
+		if users[i].PeranData == nil {
+			users[i].PeranData = []peran.Baris{}
+		}
+		users[i].Tamu = len(users[i].PeranData) == 0 && users[i].Role != peran.AkunSuperadmin
+	}
+	return users, nil
+}
+
+// ListUsers: GET /users. Daftar pengguna yang boleh dilihat peran pemanggil: semua (superadmin), semua kecuali superadmin (Pengguna Barang), atau pengguna dalam
+// cakupan kode satker SSO-nya (UE1, Kanwil, Satker; hanya lihat). Lihat akses_pengguna.go.
+func ListUsers(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	users, err := kuerPengguna(c, ctx, "")
+	if err != nil {
+		log.Println("[PENGGUNA ERROR] daftar pengguna:", err)
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil daftar user")
+		return
+	}
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil daftar user", users)
 }
 
@@ -76,12 +125,13 @@ func CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Cegah eskalasi privilege — pembuatan akun lewat fitur ini tidak boleh
-	// langsung membuat superadmin.
-	if req.Role != "user" && req.Role != "admin" {
+	// Akun yang dibuat lewat fitur ini selalu berrole "user" dan berstatus tamu sampai diberi peran data. Superadmin hanya ditetapkan di .env (tidak ada jalur lain),
+	// dan role admin lama sudah ditiadakan.
+	if req.Role != "" && req.Role != "user" {
 		utils.ErrorResponse(c, http.StatusBadRequest, "Role tidak valid")
 		return
 	}
+	req.Role = "user"
 
 	fullName := req.FullName
 	email := req.Email
@@ -224,42 +274,11 @@ func upsertEmployeeFromHRIS2(nip, name, email, jabatan, satker, kdSatker string)
 
 // ============ Handler proteksi superadmin (sudah ada sebelumnya) ============
 
-func UpdateUserRole(c *gin.Context) {
-	targetID := c.Param("id")
-	var body struct {
-		Role string `json:"role" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		utils.ErrorResponse(c, http.StatusBadRequest, "Data tidak valid")
-		return
-	}
-
-	var isProtected bool
-	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
-	if err == sql.ErrNoRows {
-		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
-		return
-	} else if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Terjadi kesalahan server")
-		return
-	}
-
-	if isProtected {
-		utils.ErrorResponse(c, http.StatusForbidden, "Akun superadmin permanen ini tidak dapat diubah rolenya")
-		return
-	}
-
-	_, err = database.DB.Exec(`UPDATE users SET role=@p1, updated_at=SYSUTCDATETIME() WHERE id=@p2`, body.Role, targetID)
-	if err != nil {
-		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memperbarui role")
-		return
-	}
-
-	utils.SuccessResponse(c, http.StatusOK, "Role berhasil diperbarui", nil)
-}
-
 func DeleteUser(c *gin.Context) {
 	targetID := c.Param("id")
+	if !penggunaTerlihatID(c, targetID) {
+		return
+	}
 
 	var isProtected bool
 	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
@@ -293,6 +312,9 @@ func DeactivateUser(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusForbidden, "Anda tidak dapat menonaktifkan akun Anda sendiri")
 		return
 	}
+	if !penggunaTerlihatID(c, targetID) {
+		return
+	}
 
 	var isProtected bool
 	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
@@ -318,8 +340,8 @@ func DeactivateUser(c *gin.Context) {
 	utils.SuccessResponse(c, http.StatusOK, "User berhasil dinonaktifkan", nil)
 }
 
-// UpdateUser mengubah data dasar user (nama, email, role, status aktif),
-// dan password secara opsional. Tidak berlaku untuk akun protected.
+// UpdateUser mengubah data dasar user (nama, email, status aktif), dan password secara opsional. Role akun tidak dapat diubah lewat API. Tidak berlaku untuk akun
+// protected, dan Pengguna Barang tidak dapat menyentuh superadmin (dijawab 404).
 func UpdateUser(c *gin.Context) {
 	targetID := c.Param("id")
 
@@ -331,6 +353,9 @@ func UpdateUser(c *gin.Context) {
 
 	if !req.IsActive && isSelf(c, targetID) {
 		utils.ErrorResponse(c, http.StatusForbidden, "Anda tidak dapat menonaktifkan akun Anda sendiri")
+		return
+	}
+	if !penggunaTerlihatID(c, targetID) {
 		return
 	}
 
@@ -379,10 +404,10 @@ func UpdateUser(c *gin.Context) {
 		}
 
 		_, err = database.DB.Exec(`
-			UPDATE users SET full_name=@p1, email=@p2, role=@p3, is_active=@p4,
-			       password_hash=@p5, password_salt=@p6, updated_at=SYSUTCDATETIME()
-			WHERE id=@p7`,
-			req.FullName, req.Email, req.Role, req.IsActive, hash, salt, targetID,
+			UPDATE users SET full_name=@p1, email=@p2, is_active=@p3,
+			       password_hash=@p4, password_salt=@p5, updated_at=SYSUTCDATETIME()
+			WHERE id=@p6`,
+			req.FullName, req.Email, req.IsActive, hash, salt, targetID,
 		)
 		if err != nil {
 			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
@@ -390,9 +415,9 @@ func UpdateUser(c *gin.Context) {
 		}
 	} else {
 		_, err = database.DB.Exec(`
-			UPDATE users SET full_name=@p1, email=@p2, role=@p3, is_active=@p4, updated_at=SYSUTCDATETIME()
-			WHERE id=@p5`,
-			req.FullName, req.Email, req.Role, req.IsActive, targetID,
+			UPDATE users SET full_name=@p1, email=@p2, is_active=@p3, updated_at=SYSUTCDATETIME()
+			WHERE id=@p4`,
+			req.FullName, req.Email, req.IsActive, targetID,
 		)
 		if err != nil {
 			utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal memperbarui user")
@@ -403,45 +428,19 @@ func UpdateUser(c *gin.Context) {
 	utils.SuccessResponse(c, http.StatusOK, "User berhasil diperbarui", nil)
 }
 
-// GetUserDetail mengambil data 1 user untuk keperluan mengisi form edit.
+// GetUserDetail mengambil data 1 user untuk keperluan mengisi form edit. Pengguna di luar yang boleh dilihat pemanggil dijawab 404.
 func GetUserDetail(c *gin.Context) {
-	targetID := c.Param("id")
-
-	var idRaw mssql.UniqueIdentifier
-	var u dto.UserListItem
-	var nip, jabatan, satker sql.NullString
-	var createdAt sql.NullTime
-
-	err := database.DB.QueryRow(`
-		SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active,
-		       u.auth_provider, u.is_protected, e.nip, e.jabatan, e.satker, u.created_at
-		FROM users u
-		LEFT JOIN employees e ON e.id = u.employee_id
-		WHERE u.id = @p1`, targetID,
-	).Scan(&idRaw, &u.Username, &u.Email, &u.FullName, &u.Role, &u.IsActive,
-		&u.AuthProvider, &u.IsProtected, &nip, &jabatan, &satker, &createdAt)
-
-	if err == sql.ErrNoRows {
-		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
-		return
-	} else if err != nil {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	users, err := kuerPengguna(c, ctx, c.Param("id"))
+	if err != nil {
+		log.Println("[PENGGUNA ERROR] detail pengguna:", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data user")
 		return
 	}
-
-	u.ID = idRaw.String()
-	if nip.Valid {
-		u.NIP = &nip.String
+	if len(users) == 0 {
+		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
+		return
 	}
-	if jabatan.Valid {
-		u.Jabatan = &jabatan.String
-	}
-	if satker.Valid {
-		u.Satker = &satker.String
-	}
-	if createdAt.Valid {
-		u.CreatedAt = createdAt.Time.Format("2006-01-02 15:04")
-	}
-
-	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data user", u)
+	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil data user", users[0])
 }

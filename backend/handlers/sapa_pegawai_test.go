@@ -81,7 +81,7 @@ func siapkanPegawai(t *testing.T) *lingkunganPegawai {
 	e := &lingkunganPegawai{t: t, hris: newHRISPalsu(t), repo: sapa.NewMemRepo(), prov: "sso"}
 	e.repo.Nama[guidPeg] = "Budi"
 	// Pengguna uji berperan Satker (kode satker 6 digit, dari peran data aplikasi); SAPA tidak menetapkan peran sendiri.
-	e.peran = peran.Selesaikan("user", []peran.Baris{{ID: 1, Peran: peran.Satker, Kode: "409294"}}, false)
+	e.peran = peran.Selesaikan("user", []peran.Baris{{ID: 1, Peran: peran.Satker, Kode: "409294"}})
 	t.Cleanup(GunakanSapaLayanan(&sapa.Layanan{Repo: e.repo}))
 	t.Cleanup(GunakanHRIS2(
 		func() string { return e.hris.srv.URL },
@@ -225,7 +225,7 @@ func TestCariPegawaiMembatasiJumlah(t *testing.T) {
 func TestPegawaiHakAksesDanGalat(t *testing.T) {
 	// Tanpa peran data di aplikasi: ditolak sebelum HRIS2 dipanggil.
 	e := siapkanPegawai(t)
-	e.peran = peran.Selesaikan("user", nil, false)
+	e.peran = peran.Selesaikan("user", nil)
 	e.hris.cari = func(w http.ResponseWriter, r *http.Request) { tulis(w, 200, `{"data":[]}`) }
 	e.hris.detail = e.hris.cari
 	for _, p := range []string{"/sapa/pegawai?q=budi", "/sapa/pegawai/198001012005011001"} {

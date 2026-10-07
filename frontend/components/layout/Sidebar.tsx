@@ -7,7 +7,7 @@ import { ChevronsLeft, ChevronsRight, ChevronDown, LogOut, ShieldCheck, X } from
 import { useAuth } from "@/lib/auth-context";
 import { useDashboard } from "@/lib/dashboard-context";
 import { NAV_ENTRIES, NavEntry, isNavActive } from "@/lib/navigation";
-import { peranTampil } from "@/lib/peran";
+import { peranEfektif, peranTampil } from "@/lib/peran";
 import { initialsOf } from "@/lib/initials";
 
 // Sama dengan breakpoint `md` Tailwind: di bawah ini sidebar jadi drawer.
@@ -83,7 +83,8 @@ export function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile
     };
   }, [mobileOpen, onCloseMobile]);
 
-  const canSee = (roles?: string[]) => !roles || (profile && roles.includes(profile.role));
+  const peranSaya = peranEfektif(profile?.peran, profile?.role);
+  const canSee = (roles?: string[]) => !roles || (profile && roles.includes(peranSaya));
 
   const handleGroupClick = (label: string, isCollapsed: boolean) => {
     // Kalau sidebar sedang diciutkan, buka dulu sidebar-nya supaya submenu bisa terlihat, baru buka grup yang diklik.

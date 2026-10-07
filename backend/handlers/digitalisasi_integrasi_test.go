@@ -78,9 +78,9 @@ func TestEksporDigitalisasiSemuaDatasetDenganSQLServer(t *testing.T) {
 	for _, ds := range digitalisasi.Datasets {
 		t.Run(ds.Key, func(t *testing.T) {
 			cari := "?q=UJI-DG-" + ds.Key + "&format="
-			for _, role := range []string{"user", "admin"} {
+			for _, role := range []string{"user", "superadmin"} {
 				r := dgRouter(role)
-				admin := role == "admin"
+				admin := role == "superadmin"
 
 				// ---- CSV: semua kolom (bukan hanya kolom tabel daftar) ----
 				w := ambilBerkas(r, "/dg/ekspor/"+ds.Key+cari+"csv")

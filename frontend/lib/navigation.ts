@@ -72,7 +72,7 @@ export const NAV_ENTRIES: NavEntry[] = [
             href: "/dashboard/sapa/pengaturan",
             icon: Settings2,
             description: "Template dokumen Word, jenis dan satuan BMN, dan referensi Unit Eselon I",
-            roles: ["admin", "superadmin"],
+            roles: ["superadmin"],
           },
         ],
       },
@@ -87,7 +87,7 @@ export const NAV_ENTRIES: NavEntry[] = [
         label: "Pengadaan Terpadu",
         href: "/dashboard/pengadaan-terpadu/penarikan",
         icon: DatabaseBackup,
-        description: "Data Pengadaan, Tender, dan E-Katalog dari Inaproc (dibatasi per satker menurut peran): lihat dan ekspor ke Excel, CSV, atau PDF; admin juga menarik datanya",
+        description: "Data Pengadaan, Tender, dan E-Katalog dari Inaproc (dibatasi per satker menurut peran): lihat dan ekspor ke Excel, CSV, atau PDF; superadmin juga menarik datanya",
         matchPrefix: true,
       },
     ],
@@ -98,7 +98,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/pegawai",
     icon: Users2,
     description: "Pencarian dan detail data pegawai",
-    roles: ["admin", "superadmin"],
+    roles: ["superadmin"],
   },
   {
     type: "item",
@@ -106,15 +106,15 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/referensi/ue1",
     icon: ListTree,
     description: "Kelola kode Unit Eselon I: uraian dan singkatan yang tampil di Digitalisasi Aset, Dashboard, dan berkas unduhan",
-    roles: ["admin", "superadmin"],
+    roles: ["superadmin"],
   },
   {
     type: "item",
     label: "Manajemen Pengguna",
     href: "/dashboard/users",
     icon: Users,
-    description: "Kelola akun dan peran pengguna",
-    roles: ["admin", "superadmin"],
+    description: "Kelola akun dan peran pengguna (Pengguna Barang tanpa superadmin); UE1, Kanwil, dan Satker melihat pengguna dalam cakupannya",
+    roles: ["superadmin", "pengguna_barang", "ue1", "kanwil", "satker"],
   },
 ];
 
@@ -123,8 +123,9 @@ export interface FlatNavItem extends NavItem {
 }
 
 // Daftar datar semua menu yang boleh dilihat peran ini (untuk palet perintah dan remah roti), termasuk halaman turunan.
-export function flattenNav(role?: string): FlatNavItem[] {
-  const ok = (roles?: string[]) => !roles || (role !== undefined && roles.includes(role));
+// peran: peran efektif pengguna (lihat peranEfektif di lib/peran.ts).
+export function flattenNav(peran?: string): FlatNavItem[] {
+  const ok = (roles?: string[]) => !roles || (peran !== undefined && roles.includes(peran));
   const out: FlatNavItem[] = [];
   for (const e of NAV_ENTRIES) {
     if (!ok(e.roles)) continue;

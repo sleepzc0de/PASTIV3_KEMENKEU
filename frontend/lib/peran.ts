@@ -3,7 +3,6 @@ import type { CakupanData, PeranBaris, PeranData, PeranInfo, SaranPeran } from "
 
 export const PERAN_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
-  admin: "Admin",
   pengguna_barang: "Pengguna Barang",
   ue1: "UE1",
   kanwil: "Kanwil",
@@ -59,6 +58,24 @@ export function bolehSemuaData(info: PeranInfo | undefined | null): boolean {
   return !info || info.cakupan?.tingkat === "semua";
 }
 
+// Peran efektif pengguna untuk hak akses menu dan fitur: peran data yang berlaku (superadmin, pengguna_barang, ue1, kanwil, satker), atau "superadmin" bagi
+// superadmin yang bertindak sebagai dirinya; "" bagi tamu (belum punya peran). Sama dengan peran yang dipakai backend untuk memutuskan siapa boleh apa.
+export function peranEfektif(info: PeranInfo | undefined | null, role?: string): string {
+  if (info) return info.peran;
+  return role === "superadmin" ? "superadmin" : "";
+}
+
+// Fitur khusus superadmin (ditetapkan di .env): penarikan data Inaproc, sinkronisasi SLDK, template SAPA, referensi UE1, HRIS2.
+export const adalahSuperadmin = (info: PeranInfo | undefined | null, role?: string): boolean => peranEfektif(info, role) === "superadmin";
+
+// Manajemen pengguna: superadmin dan Pengguna Barang mengelola (Pengguna Barang tanpa superadmin); UE1, Kanwil, dan Satker hanya melihat pengguna dalam cakupan kode satkernya.
+export const bolehKelolaPengguna = (peran: string): boolean => peran === "superadmin" || peran === "pengguna_barang";
+export const bolehLihatPengguna = (peran: string): boolean => bolehKelolaPengguna(peran) || peran === "ue1" || peran === "kanwil" || peran === "satker";
+export const PERAN_LIHAT_PENGGUNA = ["superadmin", "pengguna_barang", "ue1", "kanwil", "satker"];
+
+// Tamu: sudah masuk tetapi belum diberi peran, jadi belum boleh membuka fitur apa pun.
+export const adalahTamu = (info: PeranInfo | undefined | null): boolean => Boolean(info) && info!.peran === "";
+
 // Pengadaan terbuka bagi semua peran yang punya data: yang melihat seluruh data melihat semuanya, UE1/Kanwil/Satker melihat pengadaan satkernya. Hanya pengguna yang
 // belum diberi peran (cakupan kosong) sementara pembatasan diwajibkan yang ditolak backend. Tanpa info peran dianggap boleh (yang menentukan hanya backend).
 export function bolehLihatPengadaan(info: PeranInfo | undefined | null): boolean {
@@ -83,10 +100,10 @@ export function opsiPeran(info: PeranInfo | undefined | null): OpsiPeran[] {
 // Pemilih hanya berguna bila ada lebih dari satu peran untuk dipilih.
 export const perluPemilih = (info: PeranInfo | undefined | null): boolean => opsiPeran(info).length >= 2;
 
-// Peran yang tampil di samping nama pengguna: "Super Admin", "UE1 01504", atau "Pengguna" bila belum punya peran.
+// Peran yang tampil di samping nama pengguna: "Super Admin", "UE1 01504", atau "Tamu" bila belum punya peran.
 export function peranTampil(info: PeranInfo | undefined | null, roleAkun: string): string {
-  if (!info) return PERAN_LABEL[roleAkun] ?? roleAkun;
-  if (!info.peran) return PERAN_LABEL[info.role] ?? info.role;
+  if (!info) return roleAkun === "superadmin" ? PERAN_LABEL.superadmin : "";
+  if (!info.peran) return "Tamu";
   return namaPeranBerkode(info.peran, info.kode);
 }
 
