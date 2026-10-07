@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Loader2, MapPin, ShieldAlert } from "lucide-react";
 import { DGDatasetKey, DGDetailData, getDGDetail } from "@/lib/api";
 import { formatDateTime } from "@/lib/dasbor";
+import { kodeKanwilDariSatker } from "@/lib/refKanwil";
+import { useRefKanwil } from "@/lib/useRefKanwil";
 import { useRefUE1 } from "@/lib/useRefUE1";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
@@ -21,6 +23,7 @@ export function RecordDetailModal({ dataset, id, onClose, onShowOnMap }: Props) 
   const [data, setData] = useState<DGDetailData | null>(null);
   const [error, setError] = useState("");
   const ue1 = useRefUE1();
+  const kanwil = useRefKanwil();
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +89,9 @@ export function RecordDetailModal({ dataset, id, onClose, onShowOnMap }: Props) 
                           : c.nama === "Kode_UE1" && typeof raw === "string" && raw !== ""
                             ? ue1.kodeUraian(raw) // kode bersama uraian dan singkatannya dari referensi UE1
                             : formatCell(c, c.nama, raw)}
+                      {c.nama === "Kode_Satker" && typeof raw === "string" && kodeKanwilDariSatker(raw) !== "" && (
+                        <span className="mt-0.5 block text-xs text-slate-500">Kanwil {kanwil.kodeUraian(kodeKanwilDariSatker(raw))}</span>
+                      )}
                     </dd>
                   </div>
                 );

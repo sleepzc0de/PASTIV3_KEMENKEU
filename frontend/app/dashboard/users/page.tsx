@@ -5,6 +5,8 @@ import { UserPlus, ShieldCheck, Trash2, Ban, Pencil, Search, SearchX, X, Users }
 import axios from "axios";
 import { listUsers, UserListItem, deactivateUser, deleteUser } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard-context";
+import { useRefKanwil } from "@/lib/useRefKanwil";
+import { useRefUE1 } from "@/lib/useRefUE1";
 import { bolehKelolaPengguna, namaPeranBerkode, peranEfektif } from "@/lib/peran";
 import { CreateUserModal } from "@/components/users/CreateUserModal";
 import { EditUserModal } from "@/components/users/EditUserModal";
@@ -29,6 +31,10 @@ const LENCANA = "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inse
 // Peran pengguna: Super Admin (dari .env), peran data yang dipegang, atau Tamu bila belum punya peran apa pun. "Belum setuju" menandai pengguna yang belum
 // menyetujui pernyataan penggunaan aplikasi.
 function PeranBadges({ u }: { u: UserListItem }) {
+  const ue1 = useRefUE1();
+  const kanwil = useRefKanwil();
+  // Uraian UE1/Kanwil dari referensi sebagai keterangan di atas lencana ("Kanwil 015040199" -> "015040199 · KW DJP JKT").
+  const keterangan = (role: string, kode: string) => (role === "ue1" ? ue1.kodeUraian(kode) : role === "kanwil" ? kanwil.kodeUraian(kode) : undefined);
   return (
     <div className="flex flex-wrap items-center gap-1">
       {u.role === "superadmin" ? (
@@ -39,7 +45,7 @@ function PeranBadges({ u }: { u: UserListItem }) {
         </span>
       ) : (
         u.peran_data.map((b) => (
-          <span key={b.id} className={`${LENCANA} bg-blue-50 text-blue-700 ring-blue-200`}>
+          <span key={b.id} className={`${LENCANA} bg-blue-50 text-blue-700 ring-blue-200`} title={keterangan(b.role, b.kode)}>
             {namaPeranBerkode(b.role, b.kode)}
           </span>
         ))

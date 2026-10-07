@@ -240,7 +240,7 @@ func TestPersetujuanDanTamuDenganSQLServer(t *testing.T) {
 		db.Exec(`UPDATE users SET auth_provider = N'sso' WHERE id = @p1`, p.id)
 
 		// semua fitur tertutup dengan alasan persetujuan, kecuali profil dan pernyataan
-		for _, path := range []string{"/digitalisasi/ringkasan", "/satker/keterhubungan", "/sapa/saya", "/inaproc/analitik", "/referensi/ue1", "/users"} {
+		for _, path := range []string{"/digitalisasi/ringkasan", "/satker/keterhubungan", "/sapa/saya", "/inaproc/analitik", "/referensi/ue1", "/referensi/kanwil", "/users"} {
 			code, body, _ := panggil(t, "GET", path, p.token, "")
 			if code != 403 || body["code"] != "persetujuan_diperlukan" {
 				t.Errorf("GET %s sebelum menyetujui = %d %v, want 403 persetujuan_diperlukan", path, code, body["code"])

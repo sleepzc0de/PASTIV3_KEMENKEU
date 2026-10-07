@@ -5,6 +5,7 @@ import { Plus, Trash2, Wand2 } from "lucide-react";
 import axios from "axios";
 import { PeranData, PeranPengguna, cabutPeranPengguna, getPeranPengguna, tambahPeranPengguna } from "@/lib/api";
 import { PERAN_DATA, kodePeranSah, namaPeranBerkode, panjangKode, saranBaru } from "@/lib/peran";
+import { useRefKanwil } from "@/lib/useRefKanwil";
 import { useRefUE1 } from "@/lib/useRefUE1";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
@@ -27,6 +28,7 @@ interface Props {
 export function PeranPenggunaModal({ userId, nama, onClose, bacaSaja = false }: Props) {
   const toast = useToast();
   const ue1 = useRefUE1();
+  const kanwil = useRefKanwil();
   const [data, setData] = useState<PeranPengguna | null>(null);
   const [error, setError] = useState("");
   const [peran, setPeran] = useState<PeranData>("ue1");
@@ -105,6 +107,7 @@ export function PeranPenggunaModal({ userId, nama, onClose, bacaSaja = false }: 
                     <p className="text-sm font-medium text-slate-900">
                       {namaPeranBerkode(b.role, b.kode)}
                       {b.role === "ue1" && ue1.label(b.kode).includes("·") && <span className="font-normal text-slate-500"> ({ue1.label(b.kode).split(" · ")[1]})</span>}
+                      {b.role === "kanwil" && kanwil.label(b.kode).includes("·") && <span className="font-normal text-slate-500"> ({kanwil.label(b.kode).split(" · ")[1]})</span>}
                       {b.aktif && <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">sedang aktif</span>}
                     </p>
                     {b.dibuat_oleh && <p className="text-xs text-slate-400">Diberikan oleh {b.dibuat_oleh}</p>}
@@ -151,6 +154,7 @@ export function PeranPenggunaModal({ userId, nama, onClose, bacaSaja = false }: 
                   >
                     <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                     {namaPeranBerkode(s.role, s.kode)}
+                    {s.role === "kanwil" && kanwil.label(s.kode).includes("·") && <span className="font-normal text-slate-500"> ({kanwil.label(s.kode).split(" · ")[1]})</span>}
                   </button>
                 ))}
               </div>
@@ -219,8 +223,23 @@ export function PeranPenggunaModal({ userId, nama, onClose, bacaSaja = false }: 
                     inputMode="numeric"
                     autoComplete="off"
                     placeholder={`mis. ${spec.contoh}`}
+                    list={peran === "kanwil" && kanwil.daftar.length > 0 ? "daftar-kanwil" : undefined}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-mono text-sm outline-none focus:border-blue-500 focus:shadow-glow"
                   />
+                )}
+                {peran === "kanwil" && kanwil.daftar.length > 0 && (
+                  <datalist id="daftar-kanwil">
+                    {kanwil.daftar
+                      .filter((r) => r.aktif)
+                      .map((r) => (
+                        <option key={r.kode} value={r.kode}>
+                          {r.nama}
+                        </option>
+                      ))}
+                  </datalist>
+                )}
+                {peran === "kanwil" && kode.length === 9 && (
+                  <span className="mt-1 block text-xs text-slate-500">{kanwil.label(kode).startsWith("Kanwil ") ? "Kode ini belum ada di Referensi Kanwil." : kanwil.nama(kode)}</span>
                 )}
               </label>
             )}

@@ -83,6 +83,13 @@ func SetupRoutes(r *gin.Engine) {
 			referensi.GET("/ue1", handlers.GetRefUE1)
 			referensi.PUT("/ue1/:kode", middleware.RequireSuperadmin(), handlers.PutRefUE1)
 			referensi.DELETE("/ue1/:kode", middleware.RequireSuperadmin(), handlers.DeleteRefUE1)
+			// Referensi Kanwil (kode 9 digit -> uraian): dibaca semua pengguna yang punya peran, dikelola superadmin. Isinya dari nama satker pada data aset ("dari-satker")
+			// atau ditarik dari SLDK ("tarik-sldk"); baris yang diisi superadmin tidak pernah ditimpa penarikan.
+			referensi.GET("/kanwil", handlers.GetRefKanwil)
+			referensi.PUT("/kanwil/:kode", middleware.RequireSuperadmin(), handlers.PutRefKanwil)
+			referensi.DELETE("/kanwil/:kode", middleware.RequireSuperadmin(), handlers.DeleteRefKanwil)
+			referensi.POST("/kanwil/dari-satker", middleware.RequireSuperadmin(), handlers.PostRefKanwilDariSatker)
+			referensi.POST("/kanwil/tarik-sldk", middleware.RequireSuperadmin(), handlers.PostRefKanwilTarikSLDK)
 		}
 		// Pengadaan Terpadu (Pengadaan, Tender, E-Katalog V5 dan V6). Data lokal, ekspor, dan dasbor terbuka bagi semua pengguna login dan dibatasi ke satker
 		// menurut peran aktif lewat kd_satker_str (UE1/Kanwil/Satker hanya melihat satkernya dan hanya dataset yang dapat dibatasi; lihat handlers/inaproc_cakupan.go).

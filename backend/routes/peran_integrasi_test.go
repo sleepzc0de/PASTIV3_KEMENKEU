@@ -480,6 +480,10 @@ func TestPeranDataDenganSQLServer(t *testing.T) {
 			{"POST", "/digitalisasi/sinkronisasi", `{}`},
 			{"GET", "/hris2/pegawai/search?q=budi", ""},
 			{"PUT", "/referensi/ue1/09971", `{"nama":"X"}`},
+			{"PUT", "/referensi/kanwil/099710199", `{"nama":"X"}`},
+			{"DELETE", "/referensi/kanwil/099710199", ""},
+			{"POST", "/referensi/kanwil/dari-satker", ""},
+			{"POST", "/referensi/kanwil/tarik-sldk", ""},
 		} {
 			if code, _, _ := panggil(t, c.metode, c.path, pb.token, c.badan); code != 403 {
 				t.Errorf("%s %s oleh Pengguna Barang = %d, want 403", c.metode, c.path, code)

@@ -9,6 +9,7 @@ import {
   Settings2,
   DatabaseBackup,
   ListTree,
+  Network,
 } from "lucide-react";
 
 export interface NavItem {
@@ -106,6 +107,14 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/referensi/ue1",
     icon: ListTree,
     description: "Kelola kode Unit Eselon I: uraian dan singkatan yang tampil di Digitalisasi Aset, Dashboard, dan berkas unduhan",
+    roles: ["superadmin"],
+  },
+  {
+    type: "item",
+    label: "Referensi Kanwil",
+    href: "/dashboard/referensi/kanwil",
+    icon: Network,
+    description: "Kelola kode Kantor Wilayah (9 karakter pertama kode satker): uraian dari data satker, ditarik dari SLDK, atau diisi manual",
     roles: ["superadmin"],
   },
   {
