@@ -4,7 +4,7 @@ import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "reac
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronDown, Lock, LockOpen, RotateCcw, SkipForward, Hourglass, Trash2 } from "lucide-react";
-import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, deleteSapaPenjualan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap } from "@/lib/sapa";
+import { SapaDetail, SapaSaya, SapaTahapDetail, SapaUsulan, deleteSapaPenjualan, getSapaPenjualan, reopenSapaTahap, skipSapaTahap, ubahKeteranganSapa } from "@/lib/sapa";
 import { Alert } from "@/components/ui/Alert";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
@@ -343,6 +343,7 @@ function TahapBody({ t, usulan, saya, terkunci, bolehBukaKunci, onChanged }: Tah
           {t.catatan && <p className="mt-0.5 whitespace-pre-line break-words text-xs">{t.catatan}</p>}
         </NoticeBox>
       )}
+      {t.status === "dilewati" && t.boleh_aksi && t.dapat_ubah_keterangan && <UbahKeterangan usulanId={usulan.id} tahap={t} onChanged={onChanged} />}
       {t.jenis === "eksternal" && t.status === "selesai" && (
         <dl className="grid gap-x-6 gap-y-1 rounded-lg bg-emerald-50/60 p-3 text-sm sm:grid-cols-3">
           <Ringkas label="Nomor" nilai={t.nomor || "-"} />
@@ -381,6 +382,7 @@ function TahapBody({ t, usulan, saya, terkunci, bolehBukaKunci, onChanged }: Tah
               {terkunci
                 ? "Usulan sudah selesai dan terkunci, sehingga isian tidak dapat diubah. Pengguna Barang atau superadmin dapat membuka kuncinya."
                 : "Tahap ini terkunci karena tahap sesudahnya sudah selesai, agar dokumen tidak berselisih. Pengguna Barang atau superadmin dapat membuka ulang tahap sesudahnya."}
+              {t.status === "dilewati" && t.dapat_ubah_keterangan && " Keterangan nomor dan tanggal dokumen tetap dapat diubah."}
             </span>
           </span>
         </NoticeBox>
@@ -468,6 +470,66 @@ function KotakLuarAplikasi({ tahap, checked, onChange }: { tahap: SapaTahapDetai
         </span>
       </span>
     </label>
+  );
+}
+
+// Mengubah keterangan tahap yang sudah dilewati (nomor dan tanggal SK yang dibuat di luar aplikasi), mis. untuk memperbaiki salah ketik. Hanya catatan: tidak mengubah status tahap
+// dan tidak bergantung pada tahap sesudahnya, jadi tersedia selama usulan belum selesai.
+function UbahKeterangan({ usulanId, tahap, onChanged }: { usulanId: string; tahap: SapaTahapDetail; onChanged: () => void }) {
+  const [buka, setBuka] = useState(false);
+  const [catatan, setCatatan] = useState(tahap.catatan ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ErrorInfo | null>(null);
+
+  const simpan = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await ubahKeteranganSapa(usulanId, tahap.kunci, catatan);
+      setBuka(false);
+      onChanged();
+    } catch (err) {
+      setError(errorInfo(err, "Gagal menyimpan keterangan"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!buka) {
+    return (
+      <div>
+        <SecondaryButton
+          onClick={() => {
+            setCatatan(tahap.catatan ?? "");
+            setError(null);
+            setBuka(true);
+          }}
+        >
+          Ubah keterangan
+        </SecondaryButton>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+      <TextAreaField
+        label="Keterangan dokumen"
+        required
+        value={catatan}
+        onChange={setCatatan}
+        maxLength={1000}
+        rows={2}
+        placeholder="mis. SK Tim Nomor KEP-12/2026 tanggal 2 Januari 2026"
+        hint="Minimal 5 karakter. Nomor dan tanggal dokumen yang dibuat di luar aplikasi."
+      />
+      <ErrorBox error={error} />
+      <div className="flex justify-end gap-2">
+        <SecondaryButton onClick={() => setBuka(false)}>Batal</SecondaryButton>
+        <PrimaryButton onClick={simpan} busy={busy} disabled={catatan.trim().length < 5 || catatan.trim() === (tahap.catatan ?? "").trim()}>
+          Simpan keterangan
+        </PrimaryButton>
+      </div>
+    </div>
   );
 }
 

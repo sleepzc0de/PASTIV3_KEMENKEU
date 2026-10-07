@@ -61,6 +61,7 @@ Isinya dari tiga jalur; kolom `sumber` mencatat asalnya:
 
 Di mana referensi dipakai: **Manajemen Pengguna** (keterangan pada lencana peran Kanwil, uraian pada peran yang dimiliki dan saran, serta isian kode peran Kanwil dengan daftar usulan dan nama yang terbaca), dan **rincian rekaman Digitalisasi Aset**
 (baris "Kanwil <kode> · <uraian>" di bawah Kode Satker). Kode yang belum terdaftar tampil sebagai `Kanwil <kode>`.
+Referensi aktif juga menjadi **saran baris tembusan "Kepala Kantor Wilayah ..." pada Nota Dinas SAPA** (uraian huruf besar diubah ke huruf judul; lihat [sapa.md](sapa.md#tembusan-kanwil-pada-nota-dinas)).
 
 API: `GET /api/v1/referensi/kanwil` (semua pengguna yang punya peran; memuat `daftar`, `belum_terdaftar`, dan `sldk_tersedia`), `PUT|DELETE /api/v1/referensi/kanwil/:kode`, `POST .../dari-satker`, `POST .../tarik-sldk` (superadmin).
 

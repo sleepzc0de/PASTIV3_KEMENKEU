@@ -339,24 +339,34 @@ func sel(row []string, i int) string {
 	return strings.TrimSpace(row[i])
 }
 
-// ImporBarangXLSX membaca berkas Excel (template atau hasil ekspor) menjadi daftar barang. Sheet "Daftar Barang" dipakai bila
-// ada, selain itu sheet pertama. Kolom dikenali dari judulnya (urutan bebas, kolom tambahan diabaikan).
-func ImporBarangXLSX(data []byte) (hasil *HasilImpor, err error) {
+// bukaBerkasXLSX memeriksa ukuran dan membuka berkas .xlsx yang diunggah dengan batas bongkar zip. petunjuk dipakai pada pesan bila berkasnya bukan .xlsx yang sah.
+// Pemanggil memasang pemulih panic (recover) lebih dulu karena pustaka pembaca menerima berkas dari pengguna.
+func bukaBerkasXLSX(data []byte, petunjuk string) (*excelize.File, error) {
 	if len(data) == 0 {
 		return nil, validasi("Berkas kosong")
 	}
 	if len(data) > MaksUkuranXLSX {
 		return nil, validasi("Berkas terlalu besar (maksimal %d MB)", MaksUkuranXLSX>>20)
 	}
+	f, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{UnzipSizeLimit: batasZipXLSX, UnzipXMLSizeLimit: batasXMLXLSX})
+	if err != nil {
+		return nil, validasi("Berkas tidak dapat dibaca sebagai Excel (.xlsx). %s", petunjuk)
+	}
+	return f, nil
+}
+
+// ImporBarangXLSX membaca berkas Excel (template atau hasil ekspor) menjadi daftar barang. Sheet "Daftar Barang" dipakai bila
+// ada, selain itu sheet pertama. Kolom dikenali dari judulnya (urutan bebas, kolom tambahan diabaikan).
+func ImporBarangXLSX(data []byte) (hasil *HasilImpor, err error) {
 	// Pustaka pembaca .xlsx diberi berkas dari pengguna: galat tak terduga (panic) tidak boleh menjatuhkan server.
 	defer func() {
 		if r := recover(); r != nil {
 			hasil, err = nil, validasi("Berkas tidak dapat dibaca sebagai Excel (.xlsx)")
 		}
 	}()
-	f, err := excelize.OpenReader(bytes.NewReader(data), excelize.Options{UnzipSizeLimit: batasZipXLSX, UnzipXMLSizeLimit: batasXMLXLSX})
+	f, err := bukaBerkasXLSX(data, "Gunakan template dari tombol Unduh template.")
 	if err != nil {
-		return nil, validasi("Berkas tidak dapat dibaca sebagai Excel (.xlsx); gunakan template dari tombol Unduh template")
+		return nil, err
 	}
 	defer f.Close()
 
@@ -416,6 +426,9 @@ func ImporBarangXLSX(data []byte) (hasil *HasilImpor, err error) {
 		}
 	}
 	if judulBaris < 0 {
+		if adaJudulDiSheetMana(f, "nilaipermohonan") {
+			return nil, validasi("Berkas ini tampaknya hasil ekspor data aset SIMAN (ada kolom Nilai Permohonan). Gunakan tombol Unggah Data SIMAN.")
+		}
 		return nil, validasi("Judul kolom tidak ditemukan. Kolom wajib: Nama Barang, Nilai Perolehan (Rp), Nilai Limit (Rp). Gunakan template dari tombol Unduh template.")
 	}
 

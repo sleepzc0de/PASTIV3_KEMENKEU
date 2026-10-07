@@ -82,7 +82,7 @@ var TahapPenjualan = []Tahap{
 	{Kunci: TahapBA, Peran: PeranSatker, Label: "Penyusunan Berita Acara Penelitian", Jenis: JenisForm, Dokumen: []string{DokBA}, BolehDilewati: true,
 		Keterangan: "Membuat konsep Berita Acara Penelitian. Lewati bila dibuat di luar aplikasi."},
 	{Kunci: TahapNDSatker, Peran: PeranSatker, Label: "Penyusunan konsep Nota Dinas Usulan Penjualan Satker", Jenis: JenisForm, Dokumen: []string{DokNDSatker},
-		Keterangan: "Nota Dinas usulan Satker kepada Unit Eselon I, beserta daftar barang, checklist kelengkapan, dan surat-surat pernyataan."},
+		Keterangan: "Nota Dinas usulan Satker kepada Unit Eselon I, beserta daftar barang, checklist kelengkapan, dan surat-surat pernyataan. Buat tiket di SIMAN lebih dulu: nomor tiketnya dicantumkan pada Nota Dinas."},
 	{Kunci: TahapNadineSatker, Peran: PeranSatker, Label: "Penetapan Nota Dinas Usulan Satker", Jenis: JenisEksternal, Kanal: "Nadine", WajibNomorTanggal: true,
 		Keterangan: "Nota Dinas ditetapkan melalui Nadine. Catat nomor dan tanggalnya."},
 	{Kunci: TahapSimanSatker, Peran: PeranSatker, Label: "Pembuatan tiket SIMAN dan upload dokumen", Jenis: JenisEksternal, Kanal: "SIMAN",

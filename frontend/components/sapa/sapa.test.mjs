@@ -351,3 +351,77 @@ test("gabungBarang: ganti, tambah, dan batas jumlah", () => {
   assert.equal(H.gabungBarang(lama, baru, "ganti").terbuang, 0);
   assert.equal(H.MAKS_BYTE_XLSX, 2 * 1024 * 1024);
 });
+
+test("tanpa_kanwil: dinormalisasi, dan isian tembusan Kanwil tidak dikirim bila satker tidak punya Kanwil", () => {
+  assert.equal(H.normNDSatker({}, items).tanpa_kanwil, false);
+  assert.equal(H.normNDSatker({ tanpa_kanwil: "ya" }, items).tanpa_kanwil, false); // hanya boolean true yang berlaku
+  assert.equal(H.normNDUE1({}).tanpa_kanwil, false);
+  assert.equal(H.normNDUE1({ tanpa_kanwil: true }).tanpa_kanwil, true);
+
+  const ada = H.normNDSatker({ kepala_kanwil: "Kepala Kantor Wilayah DJP Jakarta Pusat" }, items);
+  assert.equal(H.muatanNDSatker(ada, items).kepala_kanwil, "Kepala Kantor Wilayah DJP Jakarta Pusat");
+  const tanpa = H.normNDSatker({ kepala_kanwil: "sisa ketikan", tanpa_kanwil: true }, items);
+  const m = H.muatanNDSatker(tanpa, items);
+  assert.equal(m.kepala_kanwil, "");
+  assert.equal(m.tanpa_kanwil, true);
+});
+
+const kw = (kode, nama, singkatan = "") => ({ kode, nama, singkatan, tembusan: `Kepala ${nama}` });
+const DAFTAR_KW = [
+  kw("015010199", "Kantor Wilayah DJP Jakarta Pusat", "KW DJP JKT PUSAT"),
+  kw("015020199", "Kantor Wilayah DJBC Jawa Timur I"),
+  kw("015040199", "Kantor Wilayah DJKN Jawa Timur", "KW DJKN JATIM"),
+  kw("025040199", "Kantor Wilayah DJPb Provinsi Bali"),
+];
+
+test("kode9DariSatker: 9 karakter pertama bila semuanya angka", () => {
+  assert.equal(H.kode9DariSatker("099710199971001000"), "099710199");
+  assert.equal(H.kode9DariSatker(" 015040199119091000KP "), "015040199");
+  assert.equal(H.kode9DariSatker("0150401"), ""); // terlalu pendek
+  assert.equal(H.kode9DariSatker("01504019A119091000"), ""); // huruf pada 9 karakter pertama
+  assert.equal(H.kode9DariSatker(null), "");
+  assert.equal(H.kode9DariSatker(undefined), "");
+});
+
+test("saringPilihanKanwil: cari menurut kode, uraian, atau singkatan; yang sesuai kode satker di depan", () => {
+  const kode = (q, maks = 8, saran = "") => H.saringPilihanKanwil(DAFTAR_KW, q, maks, saran).map((r) => r.kode);
+  assert.deepEqual(kode(""), ["015010199", "015020199", "015040199", "025040199"]); // tanpa kata kunci: urutan daftar
+  assert.deepEqual(kode("", 8, "015040199"), ["015040199", "015010199", "015020199", "025040199"]); // yang sesuai kode satker di depan
+  assert.deepEqual(kode("0150"), ["015010199", "015020199", "015040199"]); // awalan kode
+  assert.deepEqual(kode("5040199"), ["015040199", "025040199"]); // bagian kode
+  assert.deepEqual(kode("jawa timur"), ["015020199", "015040199"]); // uraian, huruf besar/kecil diabaikan
+  assert.deepEqual(kode("JAWA   TIMUR djkn"), ["015040199"]); // semua kata harus cocok
+  assert.deepEqual(kode("jkt pusat"), ["015010199"]); // singkatan
+  assert.deepEqual(kode("bali"), ["025040199"]);
+  assert.deepEqual(kode("tidak ada"), []);
+  assert.deepEqual(kode("wilayah", 2), ["015010199", "015020199"]); // dibatasi maks
+  // kode yang berawalan kata pertama didahulukan dari yang hanya memuatnya
+  assert.deepEqual(kode("02"), ["025040199", "015020199"]); // berawalan "02" lebih dulu daripada yang hanya memuat "02"
+  // daftar asli tidak berubah urutannya
+  assert.equal(DAFTAR_KW[0].kode, "015010199");
+});
+
+test("labelPilihanKanwil: kode dan uraian, singkatan dalam kurung bila ada", () => {
+  assert.equal(H.labelPilihanKanwil(DAFTAR_KW[1]), "015020199 · Kantor Wilayah DJBC Jawa Timur I");
+  assert.equal(H.labelPilihanKanwil(DAFTAR_KW[0]), "015010199 · Kantor Wilayah DJP Jakarta Pusat (KW DJP JKT PUSAT)");
+});
+
+test("kode_kanwil: dinormalisasi dan hanya dikirim bila satker punya Kanwil", () => {
+  assert.equal(H.normNDSatker({}, items).kode_kanwil, "");
+  assert.equal(H.normNDSatker({ kode_kanwil: "015040199" }, items).kode_kanwil, "015040199");
+  assert.equal(H.normNDSatker({ kode_kanwil: 15040199 }, items).kode_kanwil, ""); // hanya teks yang berlaku
+  assert.equal(H.normNDUE1({ kode_kanwil: "015040199" }).kode_kanwil, "015040199");
+  assert.equal(H.normNDUE1(null).kode_kanwil, "");
+
+  const ada = H.normNDSatker({ kepala_kanwil: "Kepala Kantor Wilayah DJKN Jawa Timur", kode_kanwil: "015040199" }, items);
+  assert.equal(H.muatanNDSatker(ada, items).kode_kanwil, "015040199");
+  const tanpa = H.normNDSatker({ kepala_kanwil: "x", kode_kanwil: "015040199", tanpa_kanwil: true }, items);
+  const m = H.muatanNDSatker(tanpa, items);
+  assert.equal(m.kode_kanwil, "");
+  assert.equal(m.kepala_kanwil, "");
+
+  const ue = H.normNDUE1({ kepala_kanwil: "Kepala Kanwil X", kode_kanwil: "015040199" });
+  assert.deepEqual([H.muatanNDUE1(ue).kepala_kanwil, H.muatanNDUE1(ue).kode_kanwil], ["Kepala Kanwil X", "015040199"]);
+  const ueTanpa = H.normNDUE1({ kepala_kanwil: "Kepala Kanwil X", kode_kanwil: "015040199", tanpa_kanwil: true });
+  assert.deepEqual([H.muatanNDUE1(ueTanpa).kepala_kanwil, H.muatanNDUE1(ueTanpa).kode_kanwil, H.muatanNDUE1(ueTanpa).tanpa_kanwil], ["", "", true]);
+});

@@ -35,6 +35,8 @@ type Repo interface {
 
 	// referensi
 	AmbilRefUE1(ctx context.Context, kode string) (*RefUE1, error)
+	AmbilRefKanwil(ctx context.Context, kode9 string) (*RefKanwil, error) // referensi Kanwil umum (ref_kanwil); nil bila tidak ada
+	DaftarRefKanwilAktif(ctx context.Context) ([]RefKanwil, error)        // referensi Kanwil yang aktif, urut menurut urutan lalu kode (untuk pemilih tembusan)
 	DaftarRefUE1(ctx context.Context) ([]RefUE1, error)
 	SimpanRefUE1(ctx context.Context, r RefUE1, oleh string) error
 	HapusRefUE1(ctx context.Context, kode string) error

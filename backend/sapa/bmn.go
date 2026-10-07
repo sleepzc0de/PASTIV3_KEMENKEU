@@ -37,22 +37,23 @@ type RefBMN struct {
 	Satuan []SatuanBMN `json:"satuan"`
 }
 
-// DefaultRefBMN: daftar awal yang disemai migrasi 022 (dan dipakai penyimpanan memori untuk tes). Mengikuti penggolongan BMN
-// (Tanah, Peralatan dan Mesin, Gedung dan Bangunan, Jalan Irigasi dan Jaringan, Aset Tetap Lainnya); admin dapat mengubahnya.
+// DefaultRefBMN: daftar awal yang disemai migrasi 022 dan 057 (dan dipakai penyimpanan memori untuk tes). Mengikuti penggolongan BMN
+// (Tanah, Peralatan dan Mesin, Gedung dan Bangunan, Jalan Irigasi dan Jaringan, Aset Tetap Lainnya); admin dapat mengubahnya. NUP berlaku untuk semua jenis
+// (setiap barang punya nomor urut pendaftaran) dan m2 untuk jenis yang diukur luasnya (Tanah, Gedung dan Bangunan, Tanah dan Bangunan).
 func DefaultRefBMN() RefBMN {
-	sat := []string{"bidang", "unit", "buah", "set", "paket", "eksemplar"}
+	sat := []string{"bidang", "unit", "buah", "set", "paket", "eksemplar", "NUP", "m2"}
 	r := RefBMN{}
 	for i, s := range sat {
 		r.Satuan = append(r.Satuan, SatuanBMN{Nama: s, Aktif: true, Urutan: i + 1})
 	}
 	jenis := []JenisBMN{
-		{Nama: "Tanah", Satuan: []string{"bidang"}, SatuanBawaan: "bidang"},
-		{Nama: "Gedung dan Bangunan", Satuan: []string{"unit", "buah"}, SatuanBawaan: "unit"},
-		{Nama: "Tanah dan Bangunan", Satuan: []string{"bidang", "unit", "paket"}, SatuanBawaan: "unit"},
-		{Nama: "Peralatan dan Mesin", Satuan: []string{"unit", "buah", "set", "paket"}, SatuanBawaan: "unit"},
-		{Nama: "Kendaraan Bermotor", Satuan: []string{"unit"}, SatuanBawaan: "unit"},
-		{Nama: "Jalan, Irigasi, dan Jaringan", Satuan: []string{"unit", "paket"}, SatuanBawaan: "unit"},
-		{Nama: "Aset Tetap Lainnya", Satuan: []string{"unit", "buah", "set", "eksemplar"}, SatuanBawaan: "unit"},
+		{Nama: "Tanah", Satuan: []string{"bidang", "m2", "NUP"}, SatuanBawaan: "bidang"},
+		{Nama: "Gedung dan Bangunan", Satuan: []string{"unit", "buah", "m2", "NUP"}, SatuanBawaan: "unit"},
+		{Nama: "Tanah dan Bangunan", Satuan: []string{"bidang", "unit", "paket", "m2", "NUP"}, SatuanBawaan: "unit"},
+		{Nama: "Peralatan dan Mesin", Satuan: []string{"unit", "buah", "set", "paket", "NUP"}, SatuanBawaan: "unit"},
+		{Nama: "Kendaraan Bermotor", Satuan: []string{"unit", "NUP"}, SatuanBawaan: "unit"},
+		{Nama: "Jalan, Irigasi, dan Jaringan", Satuan: []string{"unit", "paket", "NUP"}, SatuanBawaan: "unit"},
+		{Nama: "Aset Tetap Lainnya", Satuan: []string{"unit", "buah", "set", "eksemplar", "NUP"}, SatuanBawaan: "unit"},
 	}
 	for i, j := range jenis {
 		j.Aktif, j.Urutan = true, i+1

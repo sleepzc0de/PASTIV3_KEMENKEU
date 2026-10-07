@@ -18,6 +18,7 @@ type MemRepo struct {
 
 	Nama   map[string]string     // userID -> nama lengkap
 	Satker map[string]SatkerInfo // kode 18 digit -> satker (data Digitalisasi Aset)
+	Kanwil map[string]RefKanwil  // kode 9 digit -> referensi Kanwil
 
 	kasus                       map[int64]*KasusInfo
 	tahap                       map[int64]map[string]TahapRow
@@ -41,7 +42,7 @@ type memTpl struct {
 
 func NewMemRepo() *MemRepo {
 	return &MemRepo{
-		Nama: map[string]string{}, Satker: map[string]SatkerInfo{}, kasus: map[int64]*KasusInfo{},
+		Nama: map[string]string{}, Satker: map[string]SatkerInfo{}, Kanwil: map[string]RefKanwil{}, kasus: map[int64]*KasusInfo{},
 		tahap: map[int64]map[string]TahapRow{}, dokumen: map[int64]*memDok{}, template: map[string][]*memTpl{},
 		refUE1: map[string]RefUE1{}, urut: map[int]int{},
 	}
@@ -266,6 +267,28 @@ func (m *MemRepo) AmbilRefUE1(_ context.Context, kode string) (*RefUE1, error) {
 		return &r, nil
 	}
 	return nil, nil
+}
+
+func (m *MemRepo) AmbilRefKanwil(_ context.Context, kode9 string) (*RefKanwil, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.Kanwil[kode9]; ok {
+		return &r, nil
+	}
+	return nil, nil
+}
+
+func (m *MemRepo) DaftarRefKanwilAktif(_ context.Context) ([]RefKanwil, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []RefKanwil{}
+	for _, r := range m.Kanwil {
+		if r.Aktif {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Kode < out[j].Kode })
+	return out, nil
 }
 
 func (m *MemRepo) DaftarRefUE1(_ context.Context) ([]RefUE1, error) {

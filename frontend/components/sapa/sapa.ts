@@ -12,6 +12,7 @@ import type {
   SapaItemDokumen,
   SapaJenisBMN,
   SapaPeran,
+  SapaPilihanKanwil,
   SapaRefBMN,
   SapaStatusTahap,
 } from "@/lib/sapa";
@@ -334,6 +335,8 @@ export function normNDSatker(v: unknown, items: SapaItemDokumen[]): SapaDataNDSa
     alasan: s(o.alasan),
     tiket_siman: s(o.tiket_siman),
     kepala_kanwil: s(o.kepala_kanwil),
+    kode_kanwil: s(o.kode_kanwil),
+    tanpa_kanwil: o.tanpa_kanwil === true,
     penandatangan: normPenandatangan(o.penandatangan),
     barang: arr(o.barang).map(normBarang),
     dokumen,
@@ -348,6 +351,8 @@ export function normNDUE1(v: unknown): SapaDataNDUE1 {
     hal_nd: s(o.hal_nd),
     sekretaris_ue1: s(o.sekretaris_ue1),
     kepala_kanwil: s(o.kepala_kanwil),
+    kode_kanwil: s(o.kode_kanwil),
+    tanpa_kanwil: o.tanpa_kanwil === true,
     pejabat_pengelola: s(o.pejabat_pengelola),
     penandatangan: normPenandatangan(o.penandatangan),
   };
@@ -367,7 +372,40 @@ export function muatanNDSatker(d: SapaDataNDSatker, items: SapaItemDokumen[]): S
     const x = d.dokumen[it.kunci] ?? dokBawaan(it);
     dokumen[it.kunci] = x.ada ? { ada: true, nomor: x.nomor.trim(), tanggal: x.tanggal } : { ada: false, nomor: "", tanggal: "" };
   }
-  return { ...d, barang: d.barang.filter((b) => !barangKosong(b)), dokumen };
+  // Satker tanpa Kanwil: isian tembusan (teks dan kode referensi) yang sempat diketik tidak dikirim.
+  return { ...d, kepala_kanwil: d.tanpa_kanwil ? "" : d.kepala_kanwil, kode_kanwil: d.tanpa_kanwil ? "" : d.kode_kanwil, barang: d.barang.filter((b) => !barangKosong(b)), dokumen };
+}
+
+export function muatanNDUE1(d: SapaDataNDUE1): SapaDataNDUE1 {
+  return { ...d, kepala_kanwil: d.tanpa_kanwil ? "" : d.kepala_kanwil, kode_kanwil: d.tanpa_kanwil ? "" : d.kode_kanwil };
+}
+
+// ---------------------------------------------------------------- pemilih Kanwil (Referensi Kanwil)
+
+// Kode Kanwil dari kode satker lengkap: 9 karakter pertama bila semuanya angka ("099710199971001000" -> "099710199"), selain itu kosong.
+export function kode9DariSatker(kodeSatker: string | null | undefined): string {
+  const k = (kodeSatker ?? "").trim().slice(0, 9);
+  return /^\d{9}$/.test(k) ? k : "";
+}
+
+// "015040199 · KANTOR WILAYAH DJP JAKARTA PUSAT" (dengan singkatan bila ada).
+export function labelPilihanKanwil(p: SapaPilihanKanwil): string {
+  return p.singkatan ? `${p.kode} · ${p.nama} (${p.singkatan})` : `${p.kode} · ${p.nama}`;
+}
+
+// Mencari Kanwil menurut kode, uraian, atau singkatan (huruf besar/kecil diabaikan; semua kata harus cocok). Urutan hasil: yang sesuai kode satker usulan lebih dulu, lalu yang kodenya
+// berawalan kata pertama, lalu sisanya menurut urutan daftar. Tanpa kata kunci, daftar ditampilkan apa adanya (yang sesuai kode satker di depan); paling banyak maks baris.
+export function saringPilihanKanwil(daftar: SapaPilihanKanwil[], q: string, maks: number, kodeSaran = ""): SapaPilihanKanwil[] {
+  const kata = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const cocok =
+    kata.length === 0
+      ? daftar
+      : daftar.filter((r) => {
+          const jerami = `${r.kode} ${r.nama} ${r.singkatan}`.toLowerCase();
+          return kata.every((k) => jerami.includes(k));
+        });
+  const bobot = (r: SapaPilihanKanwil) => (kodeSaran !== "" && r.kode === kodeSaran ? 0 : kata.length > 0 && r.kode.startsWith(kata[0]) ? 1 : 2);
+  return [...cocok].sort((a, b) => bobot(a) - bobot(b)).slice(0, maks);
 }
 
 // ---------------------------------------------------------------- pencarian pegawai (HRIS2)

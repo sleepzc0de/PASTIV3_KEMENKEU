@@ -73,6 +73,7 @@ func (s *Store) NamaPengguna(ctx context.Context, userID string) (string, error)
 	}
 	return str(nama), nil
 }
+
 // ---------------------------------------------------------------- usulan
 
 // UUID dibaca sebagai teks (CONVERT) lalu dibakukan ke huruf kecil di scanKasus: driver mengembalikan UNIQUEIDENTIFIER
@@ -468,6 +469,38 @@ func (s *Store) AmbilRefUE1(ctx context.Context, kode string) (*RefUE1, error) {
 		return nil, err
 	}
 	return &r, nil
+}
+
+// AmbilRefKanwil membaca referensi Kanwil umum (ref_kanwil, migrasi 056) menurut 9 karakter pertama kode satker; nil bila belum terdaftar. Tabelnya bisa belum ada bila
+// migrasi 056 belum dijalankan; galatnya dikembalikan dan pemanggil (saran formulir) memperlakukannya sebagai "tidak ada saran".
+func (s *Store) AmbilRefKanwil(ctx context.Context, kode9 string) (*RefKanwil, error) {
+	var r RefKanwil
+	err := s.DB.QueryRowContext(ctx, `SELECT kode, nama, ISNULL(singkatan, N''), aktif FROM ref_kanwil WHERE kode = @p1`, kode9).Scan(&r.Kode, &r.Nama, &r.Singkatan, &r.Aktif)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// DaftarRefKanwilAktif membaca referensi Kanwil yang aktif untuk pemilih tembusan Kanwil pada formulir Nota Dinas.
+func (s *Store) DaftarRefKanwilAktif(ctx context.Context) ([]RefKanwil, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT kode, nama, ISNULL(singkatan, N''), aktif FROM ref_kanwil WHERE aktif = 1 ORDER BY urutan, kode`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RefKanwil{}
+	for rows.Next() {
+		var r RefKanwil
+		if err := rows.Scan(&r.Kode, &r.Nama, &r.Singkatan, &r.Aktif); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // DaftarRefUE1 memuat semua UE1 yang sudah punya sebutan Sekretaris, ditambah UE1 aktif dari referensi umum yang belum punya (Sekretaris

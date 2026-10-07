@@ -41,13 +41,16 @@ func TestDefaultRefBMNMasukAkal(t *testing.T) {
 	}
 }
 
-// Migrasi 022 menyemai daftar yang sama dengan DefaultRefBMN (yang dipakai tes dan server uji): satu sumber yang dijaga tes.
-func TestMigrasi022SamaDenganDefault(t *testing.T) {
-	b, err := os.ReadFile("../migrations/022_create_sapa_bmn.sql")
-	if err != nil {
-		t.Fatal(err)
+// Migrasi 022 dan 057 (NUP dan m2) bersama menyemai daftar yang sama dengan DefaultRefBMN (yang dipakai tes dan server uji): satu sumber yang dijaga tes.
+func TestMigrasiBMNSamaDenganDefault(t *testing.T) {
+	sqlText := ""
+	for _, f := range []string{"022_create_sapa_bmn.sql", "057_sapa_satuan_nup_m2.sql"} {
+		b, err := os.ReadFile("../migrations/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlText += "\n" + string(b)
 	}
-	sqlText := string(b)
 	r := DefaultRefBMN()
 	for _, s := range r.Satuan {
 		re := regexp.MustCompile(`INSERT INTO sapa_satuan \(nama, urutan\) VALUES \('` + regexp.QuoteMeta(s.Nama) + `', ` + strconv.Itoa(s.Urutan) + `\)`)
@@ -60,22 +63,31 @@ func TestMigrasi022SamaDenganDefault(t *testing.T) {
 		if !re.MatchString(sqlText) {
 			t.Errorf("jenis %q (urutan %d, bawaan %q) tidak disemai migrasi", j.Nama, j.Urutan, j.SatuanBawaan)
 		}
+	}
+	// Pemetaan jenis -> satuan (beserta urutan) di kedua migrasi harus sama persis dengan default, tidak kurang dan tidak lebih.
+	want := map[string]bool{}
+	for _, j := range r.Jenis {
 		for i, s := range j.Satuan {
-			if !strings.Contains(sqlText, "('"+j.Nama+"', '"+s+"', "+strconv.Itoa(i+1)+")") {
-				t.Errorf("pemetaan %q -> %q (urutan %d) tidak disemai migrasi", j.Nama, s, i+1)
-			}
+			want["('"+j.Nama+"', '"+s+"', "+strconv.Itoa(i+1)+")"] = true
 		}
 	}
-	// Tidak ada pemetaan di migrasi yang tidak ada di default.
-	n := 0
-	for _, j := range r.Jenis {
-		n += len(j.Satuan)
+	got := map[string]int{}
+	for _, m := range regexp.MustCompile(`\('[^']+', '[^']+', \d+\)`).FindAllString(sqlText, -1) {
+		got[m]++
 	}
-	if got := strings.Count(sqlText, "INSERT INTO sapa_jenis_bmn_satuan (jenis, satuan, urutan) VALUES"); got != len(r.Jenis) {
-		t.Errorf("INSERT pemetaan = %d, want %d (satu per jenis)", got, len(r.Jenis))
+	for m := range want {
+		if got[m] != 1 {
+			t.Errorf("pemetaan %s muncul %d kali di migrasi, want 1", m, got[m])
+		}
 	}
-	if got := len(regexp.MustCompile(`\('[^']+', '[^']+', \d+\)`).FindAllString(sqlText, -1)); got != n {
-		t.Errorf("baris pemetaan di migrasi = %d, want %d", got, n)
+	for m := range got {
+		if !want[m] {
+			t.Errorf("pemetaan %s ada di migrasi tetapi tidak ada di default", m)
+		}
+	}
+	// Satuan: satu INSERT per satuan default, tidak lebih.
+	if n := strings.Count(sqlText, "INSERT INTO sapa_satuan (nama, urutan) VALUES"); n != len(r.Satuan) {
+		t.Errorf("INSERT satuan = %d, want %d", n, len(r.Satuan))
 	}
 }
 
@@ -129,8 +141,8 @@ func TestValidasiBMNKesesuaianJenisDanSatuan(t *testing.T) {
 func TestRefBMNAktifMenyaringYangNonaktif(t *testing.T) {
 	ref := DefaultRefBMN()
 	for i := range ref.Satuan {
-		if ref.Satuan[i].Nama == "bidang" {
-			ref.Satuan[i].Aktif = false // Tanah kehilangan satu-satunya satuan aktif -> tidak bisa dipakai
+		if n := ref.Satuan[i].Nama; n == "bidang" || n == "m2" || n == "NUP" {
+			ref.Satuan[i].Aktif = false // Tanah kehilangan seluruh satuan aktifnya (bidang, m2, NUP) -> tidak bisa dipakai
 		}
 	}
 	for i := range ref.Jenis {
@@ -273,13 +285,26 @@ func TestAdminMengaturJenisDanSatuanBMN(t *testing.T) {
 		t.Errorf("hapus satuan yang bukan tunggal: %v", err)
 	}
 	ref, _ = e.l.RefBMNSemua(e.ctx, e.admin)
-	if atl, _ := ref.CariJenis("Aset Tetap Lainnya"); atl.Mengizinkan("eksemplar") || len(atl.Satuan) != 3 {
+	if atl, _ := ref.CariJenis("Aset Tetap Lainnya"); atl.Mengizinkan("eksemplar") || len(atl.Satuan) != 4 {
 		t.Errorf("pemetaan harus ikut terhapus: %+v", atl)
 	}
-	// Kendaraan Bermotor hanya punya "unit": menghapus unit ditolak.
-	adalah(t, e.l.HapusSatuanBMN(e.ctx, e.admin, "unit"), &kf)
-	if kf == nil || !strings.Contains(kf.Pesan, "Kendaraan Bermotor") {
+	// Satuan yang menjadi satu-satunya satuan suatu jenis tidak boleh dihapus, dan pesannya menyebut jenisnya.
+	if err := e.l.SimpanSatuanBMN(e.ctx, e.admin, SatuanBMN{Nama: "lari", Aktif: true, Urutan: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.l.SimpanJenisBMN(e.ctx, e.admin, JenisBMN{Nama: "Jenis Satu Satuan", Aktif: true, Urutan: 9, Satuan: []string{"lari"}}); err != nil {
+		t.Fatal(err)
+	}
+	adalah(t, e.l.HapusSatuanBMN(e.ctx, e.admin, "lari"), &kf)
+	if kf == nil || !strings.Contains(kf.Pesan, "Jenis Satu Satuan") {
 		t.Errorf("pesan konflik: %v", kf)
+	}
+	if err := e.l.HapusJenisBMN(e.ctx, e.admin, "Jenis Satu Satuan"); err != nil {
+		t.Fatal(err)
+	}
+	// Kendaraan Bermotor punya "unit" dan "NUP": menghapus salah satunya tidak ditolak (bukan satu-satunya).
+	if err := e.l.HapusSatuanBMN(e.ctx, e.admin, "lari"); err != nil {
+		t.Errorf("hapus satuan yang tidak lagi dipakai jenis mana pun: %v", err)
 	}
 	// Satuan bawaan dialihkan saat satuan bawaan dihapus (jenis masih punya satuan lain).
 	if err := e.l.SimpanJenisBMN(e.ctx, e.admin, JenisBMN{Nama: "Pagar dan Jalan Lingkungan", Aktif: true, Urutan: 8, Satuan: []string{"meter", "paket"}, SatuanBawaan: "paket"}); err != nil {
@@ -377,4 +402,40 @@ func TestStoreRefBMNDanSimpanJenisDalamTransaksi(t *testing.T) {
 		t.Errorf("kejadian = %v", f3.Events())
 	}
 	cekParameter(t, f3)
+}
+
+// Masukan pengguna: satuan jumlah BMN dapat berupa bidang, NUP, unit, m2, dan seterusnya. NUP berlaku untuk semua jenis; m2 untuk jenis yang diukur luasnya.
+func TestSatuanNUPDanM2(t *testing.T) {
+	ref := DefaultRefBMN()
+	for _, c := range []struct {
+		jenis, satuan string
+		boleh         bool
+	}{
+		{"Tanah", "m2", true}, {"Tanah", "NUP", true}, {"Tanah", "bidang", true}, {"Tanah", "unit", false},
+		{"Gedung dan Bangunan", "m2", true}, {"Gedung dan Bangunan", "NUP", true},
+		{"Tanah dan Bangunan", "m2", true}, {"Tanah dan Bangunan", "NUP", true},
+		{"Peralatan dan Mesin", "NUP", true}, {"Peralatan dan Mesin", "m2", false},
+		{"Kendaraan Bermotor", "NUP", true}, {"Kendaraan Bermotor", "m2", false}, {"Kendaraan Bermotor", "paket", false},
+		{"Jalan, Irigasi, dan Jaringan", "NUP", true}, {"Jalan, Irigasi, dan Jaringan", "m2", false},
+		{"Aset Tetap Lainnya", "NUP", true}, {"Aset Tetap Lainnya", "m2", false},
+		{"tanah", "nup", true}, {"TANAH", "M2", true}, // huruf besar/kecil disamakan dengan daftar
+	} {
+		_, _, g := ValidasiBMN(ref, c.jenis, c.satuan)
+		if c.boleh && len(g) != 0 || !c.boleh && len(g) != 1 {
+			t.Errorf("%s / %s: boleh=%v galat=%v", c.jenis, c.satuan, c.boleh, g)
+		}
+	}
+	// Penulisan kanonik mengikuti daftar: "NUP" dan "m2".
+	if _, sk, _ := ValidasiBMN(ref, "Tanah", "nup"); sk != "NUP" {
+		t.Errorf("satuan kanonik = %q, want NUP", sk)
+	}
+	if _, sk, _ := ValidasiBMN(ref, "Tanah", "M2"); sk != "m2" {
+		t.Errorf("satuan kanonik = %q, want m2", sk)
+	}
+	// Dipakai pada dokumen: jumlah terbilang bersama satuannya.
+	for _, satuan := range []string{"NUP", "m2"} {
+		if got := JumlahTerbilang(3, satuan); got == "" || !strings.Contains(got, satuan) {
+			t.Errorf("JumlahTerbilang(3, %q) = %q", satuan, got)
+		}
+	}
 }

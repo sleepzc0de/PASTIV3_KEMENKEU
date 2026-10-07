@@ -355,6 +355,32 @@ func SkipSapaTahap(c *gin.Context) {
 	utils.SuccessResponse(c, http.StatusOK, "Tahap dilewati", nil)
 }
 
+// PUT /sapa/penjualan/:id/tahap/:kunci/keterangan: mengubah keterangan (mis. nomor dan tanggal SK) tahap yang dilewati karena dokumennya dibuat di luar aplikasi.
+func UbahSapaKeterangan(c *gin.Context) {
+	ctx, cancel := sapaCtx(c)
+	defer cancel()
+	id, ok := sapaMasuk(c, ctx)
+	if !ok {
+		return
+	}
+	pid, ok := sapaUsulanID(c, ctx, id)
+	if !ok {
+		return
+	}
+	var in struct {
+		Catatan string `json:"catatan"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Permintaan tidak valid")
+		return
+	}
+	if err := sapaLayanan().UbahKeterangan(ctx, id, pid, c.Param("kunci"), in.Catatan); err != nil {
+		sapaGagal(c, "ubah keterangan tahap", err)
+		return
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Keterangan tahap diperbarui", nil)
+}
+
 // POST /sapa/penjualan/:id/tahap/:kunci/buka-ulang: membuka ulang tahap yang sudah selesai atau dilewati. Pada usulan yang sudah selesai (terkunci), membuka ulang
 // tahap terakhir adalah membuka kunci usulan. Hanya superadmin dan Pengguna Barang (diperiksa Layanan).
 func ReopenSapaTahap(c *gin.Context) {

@@ -307,6 +307,44 @@ func (d *Doc) Replace(values map[string]string) (missing []string) {
 	return missing
 }
 
+// RemoveTagParagraphs membuang paragraf yang isinya HANYA penanda tag (mis. satu butir daftar tembusan bernomor otomatis), sehingga butir itu tidak tersisa sebagai
+// baris kosong dan penomoran otomatis menyesuaikan. Paragraf yang memuat penanda di tengah kalimat tidak disentuh (penandanya tetap diisi lewat Replace), dan satu-satunya
+// paragraf dalam sel tabel dibiarkan (dokumen Word mewajibkan sel memuat sedikitnya satu paragraf). Mengembalikan jumlah paragraf yang dibuang.
+func (d *Doc) RemoveTagParagraphs(tag string) int {
+	tag = NormalizeTag(tag)
+	n := 0
+	for _, name := range d.partNames() {
+		for _, p := range paragraphsIn(d.parts[name].Root()) {
+			var sb strings.Builder
+			for _, s := range segmentsOf(p) {
+				sb.WriteString(s.text)
+			}
+			m := tagPattern.FindAllStringSubmatchIndex(sb.String(), -1)
+			if len(m) != 1 || NormalizeTag(sb.String()[m[0][2]:m[0][3]]) != tag || strings.TrimSpace(tagPattern.ReplaceAllString(sb.String(), "")) != "" {
+				continue
+			}
+			parent := p.Parent()
+			if parent == nil {
+				continue
+			}
+			if isW(parent, "tc") {
+				paragraf := 0
+				for _, c := range parent.ChildElements() {
+					if isW(c, "p") {
+						paragraf++
+					}
+				}
+				if paragraf <= 1 {
+					continue
+				}
+			}
+			parent.RemoveChild(p)
+			n++
+		}
+	}
+	return n
+}
+
 func replaceInParagraph(p *etree.Element, values map[string]string) (missing []string) {
 	segs := segmentsOf(p)
 	if len(segs) == 0 {

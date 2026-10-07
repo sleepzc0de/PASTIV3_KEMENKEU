@@ -30,6 +30,13 @@ Aturan tahap:
   formulir diganti isian keterangan dokumen (mis. nomor dan tanggal SK, minimal 5 karakter) lalu tombol *Simpan dan lewati tahap*.
   Membatalkan centang mengembalikan formulir dengan isiannya utuh. Tahap yang sudah dilewati masih bisa dibuat di aplikasi lewat
   tombol *Buat dokumen di aplikasi*.
+- **Keterangan tahap yang dilewati dapat diubah** (tombol *Ubah keterangan* di kartu tahapnya), mis. untuk melengkapi atau membetulkan
+  nomor dan tanggal SK Tim atau Berita Acara yang dibuat di luar aplikasi. Boleh oleh peran yang berhak atas tahap itu **selama usulan belum
+  selesai**, juga setelah tahap sesudahnya selesai (hanya keterangan yang berubah, status tetap dilewati, jadi tidak ada dokumen yang
+  berselisih). Usulan yang sudah selesai terkunci; buka kuncinya lebih dulu. API: `PUT /sapa/penjualan/:id/tahap/:kunci/keterangan`
+  (badan `{"catatan": "..."}`, minimal 5 karakter); hanya untuk tahap berstatus dilewati (selain itu 409).
+- **Tiket SIMAN dibuat lebih dulu.** Tahap 3 memuat pemberitahuan bahwa tiket usulan penjualan harus sudah dibuat di SIMAN sebelum Nota Dinas
+  disusun, dan nomornya diisi pada kolom *Nomor tiket SIMAN* formulir ND Satker (pemberitahuan juga tampil di formulir).
 - Usulan punya **Noreg** (`PJ-<tahun>-<5 digit>`, mis. `PJ-2026-00001`). Noreg inilah "nomor tiket"/"Noreg aplikasi" pada
   dokumen; "Nomor tiket SIMAN" adalah isian terpisah di formulir ND Satker.
 
@@ -117,6 +124,26 @@ dipertahankan. Aturan khusus:
 Daftar lengkap penanda per jenis dokumen tampil di Pengaturan SAPA dan bersumber dari `backend/sapa/jenis.go` (diuji agar
 sejalan dengan template bawaan).
 
+## Tembusan Kanwil pada Nota Dinas
+
+Baris tembusan **Kepala Kantor Wilayah** pada Nota Dinas Satker dan Nota Dinas UE1 disarankan dari **Referensi Kanwil** (lihat
+[referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)), seperti sebutan Sekretaris dari Referensi UE1: kode Kanwil = 9 karakter pertama kode satker
+usulan. Uraian referensi yang seluruhnya huruf besar (hasil ambil dari data satker/SLDK) diubah menjadi huruf judul dengan singkatan dipertahankan
+(`sapa.TembusanKanwil`: "KANTOR WILAYAH DJP JAKARTA PUSAT" → "Kepala Kantor Wilayah DJP Jakarta Pusat"); uraian campuran huruf dipakai apa adanya.
+Hanya **saran**: bisa diubah di formulir. ND UE1 mengikuti isian ND Satker (termasuk centang "tidak punya Kanwil") bila ND Satker sudah dibuat. Bila kodenya
+belum ada di referensi atau nonaktif, sarannya kosong dan diketik manual.
+
+**Pemilih Kanwil.** Pada formulir kedua Nota Dinas, tembusan Kanwil dipilih dari kotak cari: ketik **kode, uraian, atau singkatan** lalu pilih dari Referensi Kanwil yang aktif
+(`GET /sapa/referensi/kanwil`, dapat dibaca semua pengguna SAPA; isinya kode, uraian, singkatan, dan saran teks `tembusan`). Memilih Kanwil mengisi **teks tembusan** dan menyimpan **kode 9 digit**
+pada isian (`kode_kanwil`), sehingga tembusan **terhubung ke Referensi Kanwil**. Teks tetap boleh diubah; Kanwil yang belum ada di referensi diketik manual (kode kosong), dan tombol
+*Lepas* memutus tautannya. Kanwil yang sesuai kode satker usulan terpilih otomatis sebagai saran awal dan diberi lencana "Sesuai kode satker" di daftar; draf lama tanpa tautan
+mendapat tombol *Pakai* untuk menghubungkannya. Backend hanya memeriksa kode berupa 9 digit angka (atau kosong), tidak terhadap referensi saat dokumen dibuat, jadi dokumen tetap bisa dibuat walau
+referensinya kemudian dinonaktifkan. Dengan "Satker ini tidak punya Kanwil", teks dan kode dikosongkan. Bila daftar tidak dapat dimuat, formulir menampilkan peringatan dan pengisian manual tetap berjalan.
+
+Tidak semua satker punya Kanwil. Pada kedua formulir ada kotak centang **"Satker ini tidak punya Kanwil"** (`tanpa_kanwil`): isian dikosongkan dan
+tidak wajib, dan **baris tembusan Kanwil dihapus dari dokumen Word** (`docx.RemoveTagParagraphs`, penomoran tembusan menyesuaikan karena otomatis).
+Tanpa centang, tembusan Kanwil wajib diisi.
+
 ## Referensi UE1
 
 Kode UE1 (5 digit) → nama dibaca dari referensi UE1 aplikasi (lihat [referensi-ue1-dan-satker.md](referensi-ue1-dan-satker.md)); **sebutan Sekretaris** disimpan di
@@ -132,10 +159,12 @@ satuan yang diizinkan untuk jenis itu. Daftar dan pemetaannya diatur superadmin 
   bawaan jenis itu bila satuan saat ini tidak diizinkan.
 - Aturan ditegakkan **di backend** (`sapa.ValidasiBMN`, dipanggil saat dokumen dibuat), bukan hanya di formulir, jadi API
   tidak bisa dipakai menembusnya. Nama jenis/satuan dikanonkan menurut daftar (huruf besar/kecil).
-- Daftar awal (disemai migrasi 022 dan dijaga selaras dengan `sapa.DefaultRefBMN()` oleh tes): satuan bidang, unit, buah,
-  set, paket, eksemplar; jenis Tanah (bidang), Gedung dan Bangunan (unit, buah), Tanah dan Bangunan (bidang, unit, paket),
-  Peralatan dan Mesin (unit, buah, set, paket), Kendaraan Bermotor (unit), Jalan, Irigasi, dan Jaringan (unit, paket),
-  Aset Tetap Lainnya (unit, buah, set, eksemplar). Superadmin bebas mengubahnya.
+- Daftar awal (disemai migrasi 022 + 057 dan dijaga selaras dengan `sapa.DefaultRefBMN()` oleh tes): satuan bidang, unit, buah,
+  set, paket, eksemplar, **NUP**, **m2**; jenis Tanah (bidang, m2, NUP), Gedung dan Bangunan (unit, buah, m2, NUP), Tanah dan Bangunan
+  (bidang, unit, paket, m2, NUP), Peralatan dan Mesin (unit, buah, set, paket, NUP), Kendaraan Bermotor (unit, NUP), Jalan, Irigasi, dan
+  Jaringan (unit, paket, NUP), Aset Tetap Lainnya (unit, buah, set, eksemplar, NUP). Superadmin bebas mengubahnya (satuan lain, mis. "ha",
+  cukup ditambahkan di Pengaturan SAPA). Migrasi 057 hanya menambah yang belum ada, jadi pemetaan yang sudah disesuaikan superadmin tidak
+  ditimpa dan aman dijalankan ulang.
 - Jenis/satuan yang **dinonaktifkan** tidak muncul di formulir; jenis tanpa satuan aktif juga disembunyikan. Satuan yang
   menjadi satu-satunya satuan sebuah jenis tidak bisa dihapus (dijawab 409 dengan nama jenisnya).
 - Draf lama yang berisi teks bebas (sebelum fitur ini) tetap terbaca: formulir menandai jenis/satuan yang tidak sesuai daftar
@@ -162,6 +191,28 @@ Daftar barang bisa diisi lewat Excel, selain mengetik satu per satu atau menempe
   pertama. Maksimal 2 MB dan 500 barang; baris kosong dilewati. Angka dari Excel dirapikan (notasi ilmiah, sisa pembulatan,
   "2001.0"). Baris yang bermasalah **tetap dimuat** dan dilaporkan per baris (nomor baris = baris di Excel) supaya diperbaiki di
   formulir. Bila daftar saat ini sudah berisi, pengguna memilih *Ganti* atau *Tambahkan*.
+- **Unggah Data SIMAN** (`POST /sapa/barang/impor-siman`, multipart `berkas`): daftar barang langsung dari berkas **hasil ekspor data aset SIMAN** ("Lampiran Data Aset"), tanpa
+  menyalin ke template. Sheet "Permohonan Pengelolaan" dipakai bila ada (sheet pertama berkas SIMAN kosong), selain itu sheet pertama yang memuat judul Nama Barang, Nilai Perolehan, dan
+  Nilai Permohonan; judul boleh di baris mana pun dalam 10 baris awal (pada ekspor SIMAN: baris 2 di bawah judul laporan). Pemetaan kolom:
+
+  | Daftar barang SAPA | Kolom pada ekspor SIMAN |
+  |---|---|
+  | Nama Barang | Nama Barang |
+  | Kode Barang | Kode Barang |
+  | NUP | NUP |
+  | Lokasi/Merk/Tipe | Merk |
+  | Kondisi | Kondisi |
+  | Tahun Perolehan | **tahun** dari Tanggal Perolehan |
+  | Nilai Perolehan (Rp) | Nilai Perolehan |
+  | Nilai Limit (Rp) | Nilai Permohonan |
+  | Keterangan | Keterangan |
+
+  Kolom lain (No, Kode Register, Kode Satker, Nama Satker, Tipe, Nilai Buku, luas, Alamat/Lokasi, Status KIB, dan seterusnya) tidak dipakai. Nilai uang berformat Indonesia
+  ("Rp 9.035.434,00") dibaca menjadi angka polos (9035434); Tanggal Perolehan dikenali sebagai teks ISO ("2015-12-30T00:00:00Z"), "30-12-2015", "30/12/2015", tahun saja, atau tanggal
+  Excel; Kondisi disamakan dengan pilihan Baik/Rusak Ringan/Rusak Berat (huruf besar/kecil diabaikan). Batas dan perilaku sama dengan Unggah Excel (2 MB, 500 barang, baris bermasalah
+  tetap dimuat dan dilaporkan per baris dengan nomor baris di Excel, pilihan *Ganti* atau *Tambahkan*). Tambahan: **Nilai Permohonan nol** ("Rp 0,00", belum diisi di SIMAN) dilaporkan sebagai
+  galat Nilai limit (wajib lebih dari nol) disertai peringatan jumlahnya, dan berkas yang memuat **lebih dari satu kode satker** diberi peringatan. Berkas SIMAN yang diunggah lewat tombol
+  *Unggah Excel* (dan sebaliknya, template SAPA lewat tombol SIMAN) dijawab dengan petunjuk tombol yang tepat.
 - **Unduh daftar ini** (`POST /sapa/barang/ekspor`): daftar yang sedang dikerjakan dalam format template yang sama, untuk
   diedit di Excel lalu diunggah kembali. Semua teks ditulis sebagai teks (bukan rumus) sehingga isi yang diawali `=`, `+`, `-`,
   atau `@` tidak dieksekusi Excel.
@@ -207,6 +258,9 @@ berurutan, supaya alamat usulan lain tidak bisa ditebak dengan menambah/menguran
 Migrasi `022_create_sapa_bmn.sql` menambah `sapa_satuan` (satuan jumlah), `sapa_jenis_bmn` (jenis + satuan bawaan), dan
 `sapa_jenis_bmn_satuan` (pemetaan jenis → satuan yang diizinkan, `ON DELETE CASCADE`), lengkap dengan daftar awalnya.
 
+Migrasi `057_sapa_satuan_nup_m2.sql` menambah satuan **NUP** dan **m2** beserta pemetaannya ke jenis BMN (idempoten, hanya bila belum ada).
+Tembusan Kanwil membaca `ref_kanwil` (migrasi 056) lewat `Repo.AmbilRefKanwil`.
+
 Nama satker dan UE1 pada formulir usulan baru dicari di `DIGITALISASI_SATKER` (data Digitalisasi Aset); bila belum disinkronkan,
 pembuat usulan mengetik nama satker manual.
 
@@ -220,8 +274,8 @@ pembuat usulan mengetik nama satker manual.
 | `frontend/lib/sapa.ts`, `frontend/components/sapa/` | tipe, API, dan halaman |
 
 Rute (`:id` = UUID usulan): `GET /sapa/saya` (peran, kode satker 6/18 digit, kode Kanwil/UE1, `satker_pilihan`), `GET /sapa/referensi/satker`, `GET|POST /sapa/penjualan`, `GET /sapa/penjualan/:id`,
-`DELETE /sapa/penjualan/:id` (usulan yang belum selesai), `PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (superadmin dan Pengguna Barang),
-`GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`,
+`DELETE /sapa/penjualan/:id` (usulan yang belum selesai), `PUT /sapa/penjualan/:id/tahap/:kunci` (draf), `POST .../dokumen`, `.../selesai`, `.../lewati`, `.../buka-ulang` (superadmin dan Pengguna Barang), `PUT .../keterangan` (ubah keterangan tahap yang dilewati),
+`GET /sapa/dokumen/:id/unduh`, `GET /sapa/referensi/bmn`, `GET /sapa/referensi/kanwil`, `GET /sapa/barang/template`, `POST /sapa/barang/impor`, `POST /sapa/barang/impor-siman`,
 `POST /sapa/barang/ekspor`; superadmin: `/sapa/template`, `/sapa/ref-ue1`, `GET /sapa/bmn`,
 `PUT|DELETE /sapa/bmn/satuan`, `PUT|DELETE /sapa/bmn/jenis` (nama lewat badan JSON atau `?nama=`).
 
@@ -236,16 +290,19 @@ cd frontend && node --test components/sapa/sapa.test.mjs
   (driver palsu: urutan transaksi, jumlah parameter, escape `LIKE`).
 - `backend/routes/sapa_test.go`: HTTP dengan tabel rute asli (`RegisterSapa`): hak akses per peran, 404 vs 403, alur lengkap
   sampai unduhan, unggah template (multipart), batas ukuran, dan galat internal yang tidak bocor.
-- `backend/sapa/bmn_test.go`: kewajaran jenis-satuan, pengaturan admin (konflik hapus), dan kesamaan seed migrasi 022 dengan
-  `DefaultRefBMN()`; `backend/sapa/barang_xlsx_test.go`: template, ekspor→impor, anti-rumus, urutan kolom bebas, angka ala Excel,
-  galat per baris, berkas rusak, dan batas baris.
+- `backend/sapa/bmn_test.go`: kewajaran jenis-satuan, pengaturan admin (konflik hapus), dan kesamaan seed migrasi 022 + 057 dengan
+  `DefaultRefBMN()`; `kanwil_test.go`, `tanpa_kanwil_test.go`, `keterangan_test.go`: saran tembusan Kanwil, dokumen tanpa tembusan Kanwil, dan
+  ubah keterangan tahap dilewati (termasuk usulan terkunci); `backend/sapa/barang_xlsx_test.go`: template, ekspor→impor, anti-rumus, urutan kolom bebas, angka ala Excel,
+  galat per baris, berkas rusak, dan batas baris; `backend/sapa/siman_xlsx_test.go`: pemetaan kolom ekspor SIMAN, tanggal dan nilai uang berbagai format, baris bermasalah, batas baris, berkas salah
+  tombol, dan anti-rumus; `backend/routes/sapa_siman_kanwil_test.go`: rute impor SIMAN dan daftar Kanwil untuk pemilih; `backend/routes/sapa_bmn_kanwil_integrasi_test.go`: SQL Server sungguhan
+  (hanya bila `PASTI_UJI_MSSQL_DSN` diisi), termasuk `DaftarRefKanwilAktif`.
 - `frontend/components/sapa/sapa.test.mjs`: fungsi murni (nilai uang yang sama dengan backend, normalisasi isian, tempel dari Excel,
-  pemilihan jenis/satuan BMN, penggabungan hasil impor).
+  pemilihan jenis/satuan BMN, penggabungan hasil impor, pencarian Kanwil menurut kode/uraian, dan normalisasi `kode_kanwil`).
 
 ## Menjalankan pertama kali
 
-1. `./deploy.sh` (migrasi 021, 022, 023, dan 054 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal, 023 memberi UUID pada usulan, 054 menyalin peran SAPA lama ke peran aplikasi).
-2. Superadmin membuka **Pengaturan SAPA**: isi **Referensi UE1**, periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
+1. `./deploy.sh` (migrasi 021, 022, 023, 054, dan 057 berjalan otomatis; 022 menyemai daftar jenis BMN dan satuan awal, 023 memberi UUID pada usulan, 054 menyalin peran SAPA lama ke peran aplikasi, 057 menambah satuan NUP dan m2).
+2. Superadmin membuka **Pengaturan SAPA**: isi **Referensi UE1** dan **Referensi Kanwil** (untuk saran tembusan), periksa **Jenis & satuan BMN** (sesuaikan dengan kebutuhan),
    unggah template SK Tim dan Berita Acara (bila ingin dibuat di aplikasi). Peran pengguna **tidak** diatur di SAPA: beri peran
    data (Satker, Kanwil, UE1, Pengguna Barang) di **Manajemen Pengguna**.
 3. Pengguna Satker membuka SAPA → Penjualan → *Buat usulan penjualan*.
@@ -261,6 +318,8 @@ cd frontend && node --test components/sapa/sapa.test.mjs
 - Impor Excel diuji dengan berkas buatan `excelize` sendiri (ekspor → impor, variasi urutan kolom, angka ala Excel); **belum diuji
   dengan berkas yang disimpan oleh aplikasi Microsoft Excel/LibreOffice sungguhan**. Buka template di Excel sekali untuk memastikan
   daftar pilihan Kondisi dan validasi isian tampil.
+- Impor **Data SIMAN** diuji dengan satu berkas ekspor SIMAN asli (sheet "Permohonan Pengelolaan", 29 baris dari satu satker) dan berkas buatan yang meniru strukturnya. Ekspor SIMAN lain
+  (nama sheet atau judul kolom berbeda, tanggal berformat lain) dikenali sebisanya lewat alias judul dan beberapa format tanggal, tetapi belum diuji.
 - Template T02 (ND UE1) memuat salah ketik "Pengadaab" pada tembusan; template tidak diubah aplikasi, perbaiki di berkas Word lalu unggah ulang.
 - Peran Kanwil dibatasi 9 karakter pertama kode satker; ketepatannya bergantung pada kode Kanwil yang diberikan superadmin atau Pengguna Barang (atau saran dari kode satker SSO pegawai) sama dengan awalan kode satker pada data aset.
 - Tidak ada pengiriman email: dokumen diunduh dari aplikasi.

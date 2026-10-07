@@ -14,11 +14,13 @@ import (
 func RegisterSapa(g *gin.RouterGroup) {
 	g.GET("/saya", handlers.GetSapaSaya)
 	g.GET("/referensi/satker", handlers.GetSapaSatker)
-	g.GET("/referensi/bmn", handlers.GetSapaRefBMN) // jenis BMN aktif + satuan yang diizinkan, untuk formulir
+	g.GET("/referensi/bmn", handlers.GetSapaRefBMN)       // jenis BMN aktif + satuan yang diizinkan, untuk formulir
+	g.GET("/referensi/kanwil", handlers.GetSapaRefKanwil) // Referensi Kanwil aktif untuk pemilih tembusan Nota Dinas (cari menurut kode atau uraian)
 
 	// Template Excel daftar barang: unduh template, impor berkas yang sudah diisi, ekspor daftar yang sedang dikerjakan.
 	g.GET("/barang/template", handlers.UnduhTemplateBarang)
 	g.POST("/barang/impor", handlers.ImporBarang)
+	g.POST("/barang/impor-siman", handlers.ImporBarangSIMAN) // daftar barang dari hasil ekspor data aset SIMAN
 	g.POST("/barang/ekspor", handlers.EksporBarang)
 
 	// Pencarian pegawai HRIS2 untuk mengisi anggota tim (sesi SSO pengguna; hanya NIP, nama, jabatan, satker yang diteruskan).
@@ -33,6 +35,7 @@ func RegisterSapa(g *gin.RouterGroup) {
 	g.POST("/penjualan/:id/tahap/:kunci/dokumen", handlers.GenerateSapaDokumen)
 	g.POST("/penjualan/:id/tahap/:kunci/selesai", handlers.CompleteSapaTahap)
 	g.POST("/penjualan/:id/tahap/:kunci/lewati", handlers.SkipSapaTahap)
+	g.PUT("/penjualan/:id/tahap/:kunci/keterangan", handlers.UbahSapaKeterangan) // ubah keterangan tahap yang dilewati (dibuat di luar aplikasi)
 	// Buka ulang tahap = buka kunci usulan yang selesai: superadmin dan Pengguna Barang. Hak ini bergantung pada peran data pengguna, jadi diperiksa di paket sapa.
 	g.POST("/penjualan/:id/tahap/:kunci/buka-ulang", handlers.ReopenSapaTahap)
 	g.GET("/dokumen/:id/unduh", handlers.DownloadSapaDokumen)

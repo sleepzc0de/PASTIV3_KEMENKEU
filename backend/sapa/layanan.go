@@ -260,14 +260,16 @@ type TahapDetail struct {
 	// DapatDiubah: belum ada tahap sesudahnya yang selesai DAN usulan belum selesai (usulan yang selesai terkunci seluruhnya).
 	DapatDiubah bool `json:"dapat_diubah"`
 	// DapatDibukaUlang: tahap sudah selesai/dilewati dan belum ada tahap sesudahnya yang selesai; hanya yang berhak membuka kunci (DetailUsulan.BolehBukaKunci) yang boleh.
-	DapatDibukaUlang bool            `json:"dapat_dibuka_ulang"`
-	Data             json.RawMessage `json:"data,omitempty"`
-	Saran            interface{}     `json:"saran,omitempty"`
-	Nomor            string          `json:"nomor,omitempty"`
-	Tanggal          string          `json:"tanggal,omitempty"`
-	Catatan          string          `json:"catatan,omitempty"`
-	DiperbaruiOleh   string          `json:"diperbarui_oleh,omitempty"`
-	DiperbaruiPada   *time.Time      `json:"diperbarui_pada,omitempty"`
+	DapatDibukaUlang bool `json:"dapat_dibuka_ulang"`
+	// DapatUbahKeterangan: tahap dilewati (dokumen dibuat di luar aplikasi) pada usulan yang belum selesai; keterangannya (nomor/tanggal dokumen) boleh diubah oleh pemilik tahap.
+	DapatUbahKeterangan bool            `json:"dapat_ubah_keterangan"`
+	Data                json.RawMessage `json:"data,omitempty"`
+	Saran               interface{}     `json:"saran,omitempty"`
+	Nomor               string          `json:"nomor,omitempty"`
+	Tanggal             string          `json:"tanggal,omitempty"`
+	Catatan             string          `json:"catatan,omitempty"`
+	DiperbaruiOleh      string          `json:"diperbarui_oleh,omitempty"`
+	DiperbaruiPada      *time.Time      `json:"diperbarui_pada,omitempty"`
 	// Dokumen (hasil) menutupi bidang Dokumen milik Tahap pada JSON, sehingga jenis dokumen yang dihasilkan tahap form
 	// disajikan terpisah di JenisDokumen.
 	Dokumen          []DokumenInfo   `json:"dokumen"`
@@ -332,6 +334,7 @@ func (l *Layanan) DetailUsulan(ctx context.Context, id Identitas, pid int64) (*D
 		urutanBolehUbah := BolehDiubah(status, def.Kunci) == nil
 		td.DapatDiubah = urutanBolehUbah && !out.Selesai
 		td.DapatDibukaUlang = urutanBolehUbah && selesaiAtauDilewati(td.Status)
+		td.DapatUbahKeterangan = td.Status == StatusDilewati && !out.Selesai
 		if len(row.Data) > 0 {
 			td.Data = json.RawMessage(row.Data)
 		}
@@ -370,6 +373,14 @@ func (l *Layanan) saran(ctx context.Context, kunci string, k *KasusInfo, rows ma
 	if r, err := l.Repo.AmbilRefUE1(ctx, k.KodeUE1); err == nil && r != nil {
 		sekretaris = r.Sekretaris
 	}
+	// Saran tembusan Kepala Kantor Wilayah dari referensi Kanwil (9 karakter pertama kode satker). Tidak semua satker punya Kanwil, jadi tanpa referensi
+	// sarannya kosong (pengguna mengetik sendiri atau mencentang "tidak punya Kanwil"); referensi yang nonaktif tidak disarankan.
+	kepalaKanwil, kodeKanwil := "", ""
+	if kunci == TahapNDSatker || kunci == TahapNDUE1 {
+		if r, err := l.Repo.AmbilRefKanwil(ctx, Kanwil9Dari(k.KodeSatker)); err == nil && r != nil && r.Aktif {
+			kepalaKanwil, kodeKanwil = TembusanKanwil(r.Nama), r.Kode
+		}
+	}
 	switch kunci {
 	case TahapTim:
 		return DataTim{JenisTim: JenisTimValid[0], Kota: kota}
@@ -384,15 +395,16 @@ func (l *Layanan) saran(ctx context.Context, kunci string, k *KasusInfo, rows ma
 		}
 		return DataBA{Bentuk: BentukValid[0], NamaTim: nama}
 	case TahapNDSatker:
-		return DataNDSatker{TujuanSurat: sekretaris, Kota: kota}
+		return DataNDSatker{TujuanSurat: sekretaris, Kota: kota, KepalaKanwil: kepalaKanwil, KodeKanwil: kodeKanwil}
 	case TahapNDUE1:
-		d := DataNDUE1{SekretarisUE1: sekretaris}
+		d := DataNDUE1{SekretarisUE1: sekretaris, KepalaKanwil: kepalaKanwil, KodeKanwil: kodeKanwil}
 		var nd DataNDSatker
 		if r, ok := rows[TahapNDSatker]; ok && len(r.Data) > 0 && json.Unmarshal(r.Data, &nd) == nil {
 			if nd.TujuanSurat != "" {
 				d.SekretarisUE1 = nd.TujuanSurat
 			}
-			d.KepalaKanwil = nd.KepalaKanwil
+			// Tembusan Kanwil mengikuti usulan Satker (termasuk bila satker itu tidak punya Kanwil).
+			d.KepalaKanwil, d.KodeKanwil, d.TanpaKanwil = nd.KepalaKanwil, nd.KodeKanwil, nd.TanpaKanwil
 		}
 		if r, ok := rows[TahapNadineSatker]; ok {
 			d.NomorND, d.TanggalND = r.Nomor, r.Tanggal
@@ -610,15 +622,58 @@ func (l *Layanan) Lewati(ctx context.Context, id Identitas, pid int64, kunci, ca
 	if !kt.tahap.BolehDilewati {
 		return konflik("Tahap ini tidak boleh dilewati")
 	}
-	catatan = strings.TrimSpace(catatan)
-	if utf8.RuneCountInString(catatan) < 5 {
-		return validasi("Tuliskan alasan melewati tahap ini (minimal 5 karakter), mis. nomor dan tanggal dokumen yang dibuat di luar aplikasi")
-	}
-	if utf8.RuneCountInString(catatan) > MaksCatatan {
-		return validasi("Catatan terlalu panjang (maksimal %d karakter)", MaksCatatan)
+	catatan, err = validasiKeteranganLewati(catatan)
+	if err != nil {
+		return err
 	}
 	prev := kt.rows[kunci]
 	return l.Repo.SimpanTahap(ctx, pid, TahapRow{Kunci: kunci, Status: StatusDilewati, Data: prev.Data, Catatan: catatan, DiperbaruiOleh: id.Nama, DiperbaruiPada: time.Now().UTC()})
+}
+
+// validasiKeteranganLewati merapikan dan memeriksa keterangan dokumen yang dibuat di luar aplikasi (mis. nomor dan tanggal SK Tim).
+func validasiKeteranganLewati(catatan string) (string, error) {
+	catatan = strings.TrimSpace(catatan)
+	if utf8.RuneCountInString(catatan) < 5 {
+		return "", validasi("Tuliskan keterangan dokumen yang dibuat di luar aplikasi (minimal 5 karakter), mis. nomor dan tanggal SK Tim")
+	}
+	if utf8.RuneCountInString(catatan) > MaksCatatan {
+		return "", validasi("Keterangan terlalu panjang (maksimal %d karakter)", MaksCatatan)
+	}
+	return catatan, nil
+}
+
+// UbahKeterangan mengubah keterangan tahap yang dilewati karena dokumennya dibuat di luar aplikasi (nomor dan tanggal SK Tim, Berita Acara). Keterangan hanya catatan:
+// tidak ada dokumen atau tahap lain yang bergantung padanya, jadi boleh diubah kapan pun selama usulan belum selesai (usulan yang selesai terkunci), walau tahap sesudahnya
+// sudah selesai. Hanya pemilik tahap (dan superadmin) yang boleh; tahap yang tidak dilewati (selesai di aplikasi atau belum dikerjakan) ditolak.
+func (l *Layanan) UbahKeterangan(ctx context.Context, id Identitas, pid int64, kunci, catatan string) error {
+	k, err := l.muat(ctx, id, pid)
+	if err != nil {
+		return err
+	}
+	def, _, ok := TahapByKunci(kunci)
+	if !ok {
+		return ErrTidakDitemukan
+	}
+	if !BolehBertindak(id, k.Kasus(), def) {
+		return fmt.Errorf("%w: tahap ini dikerjakan oleh %s", ErrTidakBerhak, PeranLabel(def.Peran))
+	}
+	rows, err := l.Repo.TahapPenjualan(ctx, pid)
+	if err != nil {
+		return err
+	}
+	status := statusDari(rows)
+	if Selesai(status) {
+		return &ErrKonflik{Pesan: PesanTerkunci}
+	}
+	if status.get(kunci) != StatusDilewati {
+		return konflik("Keterangan hanya dapat diubah pada tahap yang dilewati karena dokumennya dibuat di luar aplikasi")
+	}
+	catatan, err = validasiKeteranganLewati(catatan)
+	if err != nil {
+		return err
+	}
+	prev := rows[kunci]
+	return l.Repo.SimpanTahap(ctx, pid, TahapRow{Kunci: kunci, Status: StatusDilewati, Data: prev.Data, Nomor: prev.Nomor, Tanggal: prev.Tanggal, Catatan: catatan, DiperbaruiOleh: id.Nama, DiperbaruiPada: time.Now().UTC()})
 }
 
 // BukaUlang (superadmin dan Pengguna Barang) mengembalikan tahap yang sudah selesai atau dilewati menjadi draf, selama belum ada tahap

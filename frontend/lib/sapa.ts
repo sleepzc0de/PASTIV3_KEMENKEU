@@ -138,7 +138,9 @@ export interface SapaDataNDSatker {
   satuan: string;
   alasan: string;
   tiket_siman: string;
-  kepala_kanwil: string;
+  kepala_kanwil: string; // tembusan Kepala Kantor Wilayah; terisi dari Referensi Kanwil bila ada, kosong bila tanpa_kanwil
+  kode_kanwil: string; // kode 9 digit Kanwil pada Referensi Kanwil yang terhubung; kosong bila tembusan diketik manual
+  tanpa_kanwil: boolean; // satker tidak punya Kanwil: butir tembusan Kanwil dibuang dari dokumen
   penandatangan: SapaPenandatangan;
   barang: SapaBarang[];
   dokumen: Record<string, SapaDokPendukung>;
@@ -150,6 +152,8 @@ export interface SapaDataNDUE1 {
   hal_nd: string;
   sekretaris_ue1: string;
   kepala_kanwil: string;
+  kode_kanwil: string;
+  tanpa_kanwil: boolean;
   pejabat_pengelola: string;
   penandatangan: SapaPenandatangan;
 }
@@ -165,6 +169,7 @@ export interface SapaTahapDetail extends Omit<SapaTahapDef, "dokumen"> {
   boleh_aksi: boolean; // peran pengguna sesuai dengan tahap
   dapat_diubah: boolean; // belum ada tahap sesudahnya yang selesai DAN usulan belum selesai (usulan yang selesai terkunci seluruhnya)
   dapat_dibuka_ulang: boolean; // sudah selesai/dilewati dan belum ada tahap sesudahnya yang selesai; hanya yang boleh_buka_kunci yang boleh
+  dapat_ubah_keterangan: boolean; // tahap dilewati (dokumen dibuat di luar aplikasi) pada usulan yang belum selesai: keterangannya (nomor/tanggal dokumen) boleh diubah
   data?: unknown; // isian tersimpan (draf atau yang dipakai membuat dokumen)
   saran?: unknown; // nilai awal formulir bila belum ada isian tersimpan
   nomor?: string;
@@ -293,6 +298,12 @@ export async function deleteSapaPenjualan(id: string) {
 }
 
 // Membuka ulang tahap yang sudah selesai. Pada usulan yang selesai (terkunci), membuka ulang tahap terakhir adalah membuka kunci usulan.
+// Mengubah keterangan tahap yang dilewati karena dokumennya dibuat di luar aplikasi (mis. nomor dan tanggal SK Tim); status tahap tetap dilewati.
+export async function ubahKeteranganSapa(id: string, tahap: string, catatan: string) {
+  const res = await api.put<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/keterangan`, { catatan });
+  return res.data;
+}
+
 export async function reopenSapaTahap(id: string, tahap: string) {
   const res = await api.post<SapaRes<null>>(`/sapa/penjualan/${id}/tahap/${tahap}/buka-ulang`);
   return res.data;
@@ -356,6 +367,19 @@ export interface SapaRefBMN {
   satuan: SapaSatuanBMN[];
 }
 
+// Referensi Kanwil aktif untuk pemilih tembusan Kepala Kantor Wilayah pada Nota Dinas (dicari menurut kode atau uraian); tembusan = saran teks yang tercetak.
+export interface SapaPilihanKanwil {
+  kode: string;
+  nama: string;
+  singkatan: string;
+  tembusan: string;
+}
+
+export async function getSapaRefKanwil() {
+  const res = await api.get<SapaRes<{ daftar: SapaPilihanKanwil[] | null }>>("/sapa/referensi/kanwil");
+  return res.data;
+}
+
 // Untuk formulir: hanya yang aktif. Untuk admin: lengkap.
 export async function getSapaRefBMN() {
   const res = await api.get<SapaRes<SapaRefBMN>>("/sapa/referensi/bmn");
@@ -402,6 +426,14 @@ export async function imporSapaBarang(berkas: File) {
   const form = new FormData();
   form.append("berkas", berkas);
   const res = await api.post<SapaRes<SapaHasilImpor>>("/sapa/barang/impor", form, { headers: { "Content-Type": undefined } });
+  return res.data;
+}
+
+// Daftar barang dari hasil ekspor data aset SIMAN (kolom dipetakan di backend: Nama/Kode Barang, NUP, Merk, Kondisi, tahun Tanggal Perolehan, Nilai Perolehan, Nilai Permohonan, Keterangan).
+export async function imporSapaBarangSIMAN(berkas: File) {
+  const form = new FormData();
+  form.append("berkas", berkas);
+  const res = await api.post<SapaRes<SapaHasilImpor>>("/sapa/barang/impor-siman", form, { headers: { "Content-Type": undefined } });
   return res.data;
 }
 
