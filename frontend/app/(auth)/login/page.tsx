@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { Alert } from "@/components/ui/Alert";
+import { teksVersi } from "@/lib/versi";
 import { BarChart3, DatabaseZap, FileCheck2, MapPinned, ShieldCheck } from "lucide-react";
 
 function LoginErrorBanner() {
@@ -102,6 +103,8 @@ export default function LoginPage() {
           </Suspense>
 
           <LoginForm />
+
+          {teksVersi() && <p className="mt-8 text-center text-xs text-slate-400">PASTI V3 · {teksVersi()}</p>}
         </div>
       </div>
     </div>
