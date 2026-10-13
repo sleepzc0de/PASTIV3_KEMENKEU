@@ -120,6 +120,7 @@ Urutannya: memeriksa port database terjangkau dari VPS → konfirmasi (ketik `pr
 | "Server database ... TIDAK terjangkau" | Firewall database belum mengizinkan IP VPS, TCP/IP belum aktif, atau `DB_HOST`/`DB_PORT` salah |
 | "Login failed for user" | `DB_USER` atau `DB_PASSWORD` salah |
 | "Cannot open database" | Database belum dibuat (langkah A) |
+| "Container ... sudah ada tetapi bukan dibuat oleh Docker Compose" padahal `docker ps -a` kosong | Yang ditemukan sebenarnya IMAGE sisa build yang namanya sama (`pasti-prod-backend`). Sudah diperbaiki di `deploy.sh` (memakai `docker container inspect`); pada server yang belum menarik perbaikan itu, hapus image sisa dengan `docker rmi pasti-prod-backend pasti-prod-frontend` lalu ulangi `./deploy.sh prod` |
 | Migrasi gagal dengan "permission denied" | Login belum berperan `db_owner` |
 | "Port ... sudah dipakai" | Ubah port di `deploy.env` |
 | Build gagal kehabisan memori | Tambah swap (langkah B) |
