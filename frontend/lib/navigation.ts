@@ -12,6 +12,7 @@ import {
   Network,
   ScrollText,
   Gauge,
+  ServerCrash,
 } from "lucide-react";
 
 export interface NavItem {
@@ -141,6 +142,14 @@ export const NAV_ENTRIES: NavEntry[] = [
     href: "/dashboard/monitor",
     icon: Gauge,
     description: "Pemakaian CPU, memori, disk, dan database, riwayatnya, dan resource mana yang perlu ditambah",
+    roles: ["superadmin"],
+  },
+  {
+    type: "item",
+    label: "Log Server",
+    href: "/dashboard/log-server",
+    icon: ServerCrash,
+    description: "Galat (error) dan peringatan (warning) dari server; info, debug, dan log akses tidak disimpan",
     roles: ["superadmin"],
   },
 ];

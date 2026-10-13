@@ -1,8 +1,8 @@
 package database
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"time"
 
@@ -24,10 +24,7 @@ func ConnectSLDK() {
 		return
 	}
 
-	connString := fmt.Sprintf(
-		"server=%s;user id=%s;password=%s;port=%s;database=%s;encrypt=true;TrustServerCertificate=true",
-		cfg.SLDKDBHost, cfg.SLDKDBUser, cfg.SLDKDBPassword, cfg.SLDKDBPort, cfg.SLDKDBName,
-	)
+	connString := stringKoneksi(cfg.SLDKDBHost, cfg.SLDKDBUser, cfg.SLDKDBPassword, cfg.SLDKDBPort, cfg.SLDKDBName)
 
 	db, err := sql.Open("sqlserver", connString)
 	if err != nil {
@@ -35,11 +32,15 @@ func ConnectSLDK() {
 		return
 	}
 
+	// Kolam SLDK sengaja kecil: SLDK adalah sumber data besar milik pihak lain dan hanya dibaca saat sinkronisasi.
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxLifetime(10 * time.Minute)
+	db.SetConnMaxIdleTime(3 * time.Minute)
 
-	if err := db.Ping(); err != nil {
+	ctx, batal := context.WithTimeout(context.Background(), 20*time.Second)
+	defer batal()
+	if err := db.PingContext(ctx); err != nil {
 		log.Println("[ERROR] Gagal terhubung ke SLDK (Interchange):", err)
 		return
 	}

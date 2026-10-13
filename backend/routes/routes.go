@@ -3,21 +3,25 @@ package routes
 import (
 	"github.com/gin-gonic/gin"
 
+	"pasti-v3-backend/database"
 	"pasti-v3-backend/handlers"
 	"pasti-v3-backend/middleware"
 )
 
 func SetupRoutes(r *gin.Engine) {
+	// Rute berat (ekspor Excel/PDF/CSV, analitik, peta): paling banyak beberapa yang berjalan bersamaan, sisanya antre sebentar lalu ditolak 503 (lihat middleware/ketahanan.go).
+	berat := middleware.BeratBawaan()
+
 	r.GET("/sso/login", handlers.SSOLogin)
-	r.GET("/sso/callback/login", handlers.SSOCallback)
+	r.GET("/sso/callback/login", middleware.Eksternal(), handlers.SSOCallback)
 
 	api := r.Group("/api/v1")
 	{
 		auth := api.Group("/auth")
 		{
-			auth.GET("/captcha", handlers.GenerateCaptcha)
-			auth.POST("/register", handlers.Register)
-			auth.POST("/login", handlers.Login)
+			auth.GET("/captcha", middleware.BatasLajuCaptcha(), handlers.GenerateCaptcha)
+			auth.POST("/register", middleware.BatasLajuLogin(), handlers.Register)
+			auth.POST("/login", middleware.BatasLajuLogin(), handlers.Login)
 			// Tamu (belum punya peran) dan pengguna yang belum menyetujui pernyataan hanya boleh membaca profilnya dan menyetujui pernyataan; semua endpoint lain
 			// memakai AuthRequired yang menolak mereka (403).
 			auth.GET("/me", middleware.AuthTamuBoleh(), handlers.Me)
@@ -55,8 +59,8 @@ func SetupRoutes(r *gin.Engine) {
 		digitalisasi := api.Group("/digitalisasi", middleware.AuthRequired())
 		{
 			digitalisasi.GET("/ringkasan", handlers.GetDigitalisasiRingkasan)
-			digitalisasi.GET("/peta", handlers.GetDigitalisasiPeta)
-			digitalisasi.GET("/ekspor/:dataset", handlers.EksporDigitalisasiData)
+			digitalisasi.GET("/peta", berat, handlers.GetDigitalisasiPeta)
+			digitalisasi.GET("/ekspor/:dataset", berat, handlers.EksporDigitalisasiData)
 			digitalisasi.GET("/data/:dataset", handlers.ListDigitalisasiData)
 			digitalisasi.GET("/data/:dataset/:id", handlers.GetDigitalisasiDetail)
 			digitalisasi.GET("/sinkronisasi", middleware.RequireCakupanSemuaPesan("Status dan riwayat sinkronisasi hanya tersedia bagi Pengguna Barang dan superadmin. Data aset satker Anda ada di tab Ringkasan, Peta, dan Data."), handlers.GetDigitalisasiSinkronisasi)
@@ -76,7 +80,15 @@ func SetupRoutes(r *gin.Engine) {
 			auditGrup.GET("/ringkasan", handlers.GetAuditRingkasan)
 			auditGrup.GET("/pengguna", handlers.GetAuditPengguna)
 			auditGrup.GET("/opsi", handlers.GetAuditOpsi)
-			auditGrup.GET("/ekspor", handlers.EksporAuditLog)
+			auditGrup.GET("/ekspor", berat, handlers.EksporAuditLog)
+		}
+		// Log server (hanya galat dan peringatan; info/debug dan log akses tidak pernah disimpan): khusus superadmin, hanya membaca. Baris dihapus otomatis oleh pembersihan retensi.
+		logServerGrup := api.Group("/log-server", middleware.AuthRequired(), middleware.RequireSuperadmin())
+		{
+			logServerGrup.GET("", handlers.GetServerLog)
+			logServerGrup.GET("/ringkasan", handlers.GetServerLogRingkasan)
+			logServerGrup.GET("/opsi", handlers.GetServerLogOpsi)
+			logServerGrup.GET("/:id", handlers.GetServerLogDetail)
 		}
 		monitorGrup := api.Group("/monitor", middleware.AuthRequired(), middleware.RequireSuperadmin())
 		{
@@ -86,7 +98,7 @@ func SetupRoutes(r *gin.Engine) {
 		}
 
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.
-		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireSuperadmin())
+		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireSuperadmin(), middleware.Eksternal())
 		{
 			hris2.GET("/pegawai/search", handlers.SearchPegawai)
 			hris2.GET("/pegawai/by-nip/:nip", handlers.SearchPegawaiByNIP)
@@ -106,7 +118,7 @@ func SetupRoutes(r *gin.Engine) {
 			referensi.PUT("/kanwil/:kode", middleware.RequireSuperadmin(), handlers.PutRefKanwil)
 			referensi.DELETE("/kanwil/:kode", middleware.RequireSuperadmin(), handlers.DeleteRefKanwil)
 			referensi.POST("/kanwil/dari-satker", middleware.RequireSuperadmin(), handlers.PostRefKanwilDariSatker)
-			referensi.POST("/kanwil/tarik-sldk", middleware.RequireSuperadmin(), handlers.PostRefKanwilTarikSLDK)
+			referensi.POST("/kanwil/tarik-sldk", middleware.RequireSuperadmin(), middleware.Eksternal(), handlers.PostRefKanwilTarikSLDK)
 		}
 		// Pengadaan Terpadu (Pengadaan, Tender, E-Katalog V5 dan V6). Data lokal, ekspor, dan dasbor terbuka bagi semua pengguna login dan dibatasi ke satker
 		// menurut peran aktif lewat kd_satker_str (UE1/Kanwil/Satker hanya melihat satkernya dan hanya dataset yang dapat dibatasi; lihat handlers/inaproc_cakupan.go).
@@ -117,8 +129,8 @@ func SetupRoutes(r *gin.Engine) {
 			{
 				dibatasi.GET("/dataset", handlers.GetInaprocDataset)
 				dibatasi.GET("/data/:awalan/:nama", handlers.GetInaprocData)
-				dibatasi.GET("/ekspor/:awalan/:nama", handlers.EksporInaprocData)
-				dibatasi.GET("/analitik", handlers.GetInaprocAnalitik)
+				dibatasi.GET("/ekspor/:awalan/:nama", berat, handlers.EksporInaprocData)
+				dibatasi.GET("/analitik", berat, handlers.GetInaprocAnalitik)
 			}
 			penarikan := inaproc.Group("", middleware.RequireCakupanSemua())
 			{
@@ -132,7 +144,15 @@ func SetupRoutes(r *gin.Engine) {
 		}
 	}
 
+	// /health: proses hidup (murah, tidak menyentuh database; dipakai pemeriksa kesehatan container). /health/ready: siap melayani, yaitu database menjawab.
 	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok", "service": "PASTI V3 Backend"})
+	})
+	r.GET("/health/ready", func(c *gin.Context) {
+		if err := database.Siap(); err != nil {
+			c.JSON(503, gin.H{"status": "database_tidak_siap", "service": "PASTI V3 Backend"})
+			return
+		}
 		c.JSON(200, gin.H{"status": "ok", "service": "PASTI V3 Backend"})
 	})
 }

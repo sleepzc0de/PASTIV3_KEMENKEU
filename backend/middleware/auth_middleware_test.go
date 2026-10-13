@@ -26,7 +26,7 @@ func pasang(t *testing.T, k *kondisiAkun) {
 	t.Helper()
 	config.Cfg = &config.Config{JWTSecret: "rahasia-uji-middleware-0123456789", JWTAccessExpireMin: 60}
 	lamaStatus, lamaPeran := muatStatusAkun, muatPeran
-	muatStatusAkun = func(string) (StatusAkun, error) { return k.status, k.err }
+	muatStatusAkun = func(context.Context, string) (StatusAkun, error) { return k.status, k.err }
 	muatPeran = func(_ context.Context, _ string, role string) (peran.Efektif, error) {
 		return peran.Selesaikan(role, k.baris), nil
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"pasti-v3-backend/audit"
+	"pasti-v3-backend/serverlog"
 )
 
 const (
@@ -88,7 +89,7 @@ func (m *Manager) pool(ctx context.Context, nama string, f func() *sql.DB, ping 
 // Mulai menjalankan pengukur berkala sampai ctx dibatalkan.
 func (m *Manager) Mulai(ctx context.Context) {
 	go func() {
-		m.ukurSatu(ctx, time.Now()) // pengukuran pertama hanya mengisi penghitung awal CPU
+		serverlog.Aman("MONITOR", func() { m.ukurSatu(ctx, time.Now()) }) // pengukuran pertama hanya mengisi penghitung awal CPU
 		if p := m.pool(ctx, "", m.DBUtama, false); p != nil {
 			m.mu.Lock()
 			m.tungguAwal = p.Menunggu
@@ -100,7 +101,7 @@ func (m *Manager) Mulai(ctx context.Context) {
 			return
 		case <-time.After(5 * time.Second): // supaya CPU sudah terbaca beberapa detik setelah aplikasi menyala
 		}
-		m.ukurSatu(ctx, time.Now())
+		serverlog.Aman("MONITOR", func() { m.ukurSatu(ctx, time.Now()) })
 		tik := time.NewTicker(intervalUkur)
 		defer tik.Stop()
 		for {
@@ -108,7 +109,7 @@ func (m *Manager) Mulai(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case t := <-tik.C:
-				m.ukurSatu(ctx, t)
+				serverlog.Aman("MONITOR", func() { m.ukurSatu(ctx, t) })
 			}
 		}
 	}()

@@ -14,6 +14,19 @@ services:
     networks:
       - pasti-network
     restart: unless-stopped
+    # Log container dibatasi ukurannya (5 berkas x 10 MB) supaya disk tidak penuh oleh log, berapa pun lamanya server berjalan.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # Penanda sehat/tidak sehat di docker ps (/health murah dan tidak menyentuh database; /health/ready memeriksa database).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8686/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
 
   frontend:
     build:
@@ -35,6 +48,11 @@ services:
     networks:
       - pasti-network
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       - backend
 

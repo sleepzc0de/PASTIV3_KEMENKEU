@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -81,6 +82,44 @@ type Config struct {
 	AuditRetensiHari   int
 	MonitorAktif       bool
 	MonitorRetensiHari int
+
+	// ============ Log server: hanya galat dan peringatan ============
+	// LogLevel: ambang cetak ke konsol (docker logs): error, warn, info, debug. Bawaan warn di production dan info di pengembangan. Pesan info/debug tidak pernah disimpan.
+	// LogSimpan: apa yang disimpan ke database untuk halaman Log Server: warn (error + warning, bawaan), error, atau off. Retensi per level dan batas jumlah baris menjaga tabel
+	// tetap kecil; LogLambatMS: permintaan yang lebih lama dari ini dicatat sebagai peringatan (rute berat dikecualikan; 0 = tidak dicatat).
+	LogLevel            string
+	LogSimpan           string
+	LogRetensiErrorHari int
+	LogRetensiWarnHari  int
+	LogMaksBaris        int
+	LogLambatMS         int
+
+	// ============ Ketahanan server saat diakses banyak pengguna bersamaan ============
+	// Pembatas laju per alamat IP klien (token bucket). Umum: PerDetik permintaan terus-menerus dengan lonjakan Burst; login dan captcha lebih ketat per menit.
+	// Bawaan sengaja longgar karena satu IP kantor bisa dipakai banyak pengguna sekaligus (NAT). RateLimitAktif=false mematikan semuanya.
+	RateLimitAktif           bool
+	RateLimitUmumPerDetik    int
+	RateLimitUmumBurst       int
+	RateLimitLoginPerMenit   int
+	RateLimitCaptchaPerMenit int
+	// MaksPermintaanSerentak: batas permintaan yang diproses bersamaan; yang melebihi menunggu paling lama AntreanTungguDetik lalu ditolak 503 (server tetap sehat daripada
+	// kehabisan memori/koneksi). MaksBeratSerentak: batas khusus rute berat (ekspor, dokumen, analitik) agar tidak menghabiskan CPU dan koneksi database.
+	MaksPermintaanSerentak int
+	MaksBeratSerentak      int
+	AntreanTungguDetik     int
+	// AuthCacheDetik: status akun dan peran pengguna disimpan sebentar di memori (0 = mati) supaya tidak dibaca dari database pada setiap permintaan; perubahan akun/peran
+	// lewat aplikasi langsung berlaku, perubahan langsung di database berlaku paling lambat sebanyak detik ini.
+	AuthCacheDetik int
+	BatasBadanMB   int
+	// TrustedProxies: alamat/CIDR proxy (Nginx) yang headernya (X-Real-IP, X-Forwarded-For) dipercaya untuk menentukan IP klien; selain itu IP sambungan langsung yang dipakai.
+	TrustedProxies string
+	// BatasMemoriMB: batas lunak memori Go (0 = tidak diatur; GOMEMLIMIT juga dihormati) supaya pemulung memori bekerja lebih agresif sebelum proses dimatikan OS karena kehabisan memori.
+	BatasMemoriMB int
+	// Kolam koneksi database.
+	DBMaksKoneksi          int
+	DBMaksIdle             int
+	DBKoneksiMaksUmurMenit int
+	DBKoneksiMaksIdleMenit int
 }
 
 var Cfg *Config
@@ -153,6 +192,30 @@ func LoadConfig() {
 		AuditRetensiHari:   getEnvInt("AUDIT_RETENSI_HARI", 365),
 		MonitorAktif:       getEnvBool("MONITOR_AKTIF", true),
 		MonitorRetensiHari: getEnvInt("MONITOR_RETENSI_HARI", 30),
+
+		LogLevel:            getEnv("LOG_LEVEL", ""),
+		LogSimpan:           getEnv("LOG_SIMPAN", "warn"),
+		LogRetensiErrorHari: getEnvInt("LOG_RETENSI_ERROR_HARI", 30),
+		LogRetensiWarnHari:  getEnvInt("LOG_RETENSI_WARN_HARI", 7),
+		LogMaksBaris:        getEnvInt("LOG_MAKS_BARIS", 50000),
+		LogLambatMS:         getEnvInt("LOG_PERMINTAAN_LAMBAT_MS", 3000),
+
+		RateLimitAktif:           getEnvBool("RATE_LIMIT_AKTIF", true),
+		RateLimitUmumPerDetik:    getEnvInt("RATE_LIMIT_UMUM_PER_DETIK", 200),
+		RateLimitUmumBurst:       getEnvInt("RATE_LIMIT_UMUM_BURST", 600),
+		RateLimitLoginPerMenit:   getEnvInt("RATE_LIMIT_LOGIN_PER_MENIT", 30),
+		RateLimitCaptchaPerMenit: getEnvInt("RATE_LIMIT_CAPTCHA_PER_MENIT", 60),
+		MaksPermintaanSerentak:   getEnvInt("MAKS_PERMINTAAN_SERENTAK", 400),
+		MaksBeratSerentak:        getEnvInt("MAKS_BERAT_SERENTAK", max(2, runtime.NumCPU())),
+		AntreanTungguDetik:       getEnvInt("ANTREAN_TUNGGU_DETIK", 3),
+		AuthCacheDetik:           getEnvInt("AUTH_CACHE_DETIK", 10),
+		BatasBadanMB:             getEnvInt("BATAS_BADAN_MB", 12),
+		TrustedProxies:           getEnv("TRUSTED_PROXIES", "127.0.0.1,::1,172.16.0.0/12,192.168.0.0/16"),
+		BatasMemoriMB:            getEnvInt("BATAS_MEMORI_MB", 0),
+		DBMaksKoneksi:            getEnvInt("DB_MAKS_KONEKSI", 50),
+		DBMaksIdle:               getEnvInt("DB_MAKS_IDLE", 25),
+		DBKoneksiMaksUmurMenit:   getEnvInt("DB_KONEKSI_MAKS_UMUR_MENIT", 10),
+		DBKoneksiMaksIdleMenit:   getEnvInt("DB_KONEKSI_MAKS_IDLE_MENIT", 3),
 	}
 
 	if Cfg.JWTSecret == "" || Cfg.PasswordPepper == "" {

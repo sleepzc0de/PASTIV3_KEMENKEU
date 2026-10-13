@@ -95,7 +95,7 @@ func SSOCallback(c *gin.Context) {
 
 	var codeVerifier string
 	var expiresAt time.Time
-	err := database.DB.QueryRow(
+	err := database.DB.QueryRowContext(c.Request.Context(),
 		`SELECT code_verifier, expires_at FROM sso_states WHERE state = @p1`, state,
 	).Scan(&codeVerifier, &expiresAt)
 

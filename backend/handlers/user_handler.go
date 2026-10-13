@@ -196,7 +196,7 @@ func CreateUser(c *gin.Context) {
 	}
 
 	var exists int
-	database.DB.QueryRow(
+	database.DB.QueryRowContext(c.Request.Context(),
 		`SELECT COUNT(1) FROM users WHERE username = @p1 OR email = @p2`,
 		req.Username, email,
 	).Scan(&exists)
@@ -283,7 +283,7 @@ func DeleteUser(c *gin.Context) {
 	}
 
 	var isProtected bool
-	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
+	err := database.DB.QueryRowContext(c.Request.Context(), `SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
 	if err == sql.ErrNoRows {
 		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
 		return
@@ -320,7 +320,7 @@ func DeactivateUser(c *gin.Context) {
 	}
 
 	var isProtected bool
-	err := database.DB.QueryRow(`SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
+	err := database.DB.QueryRowContext(c.Request.Context(), `SELECT is_protected FROM users WHERE id = @p1`, targetID).Scan(&isProtected)
 	if err == sql.ErrNoRows {
 		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
 		return
@@ -364,7 +364,7 @@ func UpdateUser(c *gin.Context) {
 
 	var isProtected bool
 	var authProvider string
-	err := database.DB.QueryRow(`SELECT is_protected, auth_provider FROM users WHERE id = @p1`, targetID).
+	err := database.DB.QueryRowContext(c.Request.Context(), `SELECT is_protected, auth_provider FROM users WHERE id = @p1`, targetID).
 		Scan(&isProtected, &authProvider)
 	if err == sql.ErrNoRows {
 		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
@@ -381,7 +381,7 @@ func UpdateUser(c *gin.Context) {
 
 	// Cegah bentrok email dengan user lain
 	var emailOwner string
-	err = database.DB.QueryRow(`SELECT id FROM users WHERE email = @p1 AND id != @p2`, req.Email, targetID).Scan(&emailOwner)
+	err = database.DB.QueryRowContext(c.Request.Context(), `SELECT id FROM users WHERE email = @p1 AND id != @p2`, req.Email, targetID).Scan(&emailOwner)
 	if err == nil {
 		utils.ErrorResponse(c, http.StatusConflict, "Email sudah digunakan oleh user lain")
 		return
