@@ -868,7 +868,9 @@ run_migrations() {
   ok "Migrasi selesai."
 }
 
-container_state() { docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo "tidak-ada"; }
+# Selalu "docker container inspect": "docker inspect" biasa juga mencocokkan IMAGE, dan compose menamai image hasil build
+# <proyek>-<layanan> (mis. pasti-prod-backend), yang sama dengan nama container. Tanpa ini, image sisa build dikira container.
+container_state() { docker container inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo "tidak-ada"; }
 
 # Port host yang sedang didengarkan proses apa pun (ss bila ada, selain itu uji koneksi).
 port_in_use() {
@@ -894,8 +896,8 @@ check_containers() {
   local cname owner here
   here=$(readlink -f "$APP_DIR" 2>/dev/null || echo "$APP_DIR")
   for cname in "${CONTAINER_PREFIX}-backend" "${CONTAINER_PREFIX}-frontend"; do
-    docker inspect "$cname" >/dev/null 2>&1 || continue          # belum ada: aman
-    owner=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$cname" 2>/dev/null || true)
+    docker container inspect "$cname" >/dev/null 2>&1 || continue   # belum ada: aman (image bernama sama tidak dihitung)
+    owner=$(docker container inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$cname" 2>/dev/null || true)
     if [ -z "$owner" ]; then
       die "Container '$cname' sudah ada tetapi bukan dibuat oleh Docker Compose. Hapus dulu (docker rm -f $cname) atau pakai CONTAINER_PREFIX lain di deploy.env. Belum ada yang diubah."
     fi
