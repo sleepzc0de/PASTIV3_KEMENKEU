@@ -61,8 +61,8 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 max-w-lg">
-          <h1 className="text-balance text-4xl font-bold leading-[1.15] tracking-tight xl:text-5xl">Kelola aset negara dengan lebih tenang.</h1>
-          <p className="mt-4 text-base leading-relaxed text-blue-100/90">Kelola, pantau, dan lindungi seluruh aset dalam satu platform yang aman dan terintegrasi.</p>
+          <h1 className="text-balance text-4xl font-bold leading-[1.15] tracking-tight xl:text-5xl">Pemantauan Aset Terintegrasi.</h1>
+          <p className="mt-4 text-base leading-relaxed text-blue-100/90">Semua aset terpantau dalam satu dasbor, kapan pun dan di mana pun.</p>
 
           <ul className="stagger mt-10 grid gap-3.5 sm:grid-cols-2">
             {FEATURES.map(({ icon: Icon, title, text }) => (
