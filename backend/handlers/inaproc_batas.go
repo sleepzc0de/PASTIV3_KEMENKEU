@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"pasti-v3-backend/config"
+	"pasti-v3-backend/serverlog"
 )
 
 // Pembatas permintaan ke Inaproc, dipakai SEMUA panggilan (antrean penarikan dan penjadwal).
@@ -435,11 +436,13 @@ func (b *BatasInaproc) Mulai(ctx context.Context, db *sql.DB, periode time.Durat
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				cx, batal := context.WithTimeout(ctx, 20*time.Second)
-				if err := b.Simpan(cx, db); err != nil {
-					log.Println("[INAPROC KUOTA WARN] gagal menyimpan hitungan kuota:", err)
-				}
-				batal()
+				serverlog.Aman("INAPROC KUOTA", func() {
+					cx, batal := context.WithTimeout(ctx, 20*time.Second)
+					defer batal()
+					if err := b.Simpan(cx, db); err != nil {
+						log.Println("[INAPROC KUOTA WARN] gagal menyimpan hitungan kuota:", err)
+					}
+				})
 			}
 		}
 	}()

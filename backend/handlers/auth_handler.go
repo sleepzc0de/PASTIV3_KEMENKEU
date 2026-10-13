@@ -37,7 +37,7 @@ func Register(c *gin.Context) {
 	}
 
 	var exists int
-	err := database.DB.QueryRow(
+	err := database.DB.QueryRowContext(c.Request.Context(),
 		`SELECT COUNT(1) FROM users WHERE username = @p1 OR email = @p2`,
 		req.Username, req.Email,
 	).Scan(&exists)
@@ -97,7 +97,7 @@ func Login(c *gin.Context) {
 	var passwordHash sql.NullString
 	var passwordSalt sql.NullString
 
-	row := database.DB.QueryRow(
+	row := database.DB.QueryRowContext(c.Request.Context(),
 		`SELECT id, username, email, password_hash, password_salt, full_name, role,
 		        is_active, failed_login_attempts, locked_until
 		 FROM users WHERE username = @p1 OR email = @p1`,
@@ -193,7 +193,7 @@ func Me(c *gin.Context) {
 		employeePict sql.NullString
 	)
 
-	err := database.DB.QueryRow(`
+	err := database.DB.QueryRowContext(c.Request.Context(), `
 		SELECT u.id, u.username, u.email, u.full_name, u.role, u.auth_provider, u.is_protected,
 		       e.jabatan, e.satker, e.organisasi, e.nip, e.picture
 		FROM users u

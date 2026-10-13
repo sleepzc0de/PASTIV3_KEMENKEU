@@ -3,10 +3,13 @@ package audit
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"pasti-v3-backend/serverlog"
 )
 
 // SimpanFunc menulis sekelompok entri ke penyimpanan.
@@ -92,10 +95,16 @@ func (p *Perekam) jalankan() {
 func (p *Perekam) tulis(es []Entri) {
 	ctx, batal := context.WithTimeout(context.Background(), 20*time.Second)
 	defer batal()
-	err := p.simpan(ctx, es)
+	simpan := func() (err error) {
+		if !serverlog.Aman("AUDIT", func() { err = p.simpan(ctx, es) }) {
+			err = errors.New("panik saat menulis")
+		}
+		return err
+	}
+	err := simpan()
 	if err != nil {
 		time.Sleep(500 * time.Millisecond)
-		err = p.simpan(ctx, es)
+		err = simpan()
 	}
 	if err != nil {
 		p.gagal.Add(int64(len(es)))
@@ -185,7 +194,7 @@ func MulaiPembersihan(ctx context.Context, st *Store, retensiHari int) {
 			return
 		case <-time.After(2 * time.Minute): // beri waktu aplikasi selesai menyala
 		}
-		bersihkan()
+		serverlog.Aman("AUDIT", bersihkan)
 		tik := time.NewTicker(24 * time.Hour)
 		defer tik.Stop()
 		for {
@@ -193,7 +202,7 @@ func MulaiPembersihan(ctx context.Context, st *Store, retensiHari int) {
 			case <-ctx.Done():
 				return
 			case <-tik.C:
-				bersihkan()
+				serverlog.Aman("AUDIT", bersihkan)
 			}
 		}
 	}()

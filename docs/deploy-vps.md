@@ -55,7 +55,7 @@ sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapf
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-Batasi ukuran log Docker **sebelum** Docker terpasang:
+Batasi ukuran log Docker **sebelum** Docker terpasang (`docker-compose.yml` juga membatasi log tiap container 5 × 10 MB, jadi ini lapis kedua):
 
 ```bash
 sudo mkdir -p /etc/docker
@@ -159,26 +159,31 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 curl -s https://domain-anda/health
+curl -s https://domain-anda/health/ready
+docker ps --format 'table {{.Names}}	{{.Status}}'
 sudo ss -ltn | grep -E ':(8686|3000)\b'
 docker logs --tail 40 pasti-prod-backend
 ```
 
-- `/health` menjawab `{"service":"PASTI V3 Backend","status":"ok"}`.
+- `/health` menjawab `{"service":"PASTI V3 Backend","status":"ok"}`; `/health/ready` juga memeriksa database (503 bila database tidak menjawab).
+- `docker ps` menampilkan backend `(healthy)` setelah ±1 menit.
 - Port 8686 dan 3000 hanya tampil di `127.0.0.1`. Bila terbuka ke luar, alamat IP di log audit bisa dipalsukan klien.
-- Log backend memuat `[AUDIT] Pencatatan aktivitas pengguna aktif` dan `[MONITOR] Pengukur resource aktif`.
+- Log backend sengaja singkat (hanya error dan warning, tanpa log akses) dan memuat `[INFO] Log server aktif ...`. Pesan `[AUDIT]`/`[MONITOR]` berlevel info tidak dicetak di production; keberadaannya terlihat di halaman Log Audit dan Monitor Resource.
 
 Di browser:
 
 1. Buka alamat halaman login dan masuk lewat SSO dengan identitas superadmin.
 2. **Monitor Resource → Server**: periksa angka CPU, RAM, dan disk (pembacaan di Linux asli belum pernah diuji sebelumnya).
-3. **Manajemen Pengguna**: beri peran ke pengguna.
-4. Isi **Referensi UE1** dan **Referensi Kanwil**, unggah template di **Pengaturan SAPA**, dan cek **Penarikan Data**.
+3. **Log Server**: pastikan halaman terbuka dan jumlah error/warning wajar. Bila semua aktivitas di Log Audit tampak berasal dari satu alamat IP, periksa `TRUSTED_PROXIES` di `backend/.env` (lihat `docs/log-server-dan-ketahanan.md`).
+4. **Manajemen Pengguna**: beri peran ke pengguna.
+5. Isi **Referensi UE1** dan **Referensi Kanwil**, unggah template di **Pengaturan SAPA**, dan cek **Penarikan Data**.
 
 ## H. Sesudahnya
 
 - **Pembaruan:** setelah merge ke `production_v3`, cukup `cd ~/pasti-prod && ./deploy.sh prod`. Skrip menarik kode, build, migrasi, cek kesehatan, dan otomatis kembali ke image sebelumnya bila gagal. Log deploy ada di `deploy.log`.
 - **Reboot:** Docker dan container menyala sendiri (`restart: unless-stopped`).
 - **Mengubah `deploy.env`** (alamat atau port) memerlukan `./deploy.sh prod` lagi, karena `NEXT_PUBLIC_*` ditanam ke frontend saat build.
+- **Log dan ketahanan:** log server hanya menyimpan error/warning (retensi 30/7 hari, maks 50.000 baris) dan backend membatasi laju, beban, dan ekspor berat; pengaturan dan cara menyetelnya ada di `docs/log-server-dan-ketahanan.md`.
 - **Disk:** pantau di Monitor Resource; `docker system df` dan `docker image prune` bila image lama menumpuk.
 - **Cadangan:** database (terjadwal di server database), `backend/.env`, dan `deploy.env`.
 

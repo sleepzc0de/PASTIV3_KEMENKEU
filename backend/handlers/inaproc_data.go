@@ -304,6 +304,11 @@ func GetInaprocDataset(c *gin.Context) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[INAPROC DATA ERROR] panic saat menghitung %s: %v", d.ID, r)
+				}
+			}()
 			n, t, err := d.ringkas(ctx, database.DB, cak)
 			if err != nil {
 				log.Println("[INAPROC DATA WARN] gagal menghitung", d.ID+":", err)

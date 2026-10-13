@@ -94,7 +94,7 @@ func SearchPegawai(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	var authProvider string
-	if err := database.DB.QueryRow(`SELECT auth_provider FROM users WHERE id = @p1`, userID).Scan(&authProvider); err != nil {
+	if err := database.DB.QueryRowContext(c.Request.Context(), `SELECT auth_provider FROM users WHERE id = @p1`, userID).Scan(&authProvider); err != nil {
 		utils.ErrorResponse(c, http.StatusNotFound, "User tidak ditemukan")
 		return
 	}

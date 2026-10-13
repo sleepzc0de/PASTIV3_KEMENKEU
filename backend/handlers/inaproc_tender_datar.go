@@ -720,7 +720,7 @@ func (e *endpointDatar) ListLocalDengan(c *gin.Context, susun func(*gin.Context)
 	query := "SELECT " + e.KolomDaftar + " FROM " + e.Tabel + where
 	query = fmt.Sprintf("SELECT TOP (%d) * FROM (%s) t ORDER BY synced_at DESC", limit, query)
 
-	rows, err := database.DB.Query(query, args...)
+	rows, err := database.DB.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Gagal mengambil data lokal: "+err.Error())
 		return

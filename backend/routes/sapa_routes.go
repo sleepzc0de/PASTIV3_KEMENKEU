@@ -12,6 +12,9 @@ import (
 // SAPA tidak menetapkan peran sendiri. Pengaturan (template, BMN, sebutan Sekretaris UE1) khusus superadmin; buka kunci usulan (buka ulang tahap) bagi superadmin dan
 // Pengguna Barang; menghapus usulan bagi Satker pemilik, Pengguna Barang, dan superadmin selama usulan belum selesai. Dipisah dari SetupRoutes agar tabel rute ini bisa diuji.
 func RegisterSapa(g *gin.RouterGroup) {
+	// Impor/ekspor Excel dan pembuatan dokumen Word memakai banyak CPU dan memori: dibatasi bersama rute berat lain supaya tidak menghabiskan server.
+	berat := middleware.BeratBawaan()
+
 	g.GET("/saya", handlers.GetSapaSaya)
 	g.GET("/referensi/satker", handlers.GetSapaSatker)
 	g.GET("/referensi/bmn", handlers.GetSapaRefBMN)       // jenis BMN aktif + satuan yang diizinkan, untuk formulir
@@ -19,20 +22,20 @@ func RegisterSapa(g *gin.RouterGroup) {
 
 	// Template Excel daftar barang: unduh template, impor berkas yang sudah diisi, ekspor daftar yang sedang dikerjakan.
 	g.GET("/barang/template", handlers.UnduhTemplateBarang)
-	g.POST("/barang/impor", handlers.ImporBarang)
-	g.POST("/barang/impor-siman", handlers.ImporBarangSIMAN) // daftar barang dari hasil ekspor data aset SIMAN
-	g.POST("/barang/ekspor", handlers.EksporBarang)
+	g.POST("/barang/impor", berat, handlers.ImporBarang)
+	g.POST("/barang/impor-siman", berat, handlers.ImporBarangSIMAN) // daftar barang dari hasil ekspor data aset SIMAN
+	g.POST("/barang/ekspor", berat, handlers.EksporBarang)
 
 	// Pencarian pegawai HRIS2 untuk mengisi anggota tim (sesi SSO pengguna; hanya NIP, nama, jabatan, satker yang diteruskan).
-	g.GET("/pegawai", handlers.SearchSapaPegawai)
-	g.GET("/pegawai/:nip", handlers.GetSapaPegawai)
+	g.GET("/pegawai", middleware.Eksternal(), handlers.SearchSapaPegawai)
+	g.GET("/pegawai/:nip", middleware.Eksternal(), handlers.GetSapaPegawai)
 
 	g.GET("/penjualan", handlers.ListSapaPenjualan)
 	g.POST("/penjualan", handlers.CreateSapaPenjualan)
 	g.GET("/penjualan/:id", handlers.GetSapaPenjualan)
 	g.DELETE("/penjualan/:id", handlers.DeleteSapaPenjualan) // usulan yang belum selesai; hak dan keadaan diperiksa di paket sapa
 	g.PUT("/penjualan/:id/tahap/:kunci", handlers.SaveSapaTahap)
-	g.POST("/penjualan/:id/tahap/:kunci/dokumen", handlers.GenerateSapaDokumen)
+	g.POST("/penjualan/:id/tahap/:kunci/dokumen", berat, handlers.GenerateSapaDokumen)
 	g.POST("/penjualan/:id/tahap/:kunci/selesai", handlers.CompleteSapaTahap)
 	g.POST("/penjualan/:id/tahap/:kunci/lewati", handlers.SkipSapaTahap)
 	g.PUT("/penjualan/:id/tahap/:kunci/keterangan", handlers.UbahSapaKeterangan) // ubah keterangan tahap yang dilewati (dibuat di luar aplikasi)
