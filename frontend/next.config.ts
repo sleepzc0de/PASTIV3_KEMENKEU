@@ -16,6 +16,17 @@ function alamatBawaan(): string {
   }
 }
 
+// Versi aplikasi (tampil di footer dan halaman login): satu sumber, field "version" di package.json. Dinaikkan dengan `npm version patch|minor`
+// (lihat docs/versi-aplikasi.md). Dibaca saat build dan disisipkan ke bundel sebagai konstanta.
+function versiAplikasi(): string {
+  try {
+    const v = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")).version;
+    return typeof v === "string" ? v.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 const loginPath = jalurMasukDari(process.env.LOGIN_PATH?.trim() || alamatBawaan());
 if (loginPath === "/login" && process.env.NODE_ENV === "production") {
   console.warn("[PERINGATAN] Halaman login tidak disembunyikan (LOGIN_PATH=/login atau login-path.txt tidak ada): alamatnya tetap /login.");
@@ -26,6 +37,7 @@ const nextConfig: NextConfig = {
 
   env: {
     LOGIN_PATH: loginPath,
+    NEXT_PUBLIC_APP_VERSION: versiAplikasi(),
   },
 
   // Menu lama (Data Aset SLDK, Pengadaan, Tender, E-Katalog V5/V6 dari Inaproc) sudah dihapus: isinya kini ada di Dashboard dan Pengadaan Terpadu.
