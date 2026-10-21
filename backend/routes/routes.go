@@ -98,29 +98,26 @@ func SetupRoutes(r *gin.Engine) {
 			monitorGrup.GET("/database", handlers.GetMonitorDatabase)
 		}
 
-		// API Akses Data PASTI: aplikasi lain mendaftar (formulir publik, dengan captcha dan batas per IP), superadmin menyetujui dan mengatur scope, batas laju, dan kuota,
-		// lalu klien menarik data lewat rute /api/data/v1 di bawah dengan kunci API (bukan JWT pengguna). Semua rute pengelolaan dan pemantauan khusus superadmin.
-		apiAksesGrup := api.Group("/api-akses")
+		// API Akses Data PASTI: aplikasi lain didaftarkan OLEH SUPERADMIN (tidak ada pendaftaran mandiri/publik; pihak luar menghubungi administrator), yang juga mengatur scope,
+		// batas laju, dan kuota, lalu klien menarik data lewat rute /api/data/v1 di bawah dengan kunci API (bukan JWT pengguna). SEMUA rute di grup ini memakai AuthRequired lalu
+		// RequireSuperadmin; tidak ada rute publik (diuji di routes/api_akses_test.go).
+		apiAksesGrup := api.Group("/api-akses", middleware.AuthRequired(), middleware.RequireSuperadmin())
 		{
-			apiAksesGrup.GET("/info", middleware.BatasLajuInfoAPI(), handlers.GetApiAksesInfo)
-			apiAksesGrup.POST("/pendaftaran", middleware.BatasLajuPendaftaranAPI(), handlers.PostApiAksesPendaftaran)
-			kelolaAkses := apiAksesGrup.Group("", middleware.AuthRequired(), middleware.RequireSuperadmin())
-			{
-				kelolaAkses.GET("/klien", handlers.GetApiAksesKlien)
-				kelolaAkses.GET("/klien/:id", handlers.GetApiAksesKlienDetail)
-				kelolaAkses.PUT("/klien/:id", handlers.PutApiAksesKlien)
-				kelolaAkses.POST("/klien/:id/setujui", handlers.PostApiAksesSetujui)
-				kelolaAkses.POST("/klien/:id/tolak", handlers.PostApiAksesTolak)
-				kelolaAkses.POST("/klien/:id/cabut", handlers.PostApiAksesCabut)
-				kelolaAkses.POST("/klien/:id/aktifkan", handlers.PostApiAksesAktifkan)
-				kelolaAkses.POST("/klien/:id/kunci", handlers.PostApiAksesKunci)
-				kelolaAkses.DELETE("/klien/:id/kunci/:kunciId", handlers.DeleteApiAksesKunci)
-				kelolaAkses.GET("/pengaturan", handlers.GetApiAksesPengaturan)
-				kelolaAkses.PUT("/pengaturan", handlers.PutApiAksesPengaturan)
-				kelolaAkses.GET("/pantau/ringkasan", handlers.GetApiAksesPantauRingkasan)
-				kelolaAkses.GET("/pantau/riwayat", handlers.GetApiAksesPantauRiwayat)
-				kelolaAkses.GET("/pantau/opsi", handlers.GetApiAksesPantauOpsi)
-			}
+			apiAksesGrup.GET("/klien", handlers.GetApiAksesKlien)
+			apiAksesGrup.POST("/klien", handlers.PostApiAksesKlien)
+			apiAksesGrup.GET("/klien/:id", handlers.GetApiAksesKlienDetail)
+			apiAksesGrup.PUT("/klien/:id", handlers.PutApiAksesKlien)
+			apiAksesGrup.POST("/klien/:id/setujui", handlers.PostApiAksesSetujui)
+			apiAksesGrup.POST("/klien/:id/tolak", handlers.PostApiAksesTolak)
+			apiAksesGrup.POST("/klien/:id/cabut", handlers.PostApiAksesCabut)
+			apiAksesGrup.POST("/klien/:id/aktifkan", handlers.PostApiAksesAktifkan)
+			apiAksesGrup.POST("/klien/:id/kunci", handlers.PostApiAksesKunci)
+			apiAksesGrup.DELETE("/klien/:id/kunci/:kunciId", handlers.DeleteApiAksesKunci)
+			apiAksesGrup.GET("/pengaturan", handlers.GetApiAksesPengaturan)
+			apiAksesGrup.PUT("/pengaturan", handlers.PutApiAksesPengaturan)
+			apiAksesGrup.GET("/pantau/ringkasan", handlers.GetApiAksesPantauRingkasan)
+			apiAksesGrup.GET("/pantau/riwayat", handlers.GetApiAksesPantauRiwayat)
+			apiAksesGrup.GET("/pantau/opsi", handlers.GetApiAksesPantauOpsi)
 		}
 
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.

@@ -10,16 +10,15 @@ import (
 // Pengaturan: bawaan global API Akses Data. Disimpan di tabel api_akses_pengaturan (migrasi 060) dan diubah superadmin dari aplikasi; perubahan berlaku dalam
 // hitungan detik tanpa deploy ulang. Nilai di bawah hanya cadangan bila tabel kosong atau belum dimigrasi.
 type Pengaturan struct {
-	LimitPermintaan    int  `json:"limit_permintaan"`        // permintaan per jendela laju
-	LimitJendelaDetik  int  `json:"limit_jendela_detik"`     // panjang jendela laju (jendela geser)
-	KuotaPermintaan    int  `json:"kuota_permintaan"`        // permintaan per periode kuota
-	KuotaPeriodeDetik  int  `json:"kuota_periode_detik"`     // panjang periode kuota (jendela tetap, selaras kelipatan periode sejak epoch UTC)
-	PendaftaranDibuka  bool `json:"pendaftaran_dibuka"`      // formulir pendaftaran publik menerima pendaftaran baru
-	KunciBerlakuHari   int  `json:"kunci_masa_berlaku_hari"` // masa berlaku kunci baru (0 = tidak kedaluwarsa)
-	RotasiTenggangJam  int  `json:"rotasi_tenggang_jam"`     // kunci lama tetap berlaku sekian jam setelah rotasi (0 = langsung dicabut)
-	HalamanMaks        int  `json:"halaman_maks"`            // baris maksimal per permintaan daftar
-	LogRetensiHari     int  `json:"log_retensi_hari"`        // riwayat permintaan dihapus setelah sekian hari
-	AgregatRetensiHari int  `json:"agregat_retensi_hari"`    // hitungan per jam dihapus setelah sekian hari
+	LimitPermintaan    int `json:"limit_permintaan"`        // permintaan per jendela laju
+	LimitJendelaDetik  int `json:"limit_jendela_detik"`     // panjang jendela laju (jendela geser)
+	KuotaPermintaan    int `json:"kuota_permintaan"`        // permintaan per periode kuota
+	KuotaPeriodeDetik  int `json:"kuota_periode_detik"`     // panjang periode kuota (jendela tetap, selaras kelipatan periode sejak epoch UTC)
+	KunciBerlakuHari   int `json:"kunci_masa_berlaku_hari"` // masa berlaku kunci baru (0 = tidak kedaluwarsa)
+	RotasiTenggangJam  int `json:"rotasi_tenggang_jam"`     // kunci lama tetap berlaku sekian jam setelah rotasi (0 = langsung dicabut)
+	HalamanMaks        int `json:"halaman_maks"`            // baris maksimal per permintaan daftar
+	LogRetensiHari     int `json:"log_retensi_hari"`        // riwayat permintaan dihapus setelah sekian hari
+	AgregatRetensiHari int `json:"agregat_retensi_hari"`    // hitungan per jam dihapus setelah sekian hari
 }
 
 // Batas nilai yang diterima. Batas atas bukan tebakan: LimitMaks menentukan memori pembatas (satu stempel waktu 8 byte per permintaan dalam jendela).
@@ -39,7 +38,7 @@ const (
 func PengaturanBawaan() Pengaturan {
 	return Pengaturan{
 		LimitPermintaan: 1000, LimitJendelaDetik: 60, KuotaPermintaan: 5000, KuotaPeriodeDetik: 3600,
-		PendaftaranDibuka: true, KunciBerlakuHari: 0, RotasiTenggangJam: 24, HalamanMaks: 500, LogRetensiHari: 14, AgregatRetensiHari: 400,
+		KunciBerlakuHari: 0, RotasiTenggangJam: 24, HalamanMaks: 500, LogRetensiHari: 14, AgregatRetensiHari: 400,
 	}
 }
 
@@ -76,7 +75,6 @@ const (
 	kJendela     = "limit_jendela_detik"
 	kKuota       = "kuota_permintaan"
 	kPeriode     = "kuota_periode_detik"
-	kDaftar      = "pendaftaran_dibuka"
 	kMasaBerlaku = "kunci_masa_berlaku_hari"
 	kTenggang    = "rotasi_tenggang_jam"
 	kHalaman     = "halaman_maks"
@@ -86,13 +84,9 @@ const (
 
 // KeBaris mengubah pengaturan menjadi pasangan kunci -> nilai untuk disimpan.
 func (p Pengaturan) KeBaris() map[string]string {
-	b := "0"
-	if p.PendaftaranDibuka {
-		b = "1"
-	}
 	return map[string]string{
 		kLimit: strconv.Itoa(p.LimitPermintaan), kJendela: strconv.Itoa(p.LimitJendelaDetik), kKuota: strconv.Itoa(p.KuotaPermintaan), kPeriode: strconv.Itoa(p.KuotaPeriodeDetik),
-		kDaftar: b, kMasaBerlaku: strconv.Itoa(p.KunciBerlakuHari), kTenggang: strconv.Itoa(p.RotasiTenggangJam), kHalaman: strconv.Itoa(p.HalamanMaks),
+		kMasaBerlaku: strconv.Itoa(p.KunciBerlakuHari), kTenggang: strconv.Itoa(p.RotasiTenggangJam), kHalaman: strconv.Itoa(p.HalamanMaks),
 		kLogHari: strconv.Itoa(p.LogRetensiHari), kAgregatHari: strconv.Itoa(p.AgregatRetensiHari),
 	}
 }
@@ -117,9 +111,6 @@ func DariBaris(baris map[string]string) Pengaturan {
 	bil(kHalaman, &p.HalamanMaks)
 	bil(kLogHari, &p.LogRetensiHari)
 	bil(kAgregatHari, &p.AgregatRetensiHari)
-	if v, ok := baris[kDaftar]; ok {
-		p.PendaftaranDibuka = v == "1" || v == "true"
-	}
 	if p.Validasi() != nil {
 		return PengaturanBawaan()
 	}
@@ -161,6 +152,21 @@ func (o Override) Validasi() error {
 		}
 	}
 	return nil
+}
+
+// GalatKolom seperti Validasi tetapi mengembalikan semua kolom yang salah (kunci sesuai isian formulir: limit, jendela, kuota, periode), untuk ditampilkan per kolom.
+func (o Override) GalatKolom() map[string]string {
+	g := map[string]string{}
+	cek := func(kolom string, v *int, min, maks int, nama string) {
+		if v != nil && !dalam(*v, min, maks) {
+			g[kolom] = fmt.Sprintf("%s harus antara %d dan %d", nama, min, maks)
+		}
+	}
+	cek("limit", o.LimitPermintaan, LimitMin, LimitMaks, "Batas permintaan")
+	cek("jendela", o.LimitJendelaDetik, JendelaMin, JendelaMaks, "Jendela batas laju (detik)")
+	cek("kuota", o.KuotaPermintaan, KuotaMin, KuotaMaks, "Kuota")
+	cek("periode", o.KuotaPeriodeDetik, PeriodeMin, PeriodeMaks, "Periode kuota (detik)")
+	return g
 }
 
 // BatasUntuk menggabungkan bawaan global dengan override klien.

@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/Toast";
 const inputCls =
   "w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:shadow-glow";
 
-type Teks = Record<keyof Omit<Pengaturan, "pendaftaran_dibuka">, string>;
+type Teks = Record<keyof Pengaturan, string>;
 
 const KOLOM: { kunci: keyof Teks; label: string; satuan: string; bantuan: string }[] = [
   { kunci: "limit_permintaan", label: "Batas laju: permintaan", satuan: "permintaan", bantuan: "Jumlah permintaan yang boleh diterima dalam satu jendela (jendela geser, akurat per permintaan)." },
@@ -41,7 +41,6 @@ export function PengaturanPanel({ onTersimpan }: { onTersimpan?: (p: Pengaturan)
   const [pabrik, setPabrik] = useState<Pengaturan | null>(null);
   const [rentang, setRentang] = useState<RentangPengaturan>({});
   const [teks, setTeks] = useState<Teks | null>(null);
-  const [dibuka, setDibuka] = useState(true);
   const [galat, setGalat] = useState("");
   const [galatKolom, setGalatKolom] = useState<Record<string, string>>({});
   const [sibuk, setSibuk] = useState(false);
@@ -53,7 +52,6 @@ export function PengaturanPanel({ onTersimpan }: { onTersimpan?: (p: Pengaturan)
         setPabrik(r.bawaan_pabrik);
         setRentang(r.rentang);
         setTeks(keTeks(r.pengaturan));
-        setDibuka(r.pengaturan.pendaftaran_dibuka);
       })
       .catch((err) => setGalat(axios.isAxiosError(err) && err.response?.data?.message ? err.response.data.message : "Gagal memuat pengaturan"));
   }, []);
@@ -63,7 +61,7 @@ export function PengaturanPanel({ onTersimpan }: { onTersimpan?: (p: Pengaturan)
 
   const susun = (): Pengaturan | null => {
     const g: Record<string, string> = {};
-    const nilai = { pendaftaran_dibuka: dibuka } as Pengaturan;
+    const nilai = {} as Pengaturan;
     for (const k of KOLOM) {
       const s = teks[k.kunci].trim();
       const r = rentang[k.kunci];
@@ -98,11 +96,10 @@ export function PengaturanPanel({ onTersimpan }: { onTersimpan?: (p: Pengaturan)
 
   const pabrikkan = () => {
     setTeks(keTeks(pabrik));
-    setDibuka(pabrik.pendaftaran_dibuka);
     setGalatKolom({});
   };
 
-  const berubah = KOLOM.some((k) => teks[k.kunci].trim() !== String(awal[k.kunci])) || dibuka !== awal.pendaftaran_dibuka;
+  const berubah = KOLOM.some((k) => teks[k.kunci].trim() !== String(awal[k.kunci]));
   const pratinjau = (() => {
     const n = (k: keyof Teks) => Number(teks[k]);
     if ([n("limit_permintaan"), n("limit_jendela_detik"), n("kuota_permintaan"), n("kuota_periode_detik")].some((v) => !Number.isFinite(v) || v <= 0)) return "-";
@@ -145,14 +142,6 @@ export function PengaturanPanel({ onTersimpan }: { onTersimpan?: (p: Pengaturan)
           </div>
         ))}
       </div>
-
-      <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-3.5 text-sm text-slate-700">
-        <input type="checkbox" checked={dibuka} onChange={(e) => setDibuka(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-        <span>
-          <span className="block font-medium text-slate-900">Pendaftaran aplikasi baru dibuka</span>
-          <span className="block text-xs text-slate-500">Bila dimatikan, formulir publik menolak pendaftaran baru; klien yang sudah ada tidak terpengaruh.</span>
-        </span>
-      </label>
 
       <div className="flex flex-wrap justify-end gap-2">
         <Button fullWidth={false} variant="secondary" icon={<RotateCcw className="h-4 w-4" aria-hidden="true" />} onClick={pabrikkan} disabled={sibuk}>

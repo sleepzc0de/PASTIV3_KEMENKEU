@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -109,29 +110,47 @@ type cakupanReq struct {
 	Catatan           string   `json:"catatan"`
 }
 
-// ubah memeriksa isian dan menyusun UbahCakupan; pesan galat kosong bila sah.
-func (r cakupanReq) ubah() (apiakses.UbahCakupan, string) {
+// ubahGalat memeriksa isian dan menyusun UbahCakupan; galat per kolom (kunci: dataset, ip, ue1, limit, jendela, kuota, periode, catatan), kosong bila sah. Semua kolom
+// diperiksa sekaligus supaya formulir dapat menandai semuanya.
+func (r cakupanReq) ubahGalat() (apiakses.UbahCakupan, map[string]string) {
+	g := map[string]string{}
 	ds, err := apiakses.NormalisasiDataset(r.DatasetDiberikan, 50)
 	if err != nil {
-		return apiakses.UbahCakupan{}, err.Error()
+		g["dataset"] = err.Error()
+	} else if len(ds) == 0 {
+		g["dataset"] = "Pilih sedikitnya satu dataset"
 	}
 	ip, err := apiakses.DaftarIP(r.IPDiizinkan)
 	if err != nil {
-		return apiakses.UbahCakupan{}, err.Error()
+		g["ip"] = err.Error()
 	}
 	ue1, err := apiakses.DaftarUE1(r.UE1Diizinkan)
 	if err != nil {
-		return apiakses.UbahCakupan{}, err.Error()
+		g["ue1"] = err.Error()
 	}
 	o := apiakses.Override{LimitPermintaan: r.LimitPermintaan, LimitJendelaDetik: r.LimitJendelaDetik, KuotaPermintaan: r.KuotaPermintaan, KuotaPeriodeDetik: r.KuotaPeriodeDetik}
-	if err := o.Validasi(); err != nil {
-		return apiakses.UbahCakupan{}, err.Error()
+	for k, v := range o.GalatKolom() {
+		g[k] = v
 	}
 	catatan := strings.TrimSpace(r.Catatan)
 	if len([]rune(catatan)) > 1000 {
-		return apiakses.UbahCakupan{}, "Catatan terlalu panjang (maksimal 1000 karakter)"
+		g["catatan"] = "Catatan terlalu panjang (maksimal 1000 karakter)"
 	}
-	return apiakses.UbahCakupan{DatasetDiberikan: ds, IPDiizinkan: ip, UE1Diizinkan: ue1, Override: o, Catatan: catatan}, ""
+	if len(g) > 0 {
+		return apiakses.UbahCakupan{}, g
+	}
+	return apiakses.UbahCakupan{DatasetDiberikan: ds, IPDiizinkan: ip, UE1Diizinkan: ue1, Override: o, Catatan: catatan}, g
+}
+
+// ubah seperti ubahGalat dengan satu pesan (galat pertama menurut urutan kolom); pesan kosong bila sah. Dipakai rute yang membalas dengan satu pesan.
+func (r cakupanReq) ubah() (apiakses.UbahCakupan, string) {
+	u, g := r.ubahGalat()
+	for _, k := range []string{"dataset", "ip", "ue1", "limit", "jendela", "kuota", "periode", "catatan"} {
+		if g[k] != "" {
+			return apiakses.UbahCakupan{}, g[k]
+		}
+	}
+	return u, ""
 }
 
 func detailCakupan(u apiakses.UbahCakupan) map[string]interface{} {
@@ -526,4 +545,81 @@ func PutApiAksesPengaturan(c *gin.Context) {
 	}
 	audit.Tandai(c, audit.Tanda{Detail: map[string]interface{}{"sebelum": lama, "sesudah": req}})
 	utils.SuccessResponse(c, http.StatusOK, "Pengaturan disimpan dan langsung berlaku", gin.H{"pengaturan": req})
+}
+
+// ---------------------------------------------------------------- pendaftaran klien oleh superadmin
+
+type infoDatasetAPI struct {
+	Kode      string `json:"kode"`
+	Label     string `json:"label"`
+	Deskripsi string `json:"deskripsi"`
+}
+
+func daftarInfoDataset() []infoDatasetAPI {
+	var out []infoDatasetAPI
+	for _, d := range apiakses.Katalog() {
+		out = append(out, infoDatasetAPI{Kode: d.Kode, Label: d.Label, Deskripsi: d.Deskripsi})
+	}
+	return out
+}
+
+// klienBaruReq: isian pendaftaran klien oleh superadmin: data pemohon (Pendaftaran; dataset_diminta diabaikan, yang berlaku dataset_diberikan) ditambah scope dan batas.
+type klienBaruReq struct {
+	apiakses.Pendaftaran
+	cakupanReq
+	LabelKunci string `json:"label_kunci"`
+}
+
+// POST /api-akses/klien: superadmin mendaftarkan aplikasi klien. Tidak ada pendaftaran mandiri/publik; pihak luar menghubungi administrator PASTI. Klien langsung berstatus
+// disetujui dengan scope dan batas yang dipilih superadmin, dan kunci pertama diterbitkan sekaligus (ditampilkan SEKALI pada respons ini).
+func PostApiAksesKlien(c *gin.Context) {
+	if !aksesSiap(c) {
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	var req klienBaruReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.ErrorResponse(c, http.StatusBadRequest, "Data tidak valid")
+		return
+	}
+	u, galat := req.cakupanReq.ubahGalat()
+	p := req.Pendaftaran
+	p.DatasetDiminta = req.DatasetDiberikan
+	for k, v := range p.Bersihkan() {
+		if k == "dataset_diminta" { // dataset diperiksa oleh cakupan (kunci "dataset")
+			continue
+		}
+		galat[k] = v
+	}
+	if len(galat) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Periksa kembali isian", "code": "validasi", "errors": galat})
+		return
+	}
+	p.DatasetDiminta = u.DatasetDiberikan
+	ctx, cancel := aksesCtx(c)
+	defer cancel()
+	id, kode, err := apiAkses.Store.BuatKlien(ctx, p, u, aksesOleh(c), c.ClientIP())
+	if err != nil {
+		aksesGagal(c, "buat klien", err)
+		return
+	}
+	apiAkses.BuangCache()
+	// Log Audit: tanpa email, telepon, dan isi tujuan; hanya pengenal klien dan cakupan yang diberikan.
+	audit.Tandai(c, audit.Tanda{ObjekID: strconv.FormatInt(id, 10), Detail: map[string]interface{}{"klien": kode, "nama_aplikasi": p.NamaAplikasi, "instansi": p.Instansi, "cakupan": detailCakupan(u)}})
+	kunciRes, galatKunci := terbitkanKunciRes(c, id, req.LabelKunci, false, false)
+	k, err := apiAkses.Store.AmbilKlien(ctx, id)
+	if err != nil {
+		aksesGalatStore(c, "ambil klien", err)
+		return
+	}
+	kunciTidakDisimpan(c)
+	out := gin.H{"klien": klienDenganBatas(c, k)}
+	pesan := "Klien didaftarkan dan disetujui. Kunci API ditampilkan sekali; salin dan serahkan ke PIC lewat jalur yang aman"
+	if kunciRes != nil {
+		out["kunci_baru"] = kunciRes
+	} else {
+		out["kunci_gagal"] = true
+		pesan = "Klien didaftarkan, tetapi kunci API gagal dibuat: " + galatKunci + ". Terbitkan kunci dari rincian klien"
+	}
+	utils.SuccessResponse(c, http.StatusCreated, pesan, out)
 }

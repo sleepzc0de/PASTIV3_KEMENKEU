@@ -1,6 +1,6 @@
 import { api } from "./api";
 
-// API Akses Data PASTI: pendaftaran aplikasi klien (publik), pengelolaan oleh superadmin, dan pemantauan penarikan data. Fungsi murni (label, format, validasi)
+// API Akses Data PASTI: pendaftaran aplikasi klien dan pengelolaannya (hanya superadmin; tidak ada pendaftaran mandiri), dan pemantauan penarikan data. Fungsi murni (label, format, validasi)
 // ada di lib/apiAksesFormat.ts.
 
 export type StatusKlien = "menunggu" | "disetujui" | "ditolak" | "dicabut";
@@ -83,7 +83,6 @@ export interface Pengaturan {
   limit_jendela_detik: number;
   kuota_permintaan: number;
   kuota_periode_detik: number;
-  pendaftaran_dibuka: boolean;
   kunci_masa_berlaku_hari: number;
   rotasi_tenggang_jam: number;
   halaman_maks: number;
@@ -190,7 +189,8 @@ interface Res<T> {
   data: T;
 }
 
-export interface FormPendaftaran {
+// Data aplikasi klien yang diisi superadmin saat mendaftarkannya (scope dan batas ada di BodyCakupan).
+export interface FormKlienBaru {
   nama_aplikasi: string;
   instansi: string;
   unit: string;
@@ -199,19 +199,6 @@ export interface FormPendaftaran {
   pic_email: string;
   pic_telepon: string;
   tujuan: string;
-  dataset_diminta: string[];
-}
-
-// ---------------------------------------------------------------- publik
-
-export async function getInfoPendaftaran() {
-  const res = await api.get<Res<{ dataset: InfoDataset[]; pendaftaran_dibuka: boolean }>>("/api-akses/info");
-  return res.data.data;
-}
-
-export async function kirimPendaftaran(form: FormPendaftaran, captchaId: string, captchaAnswer: string) {
-  const res = await api.post<Res<{ kode: string }>>("/api-akses/pendaftaran", { ...form, captcha_id: captchaId, captcha_answer: captchaAnswer });
-  return res.data;
 }
 
 // ---------------------------------------------------------------- pengelolaan (superadmin)
@@ -243,6 +230,11 @@ export interface BodyCakupan {
   kuota_permintaan: number | null;
   kuota_periode_detik: number | null;
   catatan: string;
+}
+
+export async function postBuatKlien(body: FormKlienBaru & BodyCakupan & { label_kunci: string }) {
+  const res = await api.post<Res<{ klien: Klien; kunci_baru?: KunciBaru; kunci_gagal?: boolean }>>("/api-akses/klien", body);
+  return res.data;
 }
 
 export async function putKlien(id: number, body: BodyCakupan) {

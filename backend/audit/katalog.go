@@ -92,7 +92,7 @@ var katalog = map[string]Aturan{
 
 	// ---- API Akses Data (aplikasi klien eksternal). Pemakaian data oleh klien tidak masuk di sini (ada di riwayat permintaan API); yang dicatat adalah pendaftaran,
 	// pengelolaan oleh superadmin, dan kejadian keamanan (kunci tidak sah, alamat atau dataset di luar izin; ditandai oleh gerbang).
-	"POST " + awalan + "/api-akses/pendaftaran":                {KatAPIAkses, "apiakses.daftar", "Pendaftaran aplikasi klien API", "klien_api", "", false, false},
+	"POST " + awalan + "/api-akses/klien":                      {KatAPIAkses, "apiakses.klien.buat", "Mendaftarkan klien API (oleh superadmin)", "klien_api", "", false, false},
 	"PUT " + awalan + "/api-akses/klien/:id":                   {KatAPIAkses, "apiakses.klien.ubah", "Mengubah scope dan batas klien API {id}", "klien_api", "id", false, false},
 	"POST " + awalan + "/api-akses/klien/:id/setujui":          {KatAPIAkses, "apiakses.klien.setujui", "Menyetujui pendaftaran klien API {id}", "klien_api", "id", false, false},
 	"POST " + awalan + "/api-akses/klien/:id/tolak":            {KatAPIAkses, "apiakses.klien.tolak", "Menolak pendaftaran klien API {id}", "klien_api", "id", false, false},
@@ -107,6 +107,8 @@ var katalog = map[string]Aturan{
 var aksiTambahan = []OpsiAksi{
 	{Kode: "apiakses.kunci.rotasi", Label: "Merotasi kunci API", Kategori: KatAPIAkses},
 	{Kode: "apiakses.akses.tidak_sah", Label: "Percobaan akses API dengan kunci yang tidak sah", Kategori: KatAPIAkses},
+	// Entri lama dari formulir pendaftaran publik (sudah ditiadakan); dipertahankan supaya riwayatnya tetap dapat disaring.
+	{Kode: "apiakses.daftar", Label: "Pendaftaran publik aplikasi klien API (formulir sudah ditiadakan)", Kategori: KatAPIAkses},
 }
 
 // Label kategori untuk tampilan.

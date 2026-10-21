@@ -14,7 +14,6 @@ const formSah = () => ({
   pic_email: "budi@contoh.go.id",
   pic_telepon: "",
   tujuan: "Menampilkan jumlah dan sebaran aset tanah pada dasbor internal.",
-  dataset_diminta: ["aset.tanah"],
 });
 
 test("teksPeriode memilih satuan terbesar tanpa pecahan", () => {
@@ -74,16 +73,21 @@ test("galatUE1 dan galatIP", () => {
   assert.notEqual(A.galatIP("bukan-ip"), "");
 });
 
-test("validasiPendaftaran menerima formulir sah dan menolak isian buruk", () => {
-  assert.deepEqual(A.validasiPendaftaran(formSah()), {});
-  const kosong = A.validasiPendaftaran({ ...formSah(), nama_aplikasi: " ", instansi: "", pic_nama: "", pic_email: "", tujuan: "", dataset_diminta: [] });
-  for (const k of ["nama_aplikasi", "instansi", "pic_nama", "pic_email", "tujuan", "dataset_diminta"]) assert.ok(kosong[k], `kolom ${k} harus bergalat`);
-  assert.ok(A.validasiPendaftaran({ ...formSah(), pic_email: "bukan-email" }).pic_email);
-  assert.ok(A.validasiPendaftaran({ ...formSah(), pic_telepon: "abc" }).pic_telepon);
-  assert.equal(A.validasiPendaftaran({ ...formSah(), pic_telepon: "+62 21 555-1234" }).pic_telepon, undefined);
-  assert.ok(A.validasiPendaftaran({ ...formSah(), tujuan: "singkat" }).tujuan);
-  assert.ok(A.validasiPendaftaran({ ...formSah(), tujuan: "x".repeat(2001) }).tujuan);
-  assert.ok(A.validasiPendaftaran({ ...formSah(), nama_aplikasi: "a".repeat(151) }).nama_aplikasi);
+test("validasiKlienBaru menerima isian sah dan menolak isian buruk", () => {
+  assert.deepEqual(A.validasiKlienBaru(formSah()), {});
+  const kosong = A.validasiKlienBaru({ ...formSah(), nama_aplikasi: " ", instansi: "", pic_nama: "", pic_email: "", tujuan: "" });
+  for (const k of ["nama_aplikasi", "instansi", "pic_nama", "pic_email", "tujuan"]) assert.ok(kosong[k], `kolom ${k} harus bergalat`);
+  assert.ok(A.validasiKlienBaru({ ...formSah(), pic_email: "bukan-email" }).pic_email);
+  assert.ok(A.validasiKlienBaru({ ...formSah(), pic_telepon: "abc" }).pic_telepon);
+  assert.equal(A.validasiKlienBaru({ ...formSah(), pic_telepon: "+62 21 555-1234" }).pic_telepon, undefined);
+  assert.ok(A.validasiKlienBaru({ ...formSah(), tujuan: "singkat" }).tujuan);
+  assert.ok(A.validasiKlienBaru({ ...formSah(), tujuan: "x".repeat(2001) }).tujuan);
+  assert.ok(A.validasiKlienBaru({ ...formSah(), nama_aplikasi: "a".repeat(151) }).nama_aplikasi);
+});
+
+test("tidak ada lagi pemeriksaan pendaftaran publik (captcha, dataset diminta) di fungsi murni", () => {
+  assert.equal(A.validasiPendaftaran, undefined);
+  assert.equal(A.validasiKlienBaru(formSah()).dataset_diminta, undefined);
 });
 
 test("kueriPantau: rentang bernama atau tanggal kustom, penyaring kosong tidak dikirim", () => {

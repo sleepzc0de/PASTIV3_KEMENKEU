@@ -13,15 +13,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/mojocn/base64Captcha"
 
 	"pasti-v3-backend/apiakses"
 	"pasti-v3-backend/audit"
 	"pasti-v3-backend/handlers"
 )
 
-// Tes integrasi API Akses Data dari ujung ke ujung (router asli, SQL Server sungguhan; hanya bila PASTI_UJI_MSSQL_DSN diisi): pendaftaran publik, persetujuan oleh
-// superadmin, penarikan data dengan kunci, scope, batas laju yang diubah tanpa deploy ulang, rotasi dan pencabutan kunci, pemantauan, dan Log Audit.
+// Tes integrasi API Akses Data dari ujung ke ujung (router asli, SQL Server sungguhan; hanya bila PASTI_UJI_MSSQL_DSN diisi): tidak ada pendaftaran publik, klien didaftarkan
+// superadmin (langsung disetujui), penarikan data dengan kunci, scope, batas laju yang diubah tanpa deploy ulang, rotasi dan pencabutan kunci, pemantauan, dan Log Audit.
 
 type ujiAPI struct {
 	t *testing.T
@@ -45,8 +44,6 @@ func (u *ujiAPI) panggil(method, path string, hdr map[string]string, body string
 }
 
 func bearer(tok string) map[string]string { return map[string]string{"Authorization": "Bearer " + tok} }
-
-func (u *ujiAPI) captcha(id string) { base64Captcha.DefaultMemStore.Set(id, "12345") }
 
 func bersihkanApiAksesUji(db *sql.DB) {
 	rows, err := db.Query(`SELECT id FROM api_akses_klien WHERE nama_aplikasi LIKE N'UJI-E2E%'`)
@@ -72,13 +69,31 @@ func bersihkanApiAksesUji(db *sql.DB) {
 	db.Exec(`DELETE FROM audit_log WHERE kategori = N'api_akses' OR username LIKE N'uji-peran-%'`)
 }
 
-func formPendaftaran(captchaID, nama string) string {
-	b, _ := json.Marshal(map[string]interface{}{
+// bodyKlienBaru: isian pendaftaran klien oleh superadmin (POST /api-akses/klien); ubah menyesuaikan isiannya.
+func bodyKlienBaru(nama string, ubah func(map[string]interface{})) string {
+	m := map[string]interface{}{
 		"nama_aplikasi": nama, "instansi": "Direktorat Uji", "unit": "Bagian TI", "pic_nama": "Budi Penguji", "pic_jabatan": "Kepala", "pic_email": "budi.penguji@uji.go.id",
-		"pic_telepon": "021-5551234", "tujuan": "Menampilkan sebaran aset tanah pada dasbor pengujian internal.", "dataset_diminta": []string{"aset.tanah", "aset.satker"},
-		"captcha_id": captchaID, "captcha_answer": "12345",
-	})
+		"pic_telepon": "021-5551234", "tujuan": "Menampilkan sebaran aset tanah pada dasbor pengujian internal.", "dataset_diberikan": []string{"aset.tanah"},
+		"ue1_diizinkan": "09971", "limit_permintaan": 100, "catatan": "didaftarkan uji", "label_kunci": "produksi",
+	}
+	if ubah != nil {
+		ubah(m)
+	}
+	b, _ := json.Marshal(m)
 	return string(b)
+}
+
+// sisipMenunggu menyisipkan baris berstatus menunggu seperti sisa formulir pendaftaran publik yang lama (tidak ada jalur kode yang membuatnya lagi).
+func sisipMenunggu(t *testing.T, db *sql.DB, nama string) int64 {
+	t.Helper()
+	var id int64
+	err := db.QueryRow(`INSERT INTO api_akses_klien (kode, nama_aplikasi, instansi, pic_nama, pic_email, tujuan, dataset_diminta, didaftarkan_ip)
+		OUTPUT inserted.id VALUES (@p1, @p2, N'Instansi Lama', N'Pemohon Lama', N'lama@uji.go.id', N'Pendaftaran dari formulir lama yang sudah ditiadakan.', N'aset.tanah', N'198.51.100.77')`,
+		"KL-"+strings.ToUpper(strings.ReplaceAll(nama[len(nama)-5:], " ", "X")), nama).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
@@ -116,47 +131,18 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 	beriPeran(t, admin, barang, "pengguna_barang", "")
 	tamu := buatPenggunaUji(t, db, "api-tamu", "user")
 
-	// ---- Formulir publik
-	if code, m, _, _ := u.panggil("GET", "/api/v1/api-akses/info", nil, ""); code != 200 || data(t, m)["pendaftaran_dibuka"] != true || len(data(t, m)["dataset"].([]interface{})) != 7 {
-		t.Fatalf("info publik: %d %v", code, m)
-	}
-	if code, _, _, _ := u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, formPendaftaran("tidak-ada", "UJI-E2E Satu")); code != 400 {
-		t.Errorf("captcha salah: %d, want 400", code)
-	}
-	u.captcha("cap-1")
-	code, m, _, _ := u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, formPendaftaran("cap-1", "UJI-E2E Satu"))
-	if code != 201 {
-		t.Fatalf("pendaftaran: %d %v", code, m)
-	}
-	kode := data(t, m)["kode"].(string)
-	if !strings.HasPrefix(kode, "KL-") {
-		t.Errorf("kode = %q", kode)
-	}
-	if strings.Contains(string(mustJSON(m)), "kunci") && strings.Contains(string(mustJSON(m)), "pasti_") {
-		t.Error("pendaftaran tidak boleh menghasilkan kredensial")
-	}
-	// Captcha hanya sekali pakai.
-	if code, _, _, _ := u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, formPendaftaran("cap-1", "UJI-E2E Dua")); code != 400 {
-		t.Errorf("captcha yang sama dipakai dua kali: %d, want 400", code)
-	}
-	u.captcha("cap-2")
-	salah := strings.Replace(formPendaftaran("cap-2", "UJI-E2E Salah"), `"budi.penguji@uji.go.id"`, `"bukan-email"`, 1)
-	code, m, _, _ = u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, salah)
-	if code != 400 || m["errors"].(map[string]interface{})["pic_email"] == nil {
-		t.Errorf("validasi: %d %v", code, m)
-	}
-	u.captcha("cap-3")
-	dsBurukBadan := strings.Replace(formPendaftaran("cap-3", "UJI-E2E Buruk"), `"aset.tanah"`, `"users"`, 1)
-	if code, _, _, _ := u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, dsBurukBadan); code != 400 {
-		t.Errorf("dataset di luar katalog: %d", code)
-	}
-	var tersimpan int
-	db.QueryRow(`SELECT COUNT(*) FROM api_akses_klien WHERE nama_aplikasi LIKE N'UJI-E2E%'`).Scan(&tersimpan)
-	if tersimpan != 1 {
-		t.Errorf("hanya pendaftaran yang sah yang tersimpan: %d", tersimpan)
+	// ---- Tidak ada pendaftaran publik: rute lama tidak ada (404), bahkan untuk superadmin
+	for _, tok := range []string{"", tamu.token, barang.token, admin.token} {
+		for _, p := range []string{"/api/v1/api-akses/info", "/api/v1/api-akses/pendaftaran"} {
+			for _, mtd := range []string{"GET", "POST"} {
+				if code, _, _, _ := u.panggil(mtd, p, bearer(tok), bodyKlienBaru("UJI-E2E Lama", nil)); code != 404 {
+					t.Errorf("%s %s: %d, want 404 (formulir publik sudah ditiadakan)", mtd, p, code)
+				}
+			}
+		}
 	}
 
-	// ---- Hanya superadmin yang mengelola
+	// ---- Hanya superadmin yang mengelola dan mendaftarkan klien
 	for _, tok := range []string{"", tamu.token, barang.token} {
 		want := 403
 		if tok == "" {
@@ -170,34 +156,87 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 		if code, _, _, _ := u.panggil("PUT", "/api/v1/api-akses/pengaturan", bearer(tok), "{}"); code != want {
 			t.Errorf("PUT pengaturan: %d, want %d", code, want)
 		}
+		if code, _, _, _ := u.panggil("POST", "/api/v1/api-akses/klien", bearer(tok), bodyKlienBaru("UJI-E2E Tanpa Hak", nil)); code != want {
+			t.Errorf("POST /klien token=%q: %d, want %d (hanya superadmin yang dapat mendaftarkan klien)", tok[:min(len(tok), 8)], code, want)
+		}
 	}
-	code, m, _, _ = u.panggil("GET", "/api/v1/api-akses/klien?q=UJI-E2E", bearer(admin.token), "")
-	if code != 200 {
-		t.Fatalf("daftar klien: %d %v", code, m)
-	}
-	d := data(t, m)
-	klien := d["klien"].([]interface{})
-	if len(klien) != 1 || klien[0].(map[string]interface{})["status"] != "menunggu" || d["per_status"].(map[string]interface{})["menunggu"].(float64) < 1 {
-		t.Fatalf("daftar: %v", d)
-	}
-	idKlien := int64(klien[0].(map[string]interface{})["id"].(float64))
-	basis := fmt.Sprintf("/api/v1/api-akses/klien/%d", idKlien)
-
-	// Belum disetujui: tidak ada kunci yang bisa terbit.
-	if code, _, _, _ := u.panggil("POST", basis+"/kunci", bearer(admin.token), `{}`); code != 409 {
-		t.Errorf("kunci untuk klien menunggu: %d, want 409", code)
+	var tersimpan int
+	db.QueryRow(`SELECT COUNT(*) FROM api_akses_klien WHERE nama_aplikasi LIKE N'UJI-E2E%'`).Scan(&tersimpan)
+	if tersimpan != 0 {
+		t.Fatalf("permintaan tanpa hak superadmin tidak boleh menyimpan klien: %d", tersimpan)
 	}
 
-	// ---- Persetujuan: dataset dibatasi tanah, UE1 09971, batas laju 6
-	setuju := `{"dataset_diberikan":["aset.tanah"],"ue1_diizinkan":"09971","limit_permintaan":100,"catatan":"disetujui uji","label_kunci":"produksi"}`
-	code, m, hdr, body := u.panggil("POST", basis+"/setujui", bearer(admin.token), setuju)
-	if code != 200 {
-		t.Fatalf("setujui: %d %v", code, m)
+	// ---- Validasi isian pendaftaran oleh superadmin (semua kolom yang salah dilaporkan sekaligus; tidak ada yang tersimpan)
+	buruk := []struct {
+		nama  string
+		ubah  func(map[string]interface{})
+		kolom []string
+	}{
+		{"nama kosong", func(m map[string]interface{}) { m["nama_aplikasi"] = "  " }, []string{"nama_aplikasi"}},
+		{"email salah", func(m map[string]interface{}) { m["pic_email"] = "bukan-email" }, []string{"pic_email"}},
+		{"tujuan terlalu pendek", func(m map[string]interface{}) { m["tujuan"] = "singkat" }, []string{"tujuan"}},
+		{"dataset di luar katalog", func(m map[string]interface{}) { m["dataset_diberikan"] = []string{"aset.tanah", "users"} }, []string{"dataset"}},
+		{"tanpa dataset", func(m map[string]interface{}) { m["dataset_diberikan"] = []string{} }, []string{"dataset"}},
+		{"IP membuka semuanya", func(m map[string]interface{}) { m["ip_diizinkan"] = "0.0.0.0/0" }, []string{"ip"}},
+		{"UE1 salah", func(m map[string]interface{}) { m["ue1_diizinkan"] = "abc" }, []string{"ue1"}},
+		{"batas nol", func(m map[string]interface{}) { m["limit_permintaan"] = 0; m["kuota_periode_detik"] = 5 }, []string{"limit", "periode"}},
+		{"banyak sekaligus", func(m map[string]interface{}) {
+			m["pic_nama"] = ""
+			m["instansi"] = ""
+			m["ip_diizinkan"] = "xx"
+			m["kuota_permintaan"] = -1
+		}, []string{"pic_nama", "instansi", "ip", "kuota"}},
+	}
+	for _, b := range buruk {
+		code, m, _, _ := u.panggil("POST", "/api/v1/api-akses/klien", bearer(admin.token), bodyKlienBaru("UJI-E2E Buruk", b.ubah))
+		if code != 400 || m["code"] != "validasi" {
+			t.Errorf("%s: %d %v, want 400 validasi", b.nama, code, m)
+			continue
+		}
+		galat, _ := m["errors"].(map[string]interface{})
+		for _, k := range b.kolom {
+			if galat[k] == nil {
+				t.Errorf("%s: kolom %s harus bergalat: %v", b.nama, k, galat)
+			}
+		}
+	}
+	if code, _, _, _ := u.panggil("POST", "/api/v1/api-akses/klien", bearer(admin.token), "{bukan json"); code != 400 {
+		t.Errorf("JSON rusak: %d, want 400", code)
+	}
+	db.QueryRow(`SELECT COUNT(*) FROM api_akses_klien WHERE nama_aplikasi LIKE N'UJI-E2E%'`).Scan(&tersimpan)
+	if tersimpan != 0 {
+		t.Fatalf("isian yang tidak sah tidak boleh menyimpan klien: %d", tersimpan)
+	}
+
+	// ---- Superadmin mendaftarkan klien: langsung disetujui, dataset tanah, UE1 09971, batas laju 100; kunci pertama terbit sekaligus.
+	// Isian yang bukan milik formulir (status, id, diputuskan_oleh) tidak boleh berpengaruh.
+	buat := bodyKlienBaru("UJI-E2E Satu", func(m map[string]interface{}) {
+		m["status"] = "menunggu"
+		m["id"] = 1
+		m["diputuskan_oleh"] = "penyusup"
+		m["kunci_aktif"] = 99
+	})
+	code, m, hdr, body := u.panggil("POST", "/api/v1/api-akses/klien", bearer(admin.token), buat)
+	if code != 201 {
+		t.Fatalf("daftarkan klien: %d %v", code, m)
 	}
 	if hdr.Get("Cache-Control") != "no-store" {
 		t.Errorf("respons berisi kunci harus no-store: %q", hdr.Get("Cache-Control"))
 	}
-	kunciBaru := data(t, m)["kunci_baru"].(map[string]interface{})
+	dk := data(t, m)
+	kl := dk["klien"].(map[string]interface{})
+	kode := kl["kode"].(string)
+	idKlien := int64(kl["id"].(float64))
+	if !strings.HasPrefix(kode, "KL-") || kl["status"] != "disetujui" || kl["diputuskan_oleh"] != admin.username || kl["nama_aplikasi"] != "UJI-E2E Satu" || idKlien == 1 {
+		t.Errorf("klien = %v", kl)
+	}
+	if ds := kl["dataset_diberikan"].([]interface{}); len(ds) != 1 || ds[0] != "aset.tanah" || kl["kunci_aktif"].(float64) != 1 {
+		t.Errorf("dataset/kunci aktif: %v", kl)
+	}
+	if ue := kl["ue1_diizinkan"].([]interface{}); len(ue) != 1 || ue[0] != "09971" || kl["batas_berlaku"].(map[string]interface{})["limit_permintaan"].(float64) != 100 {
+		t.Errorf("UE1/batas: %v", kl)
+	}
+	kunciBaru := dk["kunci_baru"].(map[string]interface{})
 	kunci := kunciBaru["kunci"].(string)
 	prefix := kunciBaru["info"].(map[string]interface{})["prefix"].(string)
 	if _, ok := apiakses.PrefixKunci(kunci); !ok {
@@ -205,6 +244,14 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 	}
 	if !strings.Contains(string(body), kunci) {
 		t.Fatal("kunci harus ada pada respons penerbitan")
+	}
+	basis := fmt.Sprintf("/api/v1/api-akses/klien/%d", idKlien)
+	code, m, _, _ = u.panggil("GET", "/api/v1/api-akses/klien?q=UJI-E2E", bearer(admin.token), "")
+	if code != 200 || len(data(t, m)["klien"].([]interface{})) != 1 {
+		t.Fatalf("daftar klien: %d %v", code, m)
+	}
+	if data(t, m)["per_status"].(map[string]interface{})["menunggu"].(float64) != 0 {
+		t.Errorf("klien yang didaftarkan superadmin tidak boleh menambah yang menunggu: %v", data(t, m)["per_status"])
 	}
 
 	// Kunci tidak boleh terbaca lagi dari mana pun, dan database hanya menyimpan hash.
@@ -497,11 +544,8 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 		t.Errorf("kunci baru setelah diaktifkan kembali: %d, want 200", code)
 	}
 
-	// ---- Pendaftaran lain: ditolak bersifat final; pendaftaran ditutup
-	u.captcha("cap-4")
-	_, m, _, _ = u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, formPendaftaran("cap-4", "UJI-E2E Ditolak"))
-	var idTolak int64
-	db.QueryRow(`SELECT id FROM api_akses_klien WHERE nama_aplikasi = N'UJI-E2E Ditolak'`).Scan(&idTolak)
+	// ---- Sisa pendaftaran lama berstatus menunggu (dari formulir publik yang sudah ditiadakan) tetap dapat diputuskan superadmin: ditolak bersifat final, atau disetujui
+	idTolak := sisipMenunggu(t, db, "UJI-E2E Lama Ditolak")
 	bt := fmt.Sprintf("/api/v1/api-akses/klien/%d", idTolak)
 	if code, _, _, _ := u.panggil("POST", bt+"/tolak", bearer(admin.token), `{"catatan":"tidak memenuhi syarat"}`); code != 200 {
 		t.Errorf("tolak: %d", code)
@@ -512,16 +556,14 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 	if code, _, _, _ := u.panggil("PUT", bt, bearer(admin.token), `{"dataset_diberikan":["aset.tanah"]}`); code != 409 {
 		t.Errorf("ubah klien ditolak: %d, want 409", code)
 	}
-	pp := apiakses.PengaturanBawaan()
-	pp.PendaftaranDibuka = false
-	ppb, _ := json.Marshal(pp)
-	u.panggil("PUT", "/api/v1/api-akses/pengaturan", bearer(admin.token), string(ppb))
-	u.captcha("cap-5")
-	if code, m, _, _ := u.panggil("POST", "/api/v1/api-akses/pendaftaran", nil, formPendaftaran("cap-5", "UJI-E2E Tutup")); code != 403 || m["code"] != "pendaftaran_ditutup" {
-		t.Errorf("pendaftaran ditutup: %d %v", code, m)
+	idSetuju := sisipMenunggu(t, db, "UJI-E2E Lama Disetujui")
+	code, m, _, _ = u.panggil("POST", fmt.Sprintf("/api/v1/api-akses/klien/%d/setujui", idSetuju), bearer(admin.token), `{"ue1_diizinkan":"09971"}`)
+	if code != 200 || data(t, m)["kunci_baru"] == nil || data(t, m)["klien"].(map[string]interface{})["status"] != "disetujui" {
+		t.Errorf("setujui pendaftaran lama: %d %v", code, m)
 	}
-	if _, m, _, _ := u.panggil("GET", "/api/v1/api-akses/info", nil, ""); data(t, m)["pendaftaran_dibuka"] != false {
-		t.Error("info harus menunjukkan pendaftaran ditutup")
+	// Pengaturan tidak lagi memuat pendaftaran publik.
+	if _, m, _, _ := u.panggil("GET", "/api/v1/api-akses/pengaturan", bearer(admin.token), ""); strings.Contains(string(mustJSON(m)), "pendaftaran") {
+		t.Errorf("pengaturan masih memuat pendaftaran publik: %v", m)
 	}
 
 	// ---- Log Audit: pengelolaan dan kejadian keamanan tercatat, tanpa kunci apa pun
@@ -543,7 +585,7 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 			}
 		}
 	}
-	for _, w := range []string{"apiakses.daftar", "apiakses.klien.setujui", "apiakses.klien.ubah", "apiakses.kunci.rotasi", "apiakses.kunci.cabut", "apiakses.klien.cabut", "apiakses.klien.aktifkan",
+	for _, w := range []string{"apiakses.klien.buat", "apiakses.klien.setujui", "apiakses.klien.ubah", "apiakses.kunci.rotasi", "apiakses.kunci.cabut", "apiakses.klien.cabut", "apiakses.klien.aktifkan",
 		"apiakses.klien.tolak", "apiakses.pengaturan.ubah", "akses.ditolak"} {
 		if aksi[w] == 0 {
 			t.Errorf("aksi %s tidak tercatat di Log Audit (tercatat: %v)", w, aksi)
