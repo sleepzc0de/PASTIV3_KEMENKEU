@@ -1,6 +1,6 @@
-// Fungsi murni untuk fitur API Akses Data (tanpa React dan tanpa axios, jadi bisa diuji dengan Node): label, format batas, validasi formulir pendaftaran, dan kueri
+// Fungsi murni untuk fitur API Akses Data (tanpa React dan tanpa axios, jadi bisa diuji dengan Node): label, format batas, validasi formulir klien baru, dan kueri
 // pemantauan. Tipe ada di lib/apiAkses.ts.
-import type { BatasEfektif, FormPendaftaran, Klien, Metrik, StatusKlien } from "./apiAkses";
+import type { BatasEfektif, FormKlienBaru, Klien, Metrik, StatusKlien } from "./apiAkses";
 
 export const URUTAN_STATUS: StatusKlien[] = ["menunggu", "disetujui", "ditolak", "dicabut"];
 
@@ -12,7 +12,7 @@ export const LABEL_STATUS: Record<StatusKlien, string> = {
 };
 
 export const KETERANGAN_STATUS: Record<StatusKlien, string> = {
-  menunggu: "Belum ada kredensial; menunggu keputusan superadmin",
+  menunggu: "Sisa pendaftaran dari formulir lama (sudah ditiadakan); belum ada kredensial, menunggu keputusan superadmin",
   disetujui: "Kunci API aktif sesuai scope dan batas",
   ditolak: "Pendaftaran ditolak (final); pemohon dapat mendaftar ulang",
   dicabut: "Semua kunci dihentikan; dapat diaktifkan kembali dengan kunci baru",
@@ -144,19 +144,19 @@ export function galatIP(s: string): string {
   return "";
 }
 
-// ---------------------------------------------------------------- formulir pendaftaran
+// ---------------------------------------------------------------- formulir klien baru (didaftarkan superadmin)
 
 export const BATAS_FORM = { nama: 150, instansi: 200, unit: 200, pic: 150, email: 200, telepon: 40, tujuanMin: 20, tujuanMaks: 2000 } as const;
 
 const reEmail = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
 const reTelepon = /^[0-9+().\- ]{6,40}$/;
 
-// Memeriksa formulir pendaftaran seperti server: hasilnya peta kolom -> pesan (kosong bila sah). Server tetap yang menentukan.
-export function validasiPendaftaran(f: FormPendaftaran): Record<string, string> {
+// Memeriksa data aplikasi klien seperti server: hasilnya peta kolom -> pesan (kosong bila sah). Dataset, IP, UE1, dan batas diperiksa susunBodyAkses. Server tetap yang menentukan.
+export function validasiKlienBaru(f: FormKlienBaru): Record<string, string> {
   const g: Record<string, string> = {};
   const rapi = (s: string) => s.trim().replace(/\s+/g, " ");
   const panjang = (s: string) => Array.from(s).length;
-  const teks = (kolom: keyof FormPendaftaran, nama: string, min: number, maks: number, wajib: boolean) => {
+  const teks = (kolom: keyof FormKlienBaru, nama: string, min: number, maks: number, wajib: boolean) => {
     const v = rapi(String(f[kolom] ?? ""));
     if (!v && wajib) g[kolom] = `${nama} wajib diisi`;
     else if (v && panjang(v) < min) g[kolom] = `${nama} terlalu pendek`;
@@ -176,7 +176,6 @@ export function validasiPendaftaran(f: FormPendaftaran): Record<string, string> 
   if (!tujuan) g.tujuan = "Tujuan penggunaan wajib diisi";
   else if (panjang(tujuan) < BATAS_FORM.tujuanMin) g.tujuan = `Jelaskan tujuan penggunaan dengan lebih rinci (minimal ${BATAS_FORM.tujuanMin} karakter)`;
   else if (panjang(tujuan) > BATAS_FORM.tujuanMaks) g.tujuan = `Tujuan penggunaan terlalu panjang (maksimal ${BATAS_FORM.tujuanMaks} karakter)`;
-  if (f.dataset_diminta.length === 0) g.dataset_diminta = "Pilih sedikitnya satu dataset";
   return g;
 }
 

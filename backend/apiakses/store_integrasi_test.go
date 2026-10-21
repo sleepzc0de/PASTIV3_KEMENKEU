@@ -55,6 +55,7 @@ func hapusKlienUji(db *sql.DB, ids ...int64) {
 	}
 }
 
+// klienUji membuat klien lewat jalur resmi (BuatKlien: didaftarkan superadmin, langsung disetujui).
 func klienUji(t *testing.T, st *Store, nama string) (int64, string) {
 	t.Helper()
 	p := pendaftaranSah()
@@ -62,12 +63,137 @@ func klienUji(t *testing.T, st *Store, nama string) (int64, string) {
 	if g := p.Bersihkan(); len(g) != 0 {
 		t.Fatal(g)
 	}
-	id, kode, err := st.TambahKlien(context.Background(), p, "203.0.113.1")
+	id, kode, err := st.BuatKlien(context.Background(), p, UbahCakupan{DatasetDiberikan: p.DatasetDiminta}, "superadmin-uji", "203.0.113.1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { hapusKlienUji(st.DB, id) })
 	return id, kode
+}
+
+// klienMenungguUji menyisipkan baris berstatus menunggu seperti sisa formulir pendaftaran publik yang lama (tidak ada jalur kode yang membuatnya lagi), untuk menguji
+// keputusan superadmin (setujui atau tolak) atas pendaftaran lama yang mungkin masih ada di database.
+func klienMenungguUji(t *testing.T, st *Store, nama string) (int64, string) {
+	t.Helper()
+	p := pendaftaranSah()
+	p.Bersihkan() // urutan dataset dinormalisasi seperti yang dulu dilakukan formulir
+	kode, err := BuatKodeKlien()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	err = st.DB.QueryRowContext(context.Background(), `INSERT INTO api_akses_klien (kode, nama_aplikasi, instansi, unit, pic_nama, pic_jabatan, pic_email, pic_telepon, tujuan, dataset_diminta, didaftarkan_ip)
+		OUTPUT inserted.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, N'203.0.113.1')`,
+		kode, nama, p.Instansi, p.Unit, p.PICNama, p.PICJabatan, p.PICEmail, p.PICTelepon, p.Tujuan, strings.Join(p.DatasetDiminta, ",")).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { hapusKlienUji(st.DB, id) })
+	return id, kode
+}
+
+func TestIntegrasiBuatKlienOlehSuperadmin(t *testing.T) {
+	db := bukaDBUji(t)
+	st := &Store{DB: db}
+	ctx := context.Background()
+	p := pendaftaranSah()
+	p.NamaAplikasi = "UJI Dibuat Admin"
+	if g := p.Bersihkan(); len(g) != 0 {
+		t.Fatal(g)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM api_akses_kunci WHERE klien_id IN (SELECT id FROM api_akses_klien WHERE nama_aplikasi = N'UJI Dibuat Admin')")
+		db.Exec("DELETE FROM api_akses_klien_dataset WHERE klien_id IN (SELECT id FROM api_akses_klien WHERE nama_aplikasi = N'UJI Dibuat Admin')")
+		db.Exec("DELETE FROM api_akses_klien WHERE nama_aplikasi = N'UJI Dibuat Admin'")
+	})
+	c := UbahCakupan{DatasetDiberikan: []string{"aset.tanah"}, IPDiizinkan: []string{"198.51.100.0/24"}, UE1Diizinkan: []string{"01504"},
+		Override: Override{LimitPermintaan: intp(77), KuotaPeriodeDetik: intp(1800)}, Catatan: "sesuai surat 12/2026"}
+	id, kode, err := st.BuatKlien(ctx, p, c, "superadmin-uji", "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	k, err := st.AmbilKlien(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Langsung disetujui, tanpa tahap menunggu; yang mendaftarkan dan waktunya tercatat.
+	if k.Kode != kode || k.Status != StatusDisetujui || k.DiputuskanOleh != "superadmin-uji" || k.DiputuskanAt == nil || k.DidaftarkanIP != "10.1.2.3" || k.Catatan != "sesuai surat 12/2026" {
+		t.Fatalf("klien = %+v", k)
+	}
+	if strings.Join(k.DatasetDiberikan, ",") != "aset.tanah" || strings.Join(k.DatasetDiminta, ",") != "aset.tanah" ||
+		strings.Join(k.IPDiizinkan, ",") != "198.51.100.0/24" || strings.Join(k.UE1Diizinkan, ",") != "01504" {
+		t.Errorf("scope: %+v", k)
+	}
+	if k.LimitPermintaan == nil || *k.LimitPermintaan != 77 || k.LimitJendelaDetik != nil || k.KuotaPeriodeDetik == nil || *k.KuotaPeriodeDetik != 1800 {
+		t.Errorf("override: %+v %+v %+v", k.LimitPermintaan, k.LimitJendelaDetik, k.KuotaPeriodeDetik)
+	}
+	if k.PICEmail != "budi.santoso@contoh.go.id" || k.Tujuan == "" || k.NamaAplikasi != "UJI Dibuat Admin" {
+		t.Errorf("isian: %+v", k)
+	}
+	// Kunci dapat diterbitkan seketika (klien sudah disetujui).
+	kunci, prefix, _ := BuatKunci()
+	if _, err := st.TerbitkanKunci(ctx, BuatKunciBaru{KlienID: id, Prefix: prefix, Hash: HashKunci(KunciHash("pepper"), kunci), Oleh: "superadmin-uji"}); err != nil {
+		t.Fatalf("terbitkan kunci untuk klien baru: %v", err)
+	}
+	cred, err := st.CariKredensial(ctx, prefix)
+	if err != nil || cred == nil || cred.KlienStatus != StatusDisetujui || strings.Join(cred.Dataset, ",") != "aset.tanah" {
+		t.Errorf("kredensial: %+v %v", cred, err)
+	}
+	// Tidak menambah klien menunggu.
+	h, _ := st.HitungStatus(ctx)
+	menungguSebelum := h[StatusMenunggu]
+	if _, _, err := st.BuatKlien(ctx, p, UbahCakupan{DatasetDiberikan: []string{"aset.satker"}}, "superadmin-uji", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h2, _ := st.HitungStatus(ctx); h2[StatusMenunggu] != menungguSebelum {
+		t.Errorf("klien yang didaftarkan superadmin tidak boleh berstatus menunggu: %d -> %d", menungguSebelum, h2[StatusMenunggu])
+	}
+	// Kegagalan di tengah membatalkan semuanya (transaksi): dataset kembar melanggar kunci utama tabel dataset, dan tidak boleh meninggalkan klien setengah jadi.
+	var sebelum int
+	db.QueryRow("SELECT COUNT(*) FROM api_akses_klien").Scan(&sebelum)
+	if _, _, err := st.BuatKlien(ctx, p, UbahCakupan{DatasetDiberikan: []string{"aset.tanah", "aset.tanah"}}, "x", ""); err == nil {
+		t.Error("dataset kembar harus menggagalkan seluruh pembuatan")
+	}
+	var sesudah int
+	db.QueryRow("SELECT COUNT(*) FROM api_akses_klien").Scan(&sesudah)
+	if sesudah != sebelum {
+		t.Errorf("pembuatan yang gagal meninggalkan baris klien: %d -> %d", sebelum, sesudah)
+	}
+}
+
+// Migrasi 061 menghapus pengaturan pendaftaran publik yang sudah tidak dipakai; idempotent, dan pembacaan pengaturan mengabaikan baris itu bila migrasi belum dijalankan.
+func TestIntegrasiMigrasi061TutupPendaftaranPublik(t *testing.T) {
+	db := bukaDBUji(t)
+	st := &Store{DB: db}
+	ctx := context.Background()
+	db.Exec("DELETE FROM api_akses_pengaturan WHERE kunci = N'pendaftaran_dibuka'")
+	if _, err := db.Exec("INSERT INTO api_akses_pengaturan (kunci, nilai) VALUES (N'pendaftaran_dibuka', N'0')"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Exec("DELETE FROM api_akses_pengaturan WHERE kunci = N'pendaftaran_dibuka'") })
+	if p, err := st.MuatPengaturan(ctx); err != nil || p != PengaturanBawaan() {
+		t.Errorf("baris lama harus diabaikan: %+v %v", p, err)
+	}
+	sql061, err := os.ReadFile("../migrations/061_api_akses_tutup_pendaftaran_publik.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ { // dua kali: idempotent
+		if _, err := db.Exec(string(sql061)); err != nil {
+			t.Fatalf("migrasi 061 (kali ke-%d): %v", i+1, err)
+		}
+	}
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM api_akses_pengaturan WHERE kunci = N'pendaftaran_dibuka'").Scan(&n)
+	if n != 0 {
+		t.Errorf("baris pendaftaran_dibuka masih ada setelah migrasi 061")
+	}
+	var sisa int
+	db.QueryRow("SELECT COUNT(*) FROM api_akses_pengaturan WHERE kunci IN (N'limit_permintaan', N'kuota_permintaan')").Scan(&sisa)
+	if sisa != 2 {
+		t.Errorf("pengaturan lain tidak boleh terhapus: %d", sisa)
+	}
 }
 
 func intp(n int) *int { return &n }
@@ -76,7 +202,7 @@ func TestIntegrasiSiklusHidupKlienDanKunci(t *testing.T) {
 	db := bukaDBUji(t)
 	st := &Store{DB: db}
 	ctx := context.Background()
-	id, kode := klienUji(t, st, "UJI Siklus")
+	id, kode := klienMenungguUji(t, st, "UJI Siklus")
 
 	k, err := st.AmbilKlien(ctx, id)
 	if err != nil {
@@ -226,7 +352,7 @@ func TestIntegrasiSiklusHidupKlienDanKunci(t *testing.T) {
 	}
 
 	// Ditolak bersifat final, dan tidak bisa diubah scope-nya.
-	tolak, _ := klienUji(t, st, "UJI Ditolak")
+	tolak, _ := klienMenungguUji(t, st, "UJI Ditolak")
 	if err := st.UbahStatus(ctx, tolak, []string{StatusMenunggu}, StatusDitolak, "superadmin-uji", "tidak memenuhi syarat", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +422,7 @@ func TestIntegrasiPengaturan(t *testing.T) {
 	if err != nil || p != PengaturanBawaan() {
 		t.Fatalf("bawaan dari migrasi: %+v %v (harus 1000/60 dan 5000/3600)", p, err)
 	}
-	p.LimitPermintaan, p.KuotaPermintaan, p.PendaftaranDibuka, p.KunciBerlakuHari = 321, 4321, false, 45
+	p.LimitPermintaan, p.KuotaPermintaan, p.KunciBerlakuHari = 321, 4321, 45
 	if err := st.SimpanPengaturan(ctx, p, "superadmin-uji"); err != nil {
 		t.Fatal(err)
 	}

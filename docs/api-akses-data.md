@@ -1,23 +1,25 @@
 # API Akses Data PASTI (pengelolaan dan keamanan)
 
-Aplikasi lain yang ingin memakai data PASTI **mendaftar dulu**, disetujui **superadmin**, lalu menarik data lewat **kunci API** yang diterbitkan PASTI. Semua pemakaian dibatasi (scope, batas laju, kuota)
-dan dipantau. Panduan untuk pihak luar ada di [api-akses-data-pemakaian.md](api-akses-data-pemakaian.md); dokumen ini untuk superadmin dan pengembang.
+Aplikasi lain yang ingin memakai data PASTI **didaftarkan oleh superadmin** (tidak ada pendaftaran mandiri atau formulir publik), lalu menarik data lewat **kunci API** yang diterbitkan PASTI.
+Semua pemakaian dibatasi (scope, batas laju, kuota) dan dipantau. Panduan untuk pihak luar ada di [api-akses-data-pemakaian.md](api-akses-data-pemakaian.md); dokumen ini untuk superadmin dan pengembang.
 
-Kode: `backend/apiakses/` (logika), `backend/handlers/api_akses_*.go` (HTTP), `backend/migrations/060_create_api_akses.sql`, frontend `components/apiakses/`, `lib/apiAkses*.ts`, halaman
-`/pendaftaran-api` (publik), `/dashboard/api-akses` dan `/dashboard/api-akses/monitoring` (superadmin).
+Kode: `backend/apiakses/` (logika), `backend/handlers/api_akses_*.go` (HTTP), `backend/migrations/060_create_api_akses.sql` dan `061_api_akses_tutup_pendaftaran_publik.sql`, frontend `components/apiakses/`,
+`lib/apiAkses*.ts`, halaman `/dashboard/api-akses` dan `/dashboard/api-akses/monitoring` (hanya superadmin; **tidak ada halaman atau rute publik**).
 
 ## Alur
 
-1. **Pendaftaran** (publik, tanpa login): `/pendaftaran-api`. Isian: nama aplikasi, instansi, unit, PIC (nama, jabatan, email, telepon), tujuan penggunaan, dataset yang diminta. Dilindungi captcha yang sama
-   dengan login, batas 5 pendaftaran per jam per IP, batas 300 pendaftaran yang menunggu, dan validasi ketat. Hasilnya status **menunggu**: belum ada kredensial apa pun.
-2. **Keputusan superadmin** (`Administrasi > API Akses Data`): *setujui*, *tolak*, *cabut*, *aktifkan kembali*.
+1. **Pendaftaran oleh superadmin** (`Administrasi > API Akses Data > Daftarkan aplikasi`, `POST /api/v1/api-akses/klien`). Pihak luar menghubungi administrator PASTI; superadmin mengisi data dari
+   permintaan mereka: nama aplikasi, instansi, unit, PIC (nama, jabatan, email, telepon), tujuan penggunaan, **dataset yang diizinkan**, dan opsi allowlist IP, pembatasan UE1, serta batas khusus.
+   Klien **langsung berstatus disetujui** (tanpa tahap menunggu) dan **kunci pertama diterbitkan** sekaligus, ditampilkan sekali. Validasi masukan ketat (semua kolom yang salah dilaporkan sekaligus,
+   tidak ada yang tersimpan bila ada yang salah). Tercatat di Log Audit (`apiakses.klien.buat`, tanpa email dan isi tujuan).
+2. **Keputusan superadmin selanjutnya** (rincian klien): *ubah scope dan batas*, *terbitkan/rotasi/cabut kunci*, *cabut akses*, *aktifkan kembali*.
 
    | Dari | Ke | Catatan |
    |---|---|---|
-   | menunggu | disetujui | superadmin memilih dataset (bawaan: yang diminta), allowlist IP, pembatasan UE1, batas khusus; **kunci pertama diterbitkan** dan ditampilkan sekali |
-   | menunggu | ditolak | final (pemohon mendaftar ulang); alasan wajib |
+   | *(dibuat superadmin)* | disetujui | langsung disetujui dengan scope dan batas yang dipilih; kunci pertama diterbitkan dan ditampilkan sekali |
    | disetujui | dicabut | **semua kunci ikut dihentikan**; alasan wajib |
    | dicabut | disetujui | kunci lama **tidak** hidup lagi; kunci baru diterbitkan dan ditampilkan sekali |
+   | menunggu | disetujui / ditolak | hanya untuk **sisa pendaftaran dari formulir publik lama** (bila ada di database): superadmin dapat menyetujui (dengan scope pilihannya) atau menolak (final). Tidak ada jalur kode yang membuat status ini lagi. |
 
 3. **Penarikan data** lewat `https://<domain>/api/data/v1/...` dengan `Authorization: Bearer <kunci>`.
 4. **Pemantauan** di `Administrasi > API Akses Data > Pemantauan penarikan data`.
@@ -44,7 +46,10 @@ Kode: `backend/apiakses/` (logika), `backend/handlers/api_akses_*.go` (HTTP), `b
   keluar. Diuji (`TestKolomPribadiTidakPernahKeluar`), termasuk terhadap SQL Server. Menambah kolom sensitif pada dataset otomatis tertutup.
 - **Masukan**: semua nilai penyaring berupa parameter SQL; nama tabel/kolom hanya dari kode; `q` ≥ 3 karakter; `LIKE` di-escape; kursor dan halaman divalidasi; pesan galat tidak memuat isian pemanggil.
 - **Kunci**: kedaluwarsa opsional (pengaturan *masa berlaku kunci*), **rotasi** dengan masa tenggang (kunci lama tetap berlaku N jam, bawaan 24), pencabutan per kunci, maksimal 5 kunci aktif per klien.
-- **Log Audit** (kategori *API Akses Data*): pendaftaran, setiap keputusan, perubahan scope/batas, penerbitan/rotasi/pencabutan kunci (hanya awalan kunci), perubahan pengaturan (sebelum dan sesudah), serta kejadian
+- **Tidak ada permukaan publik**: pendaftaran klien hanya lewat `POST /api-akses/klien` di balik `AuthRequired` + `RequireSuperadmin`. Formulir dan rute pendaftaran mandiri (beserta captcha, batas per IP,
+  dan pengaturan "pendaftaran dibuka") **dihapus**, bukan sekadar disembunyikan: `/pendaftaran-api`, `GET /api-akses/info`, dan `POST /api-akses/pendaftaran` menjawab 404 (diuji, `TestRutePendaftaranPublikTidakAda`).
+  Satu-satunya titik akhir yang dapat dijangkau tanpa login hanyalah `/api/data/v1/*` (kunci API) dan rute login yang sudah ada.
+- **Log Audit** (kategori *API Akses Data*): pendaftaran klien oleh superadmin, setiap keputusan, perubahan scope/batas, penerbitan/rotasi/pencabutan kunci (hanya awalan kunci), perubahan pengaturan (sebelum dan sesudah), serta kejadian
   keamanan (kunci tidak sah, IP di luar allowlist, dataset di luar scope; tercatat sebagai `akses.ditolak`/`apiakses.akses.tidak_sah`). **Kunci, hash, dan email PIC tidak pernah masuk log**
   (`TestAPIAksesAlurLengkapDenganSQLServer` memeriksanya). Pemakaian data biasa tidak masuk Log Audit tetapi ke riwayat permintaan khusus (di bawah).
 - Respons berisi data: `Cache-Control: no-store`. Respons penerbitan kunci: `no-store` juga. Rute klien tidak diberi CORS untuk origin lain (server-ke-server).
@@ -72,24 +77,26 @@ khusus (kosong = ikut bawaan). Rentang yang diterima: 1–100.000 permintaan, je
 
 | Rute | Fungsi |
 |---|---|
-| `GET /info`, `POST /pendaftaran` | **publik**: dataset yang dapat diminta; kirim pendaftaran (captcha) |
 | `GET /klien`, `GET /klien/:id` | daftar (status, `q`, halaman) dan rincian beserta kunci dan pemakaian |
+| `POST /klien` | **daftarkan klien baru** (data pemohon, dataset, allowlist IP, UE1, batas khusus, `label_kunci`): langsung disetujui, kunci pertama pada respons (sekali) |
 | `PUT /klien/:id` | ubah scope, allowlist IP, UE1, batas khusus, catatan |
-| `POST /klien/:id/setujui` · `/tolak` · `/cabut` · `/aktifkan` | keputusan |
+| `POST /klien/:id/setujui` · `/tolak` | hanya untuk sisa pendaftaran lama berstatus menunggu |
+| `POST /klien/:id/cabut` · `/aktifkan` | cabut akses (semua kunci dihentikan); aktifkan kembali (kunci baru) |
 | `POST /klien/:id/kunci` | terbitkan kunci (`rotasi: true` = rotasi) |
 | `DELETE /klien/:id/kunci/:kunciId` | cabut satu kunci |
-| `GET`/`PUT /pengaturan` | bawaan global (batas laju, kuota, pendaftaran dibuka, masa berlaku kunci, tenggang rotasi, halaman maksimal, retensi) |
+| `GET`/`PUT /pengaturan` | bawaan global (batas laju, kuota, masa berlaku kunci, tenggang rotasi, halaman maksimal, retensi) |
 | `GET /pantau/ringkasan`, `/pantau/riwayat`, `/pantau/opsi` | pemantauan |
 
-Semuanya memakai `AuthRequired` + `RequireSuperadmin` (superadmin yang bertindak sebagai peran data tidak punya hak ini), kecuali dua rute publik.
+**Semua** rute di grup ini memakai `AuthRequired` + `RequireSuperadmin` (superadmin yang bertindak sebagai peran data tidak punya hak ini); tidak ada pengecualian publik. Tes tabel rute
+(`routes/api_akses_test.go`) memeriksa bahwa setiap rute di bawah `/api/v1/api-akses/` menolak permintaan tanpa login (401).
 
 ## Pengaturan dan penerapan
 
-- Migrasi `060_create_api_akses.sql` (tabel `api_akses_*`) dijalankan otomatis oleh `deploy.sh`; idempotent.
+- Migrasi `060_create_api_akses.sql` (tabel `api_akses_*`) dan `061_api_akses_tutup_pendaftaran_publik.sql` (menghapus baris pengaturan `pendaftaran_dibuka` yang tidak dipakai lagi) dijalankan otomatis oleh
+  `deploy.sh`; keduanya idempotent. Migrasi 060 tidak diubah (sudah diterapkan di server); kolom dan status lama (menunggu, ditolak) dibiarkan agar data lama tidak hilang.
 - `.env` (opsional): `API_AKSES_PEPPER` = rahasia untuk hash kunci; kosong = diturunkan dari `PASSWORD_PEPPER`. **Mengganti salah satunya membuat semua kunci API yang sudah terbit tidak berlaku.**
 - Nginx: aturan `location ~ ^/(api/|...)` yang ada sudah meneruskan `/api/data/` dan `/api/v1/api-akses/`; header `X-Real-IP` yang dipasang Nginx dipakai untuk IP klien (allowlist, batas, Log Audit),
-  jadi `TRUSTED_PROXIES` harus benar dan port backend tidak boleh terbuka langsung. Aturan Nginx yang menutup `/api/v1/auth/register` hanya menutup pendaftaran *akun pengguna*; formulir pendaftaran aplikasi
-  (`/api/v1/api-akses/pendaftaran`) rute berbeda dan tetap terbuka. Bila perlu lapisan tambahan, `limit_req` Nginx pada `/api/data/` dapat dipasang tanpa mengubah aplikasi.
+  jadi `TRUSTED_PROXIES` harus benar dan port backend tidak boleh terbuka langsung. Tidak ada rute publik baru yang perlu dibuka atau ditutup di Nginx. Bila perlu lapisan tambahan, `limit_req` Nginx pada `/api/data/` dapat dipasang tanpa mengubah aplikasi.
 - Menjalankan lebih dari satu instance backend: batas laju dan kuota menjadi per instance. Pindahkan penghitung ke penyimpanan bersama (mis. Redis) sebelum itu.
 
 ## Tes
@@ -99,9 +106,9 @@ cd backend && go test ./apiakses/ ./routes/ ./audit/ ./middleware/        # unit
 cd frontend && node --test lib/apiAkses.test.mjs
 ```
 
-Tes integrasi SQL Server (dilewati bila `PASTI_UJI_MSSQL_DSN` kosong; gunakan database KHUSUS TES yang sudah dimigrasi sampai 060, lihat contoh DSN di `apiakses/store_integrasi_test.go`):
-`store_integrasi_test.go` (siklus klien dan kunci, pengaturan, kuota, riwayat, agregat, pembacaan data, injeksi SQL, kolom pribadi) dan `routes/api_akses_integrasi_test.go` (alur lengkap dari pendaftaran sampai
-pemantauan lewat router asli). Tes unit mencakup kunci (bentuk, hash, waktu konstan), batas laju (jendela geser tepat, kuota, serentak 200 goroutine, perubahan batas, pemulihan), gerbang (semua kegagalan tampak
+Tes integrasi SQL Server (dilewati bila `PASTI_UJI_MSSQL_DSN` kosong; gunakan database KHUSUS TES yang sudah dimigrasi sampai 061, lihat contoh DSN di `apiakses/store_integrasi_test.go`):
+`store_integrasi_test.go` (siklus klien dan kunci, pengaturan, kuota, riwayat, agregat, pembacaan data, injeksi SQL, kolom pribadi) dan `routes/api_akses_integrasi_test.go` (alur lengkap lewat router asli: rute publik lama 404, klien hanya dibuat superadmin dan langsung disetujui, kunci, tarik data, scope, batas, rotasi, pencabutan, pemantauan, Log Audit).
+Validasi pendaftaran oleh superadmin juga diuji tanpa database (`handlers/api_akses_admin_test.go`). Tes unit mencakup kunci (bentuk, hash, waktu konstan), batas laju (jendela geser tepat, kuota, serentak 200 goroutine, perubahan batas, pemulihan), gerbang (semua kegagalan tampak
 sama, allowlist, scope, cache dan pencabutan, kuota, Log Audit tanpa kunci), validasi masukan, dan tabel rute (setiap rute klien menolak tanpa kunci dan menolak JWT).
 
 ## Batasan yang perlu diketahui
@@ -109,5 +116,6 @@ sama, allowlist, scope, cache dan pencabutan, kuota, Log Audit tanpa kunci), val
 - Penghitung di memori satu proses (lihat di atas). Setelah restart, batas laju (jendela 60 detik) mulai kosong; kuota dipulihkan dari salinan terakhir (paling banyak 5 detik hitungan hilang).
 - Dataset: hanya Digitalisasi Aset. Data pengadaan (Inaproc) belum dibuka karena kolomnya belum dinilai satu per satu.
 - Klien tidak pernah dihapus (jejak audit); yang tidak dipakai lagi berstatus *dicabut*.
-- Kabar keputusan dan penyerahan kunci ke PIC dilakukan superadmin di luar aplikasi (PASTI tidak mengirim email). Tidak ada halaman status bagi pemohon; pemohon menyimpan nomor pendaftaran.
+- Penyerahan kunci ke PIC dan kabar ke pemohon dilakukan superadmin di luar aplikasi (PASTI tidak mengirim email). Pemohon tidak punya halaman atau akun di PASTI untuk fitur ini.
+- Sisa pendaftaran berstatus *menunggu* dari formulir publik yang lama (bila ada di database) tidak dihapus otomatis; superadmin dapat menyetujui atau menolaknya dari daftar klien, atau menolak semuanya.
 - Koordinat aset (lintang/bujur) ikut dalam dataset yang punya koordinat. Bila ada dataset yang koordinatnya tidak boleh keluar, tambahkan ke `kolomTertutup`.

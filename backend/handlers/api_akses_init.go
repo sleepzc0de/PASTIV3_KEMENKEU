@@ -16,8 +16,8 @@ import (
 	"pasti-v3-backend/utils"
 )
 
-// API Akses Data PASTI: aplikasi lain mendaftar, disetujui superadmin, lalu menarik data lewat kunci API. Pendaftaran publik (api_akses_publik.go), pengelolaan oleh
-// superadmin (api_akses_admin.go), pemantauan (api_akses_pantau.go), dan API untuk klien (api_akses_data.go) berbagi satu layanan per proses.
+// API Akses Data PASTI: aplikasi lain DIDAFTARKAN OLEH SUPERADMIN (tidak ada pendaftaran mandiri/publik), lalu menarik data lewat kunci API. Pendaftaran, pengelolaan, dan
+// pengaturan oleh superadmin (api_akses_admin.go), pemantauan (api_akses_pantau.go), dan API untuk klien (api_akses_data.go) berbagi satu layanan per proses.
 
 var apiAkses *apiakses.Layanan
 

@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { ChevronLeft, ChevronRight, RefreshCw, Search, Users } from "lucide-react";
-import { type DaftarKlien, type InfoDataset, type Pengaturan, type StatusKlien, getDaftarKlien } from "@/lib/apiAkses";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Search, Users } from "lucide-react";
+import { type DaftarKlien, type InfoDataset, type KunciBaru, type Pengaturan, type StatusKlien, getDaftarKlien } from "@/lib/apiAkses";
 import { KETERANGAN_STATUS, LABEL_STATUS, URUTAN_STATUS } from "@/lib/apiAksesFormat";
 import { teksRelatif, waktuWIB } from "@/lib/auditFilter";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
+import { KlienBaruModal } from "./KlienBaruModal";
 import { KlienDetail } from "./KlienDetail";
+import { KunciBaruModal } from "./KunciBaruModal";
 import { LencanaStatus } from "./lencana";
 
 const PER_HALAMAN = 25;
@@ -31,6 +34,9 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
   const [memuat, setMemuat] = useState(false);
   const [versi, setVersi] = useState(0);
   const [terbuka, setTerbuka] = useState<number | null>(null);
+  const [bukaBaru, setBukaBaru] = useState(false);
+  const [kunciBaru, setKunciBaru] = useState<{ kunci: KunciBaru; judul: string } | null>(null);
+  const toast = useToast();
   const pertama = useRef(true);
 
   // Pencarian diterapkan setelah jeda supaya tidak meminta data pada setiap ketukan.
@@ -76,8 +82,8 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
   return (
     <div className="space-y-4">
       <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-700">
-        Aplikasi lain mendaftar lewat formulir publik, lalu <b>menunggu persetujuan Anda</b>; kunci API baru terbit setelah disetujui, dan hanya ditampilkan sekali. Setiap klien hanya dapat membaca dataset yang
-        Anda izinkan, dengan batas laju dan kuota yang dapat diatur per klien. Semua keputusan tercatat di Log Audit.
+        Aplikasi lain <b>didaftarkan oleh superadmin</b>: pihak luar menghubungi administrator PASTI (tidak ada formulir pendaftaran mandiri), lalu Anda mendaftarkannya di sini. Kunci API terbit saat klien
+        dibuat dan hanya ditampilkan sekali. Setiap klien hanya dapat membaca dataset yang Anda izinkan, dengan batas laju dan kuota yang dapat diatur per klien. Semua keputusan tercatat di Log Audit.
       </p>
 
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Saring menurut status">
@@ -117,6 +123,9 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
         <Button size="sm" variant="secondary" fullWidth={false} icon={<RefreshCw className="h-4 w-4" aria-hidden="true" />} onClick={muatUlang}>
           Segarkan
         </Button>
+        <Button size="sm" fullWidth={false} disabled={!data} icon={<Plus className="h-4 w-4" aria-hidden="true" />} onClick={() => setBukaBaru(true)}>
+          Daftarkan aplikasi
+        </Button>
       </div>
 
       {galat && <Alert message={galat} />}
@@ -129,7 +138,7 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
             {data.total > 0 && <span className="text-slate-400"> · halaman {data.halaman} dari {jumlahHalaman.toLocaleString("id-ID")}</span>}
           </p>
           {data.klien.length === 0 ? (
-            <EmptyState icon={Users} title="Belum ada klien" description={status || q ? "Ubah atau hapus penyaring." : "Belum ada aplikasi yang mendaftar. Formulir pendaftaran publik ada di /pendaftaran-api."} />
+            <EmptyState icon={Users} title="Belum ada klien" description={status || q ? "Ubah atau hapus penyaring." : "Belum ada aplikasi yang didaftarkan. Pilih Daftarkan aplikasi untuk menambah klien API pertama."} />
           ) : (
             <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm ${memuat ? "opacity-70" : ""}`}>
               <table className="w-full min-w-[52rem] text-sm">
@@ -168,7 +177,7 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
                         <p className="truncate text-xs text-slate-500">{k.pic_nama}</p>
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-xs text-slate-600">
-                        {k.status === "menunggu" || k.status === "ditolak" ? `${k.dataset_diminta.length} diminta` : `${k.dataset_diberikan.length} dari ${k.dataset_diminta.length} diminta`}
+                        {k.status === "menunggu" || k.status === "ditolak" ? `${k.dataset_diminta.length} diminta` : `${k.dataset_diberikan.length} dataset`}
                       </td>
                       <td className="px-4 py-2.5">
                         <LencanaStatus status={k.status} />
@@ -197,6 +206,20 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
         </>
       )}
 
+      {bukaBaru && (
+        <KlienBaruModal
+          dataset={dataset}
+          bawaan={bawaan}
+          onTutup={() => setBukaBaru(false)}
+          onSukses={(klien, kunci) => {
+            setBukaBaru(false);
+            if (kunci) setKunciBaru({ kunci, judul: `Klien ${klien.nama_aplikasi} didaftarkan: kunci API pertama` });
+            toast.success("Klien didaftarkan dan disetujui");
+            muatUlang();
+          }}
+        />
+      )}
+      {kunciBaru && <KunciBaruModal kunci={kunciBaru.kunci.kunci} judul={kunciBaru.judul} onTutup={() => setKunciBaru(null)} />}
       {terbuka !== null && <KlienDetail id={terbuka} dataset={dataset} bawaan={bawaan} onTutup={() => setTerbuka(null)} onBerubah={muatUlang} />}
     </div>
   );

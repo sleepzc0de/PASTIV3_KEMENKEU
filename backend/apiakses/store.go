@@ -161,19 +161,17 @@ func (k Klien) Override() Override {
 	return Override{LimitPermintaan: k.LimitPermintaan, LimitJendelaDetik: k.LimitJendelaDetik, KuotaPermintaan: k.KuotaPermintaan, KuotaPeriodeDetik: k.KuotaPeriodeDetik}
 }
 
-// TambahKlien menyimpan pendaftaran baru (status menunggu) dan mengembalikan id serta kode klien. Isian harus sudah lolos Pendaftaran.Bersihkan.
-func (s *Store) TambahKlien(ctx context.Context, p Pendaftaran, ip string) (int64, string, error) {
+// BuatKlien menyimpan klien yang didaftarkan SUPERADMIN: langsung berstatus disetujui, lengkap dengan scope, allowlist IP, pembatasan UE1, dan batas khusus, dalam satu
+// transaksi (oleh dan waktu pencatatannya masuk kolom diputuskan_*; ip = alamat superadmin yang mendaftarkan). Tidak ada jalur pendaftaran mandiri: klien baru hanya dapat
+// dibuat lewat sini. Isian harus sudah lolos Pendaftaran.Bersihkan dan cakupan sudah divalidasi (DaftarIP, DaftarUE1, NormalisasiDataset, Override.Validasi).
+func (s *Store) BuatKlien(ctx context.Context, p Pendaftaran, c UbahCakupan, oleh, ip string) (int64, string, error) {
 	var lastErr error
 	for i := 0; i < 5; i++ {
 		kode, err := BuatKodeKlien()
 		if err != nil {
 			return 0, "", err
 		}
-		var id int64
-		err = s.DB.QueryRowContext(ctx, `INSERT INTO api_akses_klien (kode, nama_aplikasi, instansi, unit, pic_nama, pic_jabatan, pic_email, pic_telepon, tujuan, dataset_diminta, didaftarkan_ip)
-			OUTPUT inserted.id VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11)`,
-			kode, p.NamaAplikasi, p.Instansi, nullJikaKosong(p.Unit), p.PICNama, nullJikaKosong(p.PICJabatan), p.PICEmail, nullJikaKosong(p.PICTelepon), p.Tujuan,
-			strings.Join(p.DatasetDiminta, ","), nullJikaKosong(potong(ip, 64))).Scan(&id)
+		id, err := s.buatKlienSekali(ctx, kode, p, c, oleh, ip)
 		if err == nil {
 			return id, kode, nil
 		}
@@ -183,6 +181,30 @@ func (s *Store) TambahKlien(ctx context.Context, p Pendaftaran, ip string) (int6
 		lastErr = err
 	}
 	return 0, "", lastErr
+}
+
+func (s *Store) buatKlienSekali(ctx context.Context, kode string, p Pendaftaran, c UbahCakupan, oleh, ip string) (int64, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var id int64
+	err = tx.QueryRowContext(ctx, `INSERT INTO api_akses_klien (kode, nama_aplikasi, instansi, unit, pic_nama, pic_jabatan, pic_email, pic_telepon, tujuan, dataset_diminta, status,
+			catatan, ip_diizinkan, ue1_diizinkan, limit_permintaan, limit_jendela_detik, kuota_permintaan, kuota_periode_detik, didaftarkan_ip, diputuskan_at, diputuskan_oleh)
+		OUTPUT inserted.id
+		VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, N'disetujui', @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, SYSUTCDATETIME(), @p19)`,
+		kode, p.NamaAplikasi, p.Instansi, nullJikaKosong(p.Unit), p.PICNama, nullJikaKosong(p.PICJabatan), p.PICEmail, nullJikaKosong(p.PICTelepon), p.Tujuan,
+		strings.Join(c.DatasetDiberikan, ","), nullJikaKosong(potong(c.Catatan, maksCatatan)), gabung(c.IPDiizinkan), gabung(c.UE1Diizinkan),
+		c.Override.LimitPermintaan, c.Override.LimitJendelaDetik, c.Override.KuotaPermintaan, c.Override.KuotaPeriodeDetik, nullJikaKosong(potong(ip, 64)),
+		nullJikaKosong(potong(oleh, 100))).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if err := gantiDataset(ctx, tx, id, c.DatasetDiberikan); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
 }
 
 // PenyaringKlien: syarat daftar klien.

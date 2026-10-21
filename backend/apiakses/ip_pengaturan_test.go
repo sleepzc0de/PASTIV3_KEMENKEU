@@ -1,6 +1,7 @@
 package apiakses
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -124,7 +125,7 @@ func TestPengaturanValidasi(t *testing.T) {
 
 func TestPengaturanBolakBalikBaris(t *testing.T) {
 	p := PengaturanBawaan()
-	p.LimitPermintaan, p.KuotaPermintaan, p.PendaftaranDibuka, p.KunciBerlakuHari = 250, 9000, false, 90
+	p.LimitPermintaan, p.KuotaPermintaan, p.KunciBerlakuHari = 250, 9000, 90
 	if got := DariBaris(p.KeBaris()); got != p {
 		t.Errorf("bolak-balik: %+v != %+v", got, p)
 	}
@@ -137,6 +138,36 @@ func TestPengaturanBolakBalikBaris(t *testing.T) {
 	}
 	if got := DariBaris(map[string]string{"limit_permintaan": "0", "kuota_permintaan": "7"}); got != PengaturanBawaan() {
 		t.Errorf("hasil gabungan yang tidak sah kembali ke pabrik seluruhnya: %+v", got)
+	}
+}
+
+// Pendaftaran publik ditiadakan: tidak ada pengaturan "pendaftaran_dibuka" lagi; barisnya (bila masih ada di database lama) diabaikan dan tidak pernah ditulis.
+func TestPengaturanTidakMemuatPendaftaranPublik(t *testing.T) {
+	if _, ada := PengaturanBawaan().KeBaris()["pendaftaran_dibuka"]; ada {
+		t.Error("pengaturan pendaftaran_dibuka tidak boleh ditulis lagi")
+	}
+	if got := DariBaris(map[string]string{"pendaftaran_dibuka": "0", "limit_permintaan": "321"}); got.LimitPermintaan != 321 {
+		t.Errorf("baris lama harus diabaikan tanpa mengganggu yang lain: %+v", got)
+	}
+	b, _ := json.Marshal(PengaturanBawaan())
+	if strings.Contains(string(b), "pendaftaran") {
+		t.Errorf("JSON pengaturan memuat pendaftaran: %s", b)
+	}
+}
+
+func TestOverrideGalatKolom(t *testing.T) {
+	n := func(v int) *int { return &v }
+	g := (Override{LimitPermintaan: n(0), LimitJendelaDetik: n(99999), KuotaPermintaan: n(5), KuotaPeriodeDetik: n(10)}).GalatKolom()
+	for _, k := range []string{"limit", "jendela", "periode"} {
+		if g[k] == "" {
+			t.Errorf("kolom %s harus bergalat: %v", k, g)
+		}
+	}
+	if g["kuota"] != "" {
+		t.Errorf("kuota 5 sah: %v", g)
+	}
+	if g := (Override{}).GalatKolom(); len(g) != 0 {
+		t.Errorf("tanpa override tidak ada galat: %v", g)
 	}
 }
 

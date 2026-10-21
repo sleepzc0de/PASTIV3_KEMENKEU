@@ -4,9 +4,17 @@ Panduan singkat bagi pengembang aplikasi yang ingin menarik data PASTI. Alamat d
 
 ## 1. Mendaftar
 
-1. Buka `https://pasti.kemenkeu.go.id/pendaftaran-api` dan isi: nama aplikasi, instansi, unit, PIC (nama, email, telepon), tujuan penggunaan, dan dataset yang dibutuhkan. Simpan **nomor pendaftaran** (`KL-XXXXXXXX`).
-2. Administrator PASTI menilai pendaftaran. Hanya dataset yang benar-benar diperlukan yang diberikan, dan administrator menentukan batas pemakaian Anda.
-3. Bila disetujui, **kunci API** diserahkan kepada PIC lewat jalur yang aman. Kunci **hanya ditampilkan sekali** dan tidak dapat dilihat lagi; bila hilang, minta kunci baru (yang lama dicabut).
+Tidak ada pendaftaran mandiri: **hubungi administrator PASTI** (melalui unit Anda atau surat/nota dinas) untuk didaftarkan sebagai klien API. Siapkan informasi berikut:
+
+- nama aplikasi, instansi dan unit pemilik;
+- PIC (nama, jabatan, email, telepon);
+- tujuan penggunaan (data apa dan untuk apa);
+- dataset yang dibutuhkan (hanya yang benar-benar diperlukan);
+- alamat IP keluar (egress) server Anda, bila ingin kunci dibatasi ke alamat itu (disarankan);
+- perkiraan kebutuhan permintaan, bila lebih dari bawaan (lihat bagian 4).
+
+Administrator PASTI yang mendaftarkan aplikasi Anda, menentukan dataset dan batas pemakaian, lalu menyerahkan **kunci API** kepada PIC lewat jalur yang aman. Kunci **hanya ditampilkan sekali** dan tidak
+dapat dilihat lagi; bila hilang, minta kunci baru (yang lama dicabut). Setelah terdaftar, Anda menerima **ID klien** (`KL-XXXXXXXX`) untuk disebut saat berkomunikasi dengan administrator.
 
 ## 2. Autentikasi
 
@@ -20,7 +28,7 @@ X-API-Key: pasti_xxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 - **Jangan** menaruh kunci di alamat (URL/query string): alamat tercatat di log proxy dan riwayat peramban; kunci seperti itu ditolak.
 - Simpan kunci sebagai rahasia (variabel lingkungan atau pengelola rahasia), jangan di kode sumber atau aplikasi peramban/seluler. Panggil API dari **server** Anda (tidak ada CORS untuk peramban).
 - Bila kunci diduga bocor, segera minta pencabutan. Untuk pergantian rutin, administrator dapat merotasi kunci: kunci lama tetap berlaku sementara (bawaan 24 jam) supaya Anda sempat berganti.
-- Administrator dapat membatasi kunci Anda ke **alamat IP** tertentu; permintaan dari alamat lain ditolak (403). Berikan alamat keluar (egress) server Anda saat mendaftar.
+- Administrator dapat membatasi kunci Anda ke **alamat IP** tertentu; permintaan dari alamat lain ditolak (403). Berikan alamat keluar (egress) server Anda kepada administrator saat meminta pendaftaran.
 
 ## 3. Endpoint
 
@@ -128,4 +136,4 @@ for baris in tarik("satker"):
     ...
 ```
 
-Pertanyaan dan permintaan perubahan scope atau batas: hubungi administrator PASTI dengan menyebut **nomor pendaftaran** (`KL-…`).
+Pertanyaan dan permintaan perubahan scope atau batas: hubungi administrator PASTI dengan menyebut **ID klien** (`KL-…`).

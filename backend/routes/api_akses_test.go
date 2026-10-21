@@ -12,7 +12,8 @@ import (
 	"pasti-v3-backend/handlers"
 )
 
-// Tes tabel rute API Akses Data tanpa database: setiap rute yang bukan formulir pendaftaran publik harus menolak permintaan tanpa kredensial yang sesuai.
+// Tes tabel rute API Akses Data tanpa database: TIDAK ADA rute publik (pendaftaran klien hanya oleh superadmin); setiap rute pengelolaan menolak permintaan tanpa login, dan
+// setiap rute klien menolak permintaan tanpa kunci API.
 
 func TestRuteAPIAksesTerlindungi(t *testing.T) {
 	pasangCfgUji(t)
@@ -23,8 +24,8 @@ func TestRuteAPIAksesTerlindungi(t *testing.T) {
 	l := apiakses.NewLayanan(nil, nil, nil, "pepper-uji")
 	t.Cleanup(handlers.GunakanApiAkses(l))
 
-	publik := map[string]bool{"GET /api/v1/api-akses/info": true, "POST /api/v1/api-akses/pendaftaran": true}
 	var pengelolaan, klien int
+	var adaBuatKlien bool
 	for _, rt := range r.Routes() {
 		kunci := rt.Method + " " + rt.Path
 		switch {
@@ -48,8 +49,11 @@ func TestRuteAPIAksesTerlindungi(t *testing.T) {
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("%s dengan JWT: %d, want 401", kunci, w.Code)
 			}
-		case strings.HasPrefix(rt.Path, "/api/v1/api-akses/") && !publik[kunci]:
+		case strings.HasPrefix(rt.Path, "/api/v1/api-akses/"):
 			pengelolaan++
+			if kunci == "POST /api/v1/api-akses/klien" {
+				adaBuatKlien = true
+			}
 			p := strings.NewReplacer(":id", "1", ":kunciId", "1").Replace(rt.Path)
 			// Kunci API (atau apa pun selain JWT pengguna) tidak membuka rute pengelolaan.
 			for _, auth := range []string{"", "Bearer pasti_aaaaaaaaaa_" + strings.Repeat("A", 43), "Bearer x"} {
@@ -65,8 +69,8 @@ func TestRuteAPIAksesTerlindungi(t *testing.T) {
 			}
 		}
 	}
-	if klien < 5 || pengelolaan < 12 {
-		t.Errorf("rute tidak lengkap: klien %d, pengelolaan %d", klien, pengelolaan)
+	if klien < 5 || pengelolaan < 13 || !adaBuatKlien {
+		t.Errorf("rute tidak lengkap: klien %d, pengelolaan %d, POST /klien %v", klien, pengelolaan, adaBuatKlien)
 	}
 }
 
@@ -93,18 +97,43 @@ func TestKunciAPITidakMembukaRutePengguna(t *testing.T) {
 	}
 }
 
-func TestPendaftaranPublikTidakMemberiKredensial(t *testing.T) {
+// Formulir dan rute pendaftaran publik sudah ditiadakan: permukaan publiknya tidak boleh ada lagi (bukan hanya tersembunyi).
+func TestRutePendaftaranPublikTidakAda(t *testing.T) {
 	pasangCfgUji(t)
-	// Formulir publik hanya menerima data pendaftaran; rute pengelolaan yang menerbitkan kunci tidak ada tanpa login superadmin (diuji di atas). Di sini: rute publik
-	// tidak menerima metode lain.
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	SetupRoutes(r)
-	for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch} {
+	l := apiakses.NewLayanan(nil, nil, nil, "pepper-uji")
+	t.Cleanup(handlers.GunakanApiAkses(l))
+
+	// Tidak ada rute dengan jalur pendaftaran/info publik pada tabel rute.
+	for _, rt := range r.Routes() {
+		if rt.Path == "/api/v1/api-akses/info" || rt.Path == "/api/v1/api-akses/pendaftaran" || strings.Contains(rt.Path, "pendaftaran") {
+			t.Errorf("rute publik lama masih ada: %s %s", rt.Method, rt.Path)
+		}
+	}
+	// Dan memanggilnya (dengan badan yang dulu sah) menghasilkan 404, untuk semua metode.
+	badan := `{"nama_aplikasi":"Aplikasi Uji","instansi":"Instansi Uji","pic_nama":"Budi","pic_email":"b@uji.go.id","tujuan":"Menarik data aset untuk pengujian internal sistem.","dataset_diminta":["aset.tanah"],"captcha_id":"x","captcha_answer":"1"}`
+	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		for _, p := range []string{"/api/v1/api-akses/info", "/api/v1/api-akses/pendaftaran"} {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(m, p, strings.NewReader(badan)))
+			if w.Code != http.StatusNotFound {
+				t.Errorf("%s %s: %d, want 404", m, p, w.Code)
+			}
+		}
+	}
+	// Pembuatan klien tanpa login ditolak (401): hanya superadmin yang dapat mendaftarkan.
+	for _, auth := range []string{"", "Bearer x", "Bearer pasti_aaaaaaaaaa_" + strings.Repeat("A", 43)} {
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(m, "/api/v1/api-akses/pendaftaran", strings.NewReader("{}")))
-		if w.Code != http.StatusNotFound && w.Code != http.StatusMethodNotAllowed {
-			t.Errorf("%s /api-akses/pendaftaran: %d, want 404/405", m, w.Code)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/api-akses/klien", strings.NewReader(badan))
+		req.Header.Set("Content-Type", "application/json")
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("POST /api-akses/klien dengan %q: %d, want 401", auth, w.Code)
 		}
 	}
 }

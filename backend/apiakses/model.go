@@ -63,7 +63,7 @@ const (
 	maksCatatan      = 1000
 )
 
-// Pendaftaran: isian formulir pendaftaran aplikasi klien (publik).
+// Pendaftaran: data aplikasi klien yang dimasukkan SUPERADMIN saat mendaftarkannya (POST /api-akses/klien). Tidak ada formulir publik: pihak luar menghubungi administrator PASTI.
 type Pendaftaran struct {
 	NamaAplikasi   string   `json:"nama_aplikasi"`
 	Instansi       string   `json:"instansi"`

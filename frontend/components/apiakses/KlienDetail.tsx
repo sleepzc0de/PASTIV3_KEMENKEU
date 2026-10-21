@@ -218,7 +218,7 @@ export function KlienDetail({
                   ["PIC", [klien.pic_nama, klien.pic_jabatan].filter(Boolean).join(" · ")],
                   ["Email PIC", klien.pic_email],
                   ["Telepon PIC", klien.pic_telepon],
-                  ["Alamat IP pendaftar", klien.didaftarkan_ip],
+                  ["Didaftarkan dari alamat IP", klien.didaftarkan_ip],
                   ["Catatan superadmin", klien.catatan],
                 ]}
               />
@@ -228,10 +228,12 @@ export function KlienDetail({
               </section>
 
               <section className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <h3 className="mb-1.5 text-sm font-semibold text-slate-700">Dataset diminta</h3>
-                  <ChipDataset kode={klien.dataset_diminta} dataset={dataset} />
-                </div>
+                {(klien.status === "menunggu" || klien.status === "ditolak") && (
+                  <div>
+                    <h3 className="mb-1.5 text-sm font-semibold text-slate-700">Dataset diminta</h3>
+                    <ChipDataset kode={klien.dataset_diminta} dataset={dataset} />
+                  </div>
+                )}
                 {klien.status !== "menunggu" && klien.status !== "ditolak" && (
                   <div>
                     <h3 className="mb-1.5 text-sm font-semibold text-slate-700">Dataset yang diizinkan (scope)</h3>
