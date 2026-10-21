@@ -114,7 +114,7 @@ Daftarkan **Redirect URI** `https://domain-anda/sso/callback/login` pada client 
 ./deploy.sh prod
 ```
 
-Urutannya: memeriksa port database terjangkau dari VPS → konfirmasi (ketik `prod`) → build image (5 sampai 15 menit) → migrasi (deploy pertama menjalankan semuanya, sekitar satu menit) → menjalankan container → cek kesehatan. Gagal sebelum container dijalankan = belum ada yang berubah; perbaiki lalu jalankan ulang.
+Urutannya: memeriksa port database terjangkau dari VPS → konfirmasi (ketik `prod`) → build image backend → **memeriksa jati diri server database** (lihat [bagian di bawah](#memastikan-database-yang-dituju-benar-ip-masking)) → build image frontend (5 sampai 15 menit) → migrasi (deploy pertama menjalankan semuanya, sekitar satu menit) → menjalankan container → cek kesehatan. Gagal sebelum container dijalankan = belum ada yang berubah; perbaiki lalu jalankan ulang.
 
 | Pesan | Penyebab |
 |---|---|
@@ -122,9 +122,25 @@ Urutannya: memeriksa port database terjangkau dari VPS → konfirmasi (ketik `pr
 | "Login failed for user" | `DB_USER` atau `DB_PASSWORD` salah |
 | "Cannot open database" | Database belum dibuat (langkah A) |
 | "Container ... sudah ada tetapi bukan dibuat oleh Docker Compose" padahal `docker ps -a` kosong | Yang ditemukan sebenarnya IMAGE sisa build yang namanya sama (`pasti-prod-backend`). Sudah diperbaiki di `deploy.sh` (memakai `docker container inspect`); pada server yang belum menarik perbaikan itu, hapus image sisa dengan `docker rmi pasti-prod-backend pasti-prod-frontend` lalu ulangi `./deploy.sh prod` |
+| "Server database TIDAK sesuai" | `DB_HOST` dipetakan (IP masking) ke server database lain, mis. development. Minta tim infrastruktur alamat server production yang sebenarnya. Deploy berhenti sebelum migrasi, jadi belum ada data yang tertulis |
+| "Deploy production tanpa EXPECTED_DB_SERVER tidak dilanjutkan" | Pakai `--yes` atau tanpa terminal sebelum nama server database dikunci. Isi `EXPECTED_DB_SERVER` di `deploy.env` (atau jalankan interaktif sekali) |
+| "Jati diri server database tidak terbaca" | Login database tidak bisa menjalankan pemeriksaan, atau sambungan terputus; baca pesan di atasnya |
 | Migrasi gagal dengan "permission denied" | Login belum berperan `db_owner` |
 | "Port ... sudah dipakai" | Ubah port di `deploy.env` |
 | Build gagal kehabisan memori | Tambah swap (langkah B) |
+
+### Memastikan database yang dituju benar (IP masking)
+
+Bila infrastruktur memetakan (IP masking/NAT) sebuah alamat database ke server lain, `DB_HOST` yang tampak seperti production bisa saja sampai ke SQL Server development, dan migrasi serta data production masuk ke sana. Karena itu `deploy.sh` tidak memercayai alamat: setelah image backend selesai dibangun dan **sebelum migrasi**, skrip bertanya langsung kepada SQL Server siapa dirinya (`SERVERPROPERTY('ServerName')`) dan mencocokkannya dengan `EXPECTED_DB_SERVER` di `deploy.env`. Pemetaan alamat tidak mengubah nama itu.
+
+- **Deploy production pertama** (atau yang pertama sesudah pembaruan ini): `EXPECTED_DB_SERVER` masih kosong. Skrip menampilkan nama server, mesin, alamat, dan database yang sebenarnya tersambung, lalu meminta Anda **mengetik** nama server production yang benar. Bila sama, nilainya disimpan di `deploy.env` dan dipakai di deploy berikutnya. Nama yang benar diperoleh dari tim infrastruktur, atau dengan menjalankan `SELECT SERVERPROPERTY('ServerName')` langsung di server database production (bukan lewat alamat yang di-mask).
+- **Deploy berikutnya:** bila nama server yang tersambung berbeda dari `EXPECTED_DB_SERVER`, deploy berhenti sebelum migrasi dan container lama tidak diubah. Membandingkan huruf besar dan kecil tidak dibedakan; instans bernama ditulis lengkap, mis. `NAMA-SERVERINSTANS`.
+- **`--yes` tidak melewati pemeriksaan ini.** Production tanpa `EXPECTED_DB_SERVER` tidak dilanjutkan bila tidak ada terminal interaktif atau dipakai `--yes`; isi nilainya di `deploy.env` lebih dulu.
+- `EXPECTED_DB_NAME` (opsional, di `deploy.env`) mengunci nama database dengan cara yang sama. Di environment dev kedua nilai opsional; bila kosong, jati diri server hanya ditampilkan.
+- Keadaan darurat saja: `SKIP_DB_IDENTITY_CHECK=1 ./deploy.sh prod` melewati pemeriksaan (dengan peringatan). Memakainya berarti memastikan sendiri bahwa `DB_HOST` tidak menuju database environment lain.
+- Backend juga mencatat satu baris setiap kali menyala, mis. `docker logs pasti-prod-backend 2>&1 | grep "Server database"`. Isinya `server`, `mesin`, `database`, dan `alamat` (alamat server database menurut server itu sendiri, bisa dibandingkan dengan IP yang disebut tim infrastruktur).
+
+Batasnya: pemeriksaan berjalan saat deploy. Bila infrastruktur mengubah pemetaan sesudahnya, backend tidak berhenti sendiri; pemetaan baru terlihat di baris log di atas atau saat `./deploy.sh prod` berikutnya.
 
 Pada akhirnya skrip mencetak **alamat halaman login**. Bawaannya `https://domain-anda/TDA5MW5wNHN0MXYzMjAyRw==` (dari `frontend/login-path.txt`); `/login` biasa sengaja dijawab 404. Untuk alamat sendiri isi `LOGIN_PATH=` di `deploy.env` (satu segmen 16 sampai 128 karakter huruf, angka, `_`, `-`, `=`), lalu jalankan `./deploy.sh prod` lagi. Lihat [login-tersembunyi.md](login-tersembunyi.md).
 
@@ -170,6 +186,7 @@ docker logs --tail 40 pasti-prod-backend
 - `/health` menjawab `{"service":"PASTI V3 Backend","status":"ok"}`; `/health/ready` juga memeriksa database (503 bila database tidak menjawab).
 - `docker ps` menampilkan backend `(healthy)` setelah ±1 menit.
 - Port 8686 dan 3000 hanya tampil di `127.0.0.1`. Bila terbuka ke luar, alamat IP di log audit bisa dipalsukan klien.
+- `docker logs pasti-prod-backend 2>&1 | grep "Server database"` menampilkan server database yang sebenarnya dipakai; pastikan namanya sama dengan `EXPECTED_DB_SERVER` di `deploy.env` dan alamatnya sesuai penjelasan tim infrastruktur.
 - Log backend sengaja singkat (hanya error dan warning, tanpa log akses) dan memuat `[INFO] Log server aktif ...`. Pesan `[AUDIT]`/`[MONITOR]` berlevel info tidak dicetak di production; keberadaannya terlihat di halaman Log Audit dan Monitor Resource.
 
 Di browser:
@@ -182,7 +199,7 @@ Di browser:
 
 ## H. Sesudahnya
 
-- **Pembaruan:** setelah merge ke `production_v3`, cukup `cd ~/pasti-prod && ./deploy.sh prod`. Skrip menarik kode, build, migrasi, cek kesehatan, dan otomatis kembali ke image sebelumnya bila gagal. Log deploy ada di `deploy.log`.
+- **Pembaruan:** setelah merge ke `production_v3`, cukup `cd ~/pasti-prod && ./deploy.sh prod`. Skrip menarik kode, build, memeriksa jati diri server database, migrasi, cek kesehatan, dan otomatis kembali ke image sebelumnya bila gagal. Log deploy ada di `deploy.log`. Server yang sudah berjalan sebelum pemeriksaan jati diri ada: deploy pertama sesudahnya meminta nama server database diketik sekali (atau isi `EXPECTED_DB_SERVER` di `deploy.env` lebih dulu bila memakai `--yes`).
 - **Reboot:** Docker dan container menyala sendiri (`restart: unless-stopped`).
 - **Mengubah `deploy.env`** (alamat atau port) memerlukan `./deploy.sh prod` lagi, karena `NEXT_PUBLIC_*` ditanam ke frontend saat build.
 - **Log dan ketahanan:** log server hanya menyimpan error/warning (retensi 30/7 hari, maks 50.000 baris) dan backend membatasi laju, beban, dan ekspor berat; pengaturan dan cara menyetelnya ada di `docs/log-server-dan-ketahanan.md`.

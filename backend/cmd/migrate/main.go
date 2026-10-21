@@ -7,20 +7,24 @@
 // dijalankan manual:
 //
 //	go run ./cmd/migrate -dry-run   # hanya menampilkan migrasi yang belum diterapkan
+//	go run ./cmd/migrate -identitas # hanya mencetak jati diri server database yang sebenarnya
 //	go run ./cmd/migrate            # menerapkan migrasi yang belum diterapkan
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"pasti-v3-backend/config"
 	"pasti-v3-backend/database"
@@ -182,6 +186,19 @@ func run(db *sql.DB, dir string, dryRun bool) error {
 	return nil
 }
 
+// cetakIdentitas menulis jati diri server database (nama yang dilaporkan SQL Server, bukan alamat yang diketik di DB_HOST) sebagai baris KUNCI=nilai ke w. Satu-satunya
+// keluaran di stdout; pesan log lain ke stderr. deploy.sh mencocokkannya dengan EXPECTED_DB_SERVER sebelum migrasi menyentuh database.
+func cetakIdentitas(w io.Writer, db *sql.DB) error {
+	ctx, batal := context.WithTimeout(context.Background(), 15*time.Second)
+	defer batal()
+	id, err := database.BacaIdentitas(ctx, db)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, id.Keluaran())
+	return err
+}
+
 func main() {
 	defaultDir := "migrations"
 	if v := os.Getenv("MIGRATIONS_DIR"); v != "" {
@@ -189,11 +206,19 @@ func main() {
 	}
 	dir := flag.String("dir", defaultDir, "folder berisi file migrasi .sql")
 	dryRun := flag.Bool("dry-run", false, "hanya tampilkan migrasi yang belum diterapkan")
+	identitas := flag.Bool("identitas", false, "hanya cetak jati diri server database yang sebenarnya (dibaca deploy.sh), tanpa migrasi")
 	flag.Parse()
 
 	config.LoadConfig()
 	database.Connect()
 	defer database.DB.Close()
+
+	if *identitas {
+		if err := cetakIdentitas(os.Stdout, database.DB); err != nil {
+			log.Fatal("[MIGRATE][FATAL] ", err)
+		}
+		return
+	}
 
 	if err := run(database.DB, *dir, *dryRun); err != nil {
 		log.Fatal("[MIGRATE][FATAL] ", err)

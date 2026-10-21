@@ -15,10 +15,12 @@
 #   1. Cek prasyarat (git, curl, Docker + Compose; menawarkan memasang Docker bila belum ada)
 #   2. Siapkan konfigurasi: deploy.env (URL publik, port) dan backend/.env (rahasia & DB)
 #   3. Tarik kode terbaru (git fetch + fast-forward)
-#   4. Build image backend & frontend
-#   5. Terapkan migrasi database yang belum diterapkan (dicatat di tabel schema_migrations)
-#   6. Jalankan ulang container, lalu cek kesehatannya
-#   7. Bila gagal, kembalikan ke image sebelumnya secara otomatis
+#   4. Build image backend, lalu pastikan server database yang sebenarnya dituju adalah yang benar
+#      (nama yang dilaporkan SQL Server sendiri vs EXPECTED_DB_SERVER; alamat DB_HOST bisa dipetakan infrastruktur)
+#   5. Build image frontend
+#   6. Terapkan migrasi database yang belum diterapkan (dicatat di tabel schema_migrations)
+#   7. Jalankan ulang container, lalu cek kesehatannya
+#   8. Bila gagal, kembalikan ke image sebelumnya secara otomatis
 #
 # Catatan: SQL Server TIDAK dipasang oleh skrip ini; skrip hanya terhubung ke
 # server database yang diisi di backend/.env.
@@ -102,13 +104,22 @@ Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
                     BIND_ADDRESS=127.0.0.1     # hanya lewat Nginx/reverse proxy di server ini
                     BACKEND_PORT=8686
                     FRONTEND_PORT=3000
+                    EXPECTED_DB_SERVER=NAMA-SERVER-DB   # nama server database production menurut SQL Server sendiri
                     # LOGIN_PATH=/...   (opsional) menimpa alamat halaman login bawaan repo (frontend/login-path.txt)
+                  EXPECTED_DB_SERVER: jati diri server database yang benar (hasil SELECT SERVERPROPERTY('ServerName'),
+                  bukan IP). Sebelum migrasi, deploy.sh menanyakan nama server yang sebenarnya tersambung dan berhenti
+                  bila berbeda, supaya alamat DB_HOST yang dipetakan (IP masking) ke database environment lain tidak
+                  ikut termigrasi. Production wajib: bila kosong, deploy interaktif meminta Anda mengetik namanya
+                  untuk dikunci. EXPECTED_DB_NAME (opsional) mengunci nama database.
   backend/.env    rahasia aplikasi, koneksi database, SSO, token Inaproc (dibuat dari
                   backend/.env.example; Anda yang mengisi nilai database & SSO).
 
 Variabel lingkungan:
   HEALTH_TIMEOUT=180   detik menunggu tiap layanan sehat (bawaan 90)
   SKIP_DB_CHECK=1      lewati pemeriksaan keterjangkauan server database sebelum build
+  SKIP_DB_IDENTITY_CHECK=1
+                       lewati pemeriksaan jati diri server database (EXPECTED_DB_SERVER). Hanya untuk keadaan
+                       darurat; pastikan sendiri bahwa DB_HOST tidak menuju database environment lain
 
 Log setiap deploy ditambahkan ke deploy.log.
 EOF
@@ -453,6 +464,10 @@ NEXT_PUBLIC_API_URL=$root/api/v1
 BIND_ADDRESS=$bind
 BACKEND_PORT=$backend_port
 FRONTEND_PORT=$frontend_port
+# Jati diri SERVER DATABASE yang benar untuk environment ini, menurut SQL Server sendiri (SELECT SERVERPROPERTY('ServerName'); bukan IP). Sebelum migrasi, deploy.sh
+# membandingkannya dengan server yang benar-benar tersambung, supaya DB_HOST yang dipetakan infrastruktur (IP masking) ke database environment lain tidak ikut termigrasi.
+# Production wajib: bila kosong, deploy production pertama meminta nama ini diketik lalu menyimpannya di sini. EXPECTED_DB_NAME (opsional) mengunci nama database.
+EXPECTED_DB_SERVER=
 EOF
   )
   own_file "$DEPLOY_ENV"
@@ -847,12 +862,130 @@ resolve_login_path() {
   ok "Halaman login: $LOGIN_PATH"
 }
 
-build_images() {
-  step "Build image (bisa beberapa menit)"
+build_image() {  # build_image LAYANAN
   local args=()
   [ "$FRESH" -eq 1 ] && args=(--no-cache --pull)
-  dc build "${args[@]}" || die "Build gagal. Container lama tidak diubah dan tetap berjalan."
-  ok "Build selesai."
+  dc build "${args[@]}" "$1" || die "Build $1 gagal. Container lama tidak diubah dan tetap berjalan."
+}
+
+# Backend dibangun lebih dulu dan terpisah dari frontend: pasti-migrate (dipakai untuk membaca jati diri database) ada di image backend, sedangkan build frontend
+# yang paling lama tidak perlu ditunggu bila ternyata database yang dituju salah.
+build_backend() {
+  step "Build image backend"
+  build_image backend
+  ok "Image backend selesai."
+}
+
+build_frontend() {
+  step "Build image frontend (bisa beberapa menit)"
+  build_image frontend
+  ok "Image frontend selesai."
+}
+
+# ----------------------------------------------------------------------------
+# Jati diri server database
+#
+# Alamat di DB_HOST tidak cukup untuk memastikan server mana yang dituju: infrastruktur dapat memetakan (IP masking/NAT) sebuah alamat ke server lain, mis. alamat yang
+# dikira production ternyata sampai ke SQL Server development, sehingga migrasi dan data production masuk ke database development. Pemetaan itu tidak mengubah nama yang
+# dilaporkan SQL Server tentang dirinya, jadi nama itulah yang dicocokkan dengan EXPECTED_DB_SERVER (deploy.env). Dijalankan SEBELUM migrasi dan sebelum container diganti:
+# bila tidak cocok, belum ada yang tertulis ke database.
+# ----------------------------------------------------------------------------
+IDENT_SERVER="" IDENT_MESIN="" IDENT_DATABASE="" IDENT_ALAMAT=""
+
+# ident_nilai KELUARAN KUNCI -> nilai baris IDENTITAS_<KUNCI>= (kosong bila tidak ada). Tidak ada eval: nilai hanya dibaca sebagai teks.
+ident_nilai() {
+  printf '%s\n' "$1" | sed -n "s/^IDENTITAS_$2=//p" | head -n 1 | tr -d '\r' || true
+}
+
+# Menanyakan jati diri server yang sedang tersambung lewat pasti-migrate (satu-satunya keluaran stdout-nya adalah baris IDENTITAS_*; pesan lain ke stderr).
+baca_identitas_db() {
+  local out
+  out=$(dc run --rm -T --no-deps --entrypoint ./pasti-migrate backend -identitas) || return 1
+  IDENT_SERVER=$(ident_nilai "$out" SERVER)
+  IDENT_MESIN=$(ident_nilai "$out" MESIN)
+  IDENT_DATABASE=$(ident_nilai "$out" DATABASE)
+  IDENT_ALAMAT=$(ident_nilai "$out" ALAMAT)
+  [ -n "$IDENT_SERVER" ]
+}
+
+# Nilai EXPECTED_* ditulis tangan di deploy.env: bentuknya dibatasi (nama server SQL: huruf, angka, titik, garis bawah, minus, dan \ untuk instans bernama).
+nama_server_valid() {
+  local re='^[A-Za-z0-9._\\-]{1,128}$'
+  [[ $1 =~ $re ]]
+}
+
+terminal_interaktif() { [ -t 0 ]; }
+
+# Production tanpa EXPECTED_DB_SERVER: belum ada bukti server ini production. Dikunci hanya bila operator mengetik sendiri namanya (bukan sekadar menekan Enter atau --yes),
+# setelah melihat nama dan alamat server yang sebenarnya.
+kunci_server_db_prod() {
+  warn "EXPECTED_DB_SERVER belum diisi di deploy.env: belum ada bukti bahwa '$IDENT_SERVER' adalah server database PRODUCTION (bukan development)."
+  if [[ ${IDENT_SERVER,,}/${IDENT_DATABASE,,} =~ (dev|staging|stg|uat|sandbox|test) ]]; then
+    warn "Nama server atau database ('$IDENT_SERVER' / '${IDENT_DATABASE:--}') memuat penanda non-production (dev/staging/uat/test). Periksa dengan tim infrastruktur."
+  fi
+  if [ "$ASSUME_YES" -eq 1 ] || ! terminal_interaktif; then
+    err "Setelah memastikan (tanya tim infrastruktur) bahwa itu server database PRODUCTION, isi di deploy.env lalu jalankan ulang:"
+    err "    EXPECTED_DB_SERVER=$IDENT_SERVER"
+    die "Deploy production tanpa EXPECTED_DB_SERVER tidak dilanjutkan; --yes tidak menggantikan pemeriksaan ini. Belum ada yang diubah di server."
+  fi
+  log "Server database yang akan menerima migrasi dan data: $IDENT_SERVER (alamat ${IDENT_ALAMAT:--}), database ${IDENT_DATABASE:--}"
+  local ans
+  read -r -p "    Ketik nama server database PRODUCTION yang benar untuk dikunci di deploy.env (kosong = batal): " ans || ans=""
+  if [ -z "$ans" ] || [ "${ans,,}" != "${IDENT_SERVER,,}" ]; then
+    die "Dibatalkan: yang diketik ('$ans') tidak sama dengan server yang sebenarnya dituju ('$IDENT_SERVER'). Belum ada yang diubah di server."
+  fi
+  env_set "$DEPLOY_ENV" EXPECTED_DB_SERVER "$IDENT_SERVER"
+  own_file "$DEPLOY_ENV"
+  ok "EXPECTED_DB_SERVER=$IDENT_SERVER disimpan di deploy.env; deploy berikutnya menolak server database lain."
+}
+
+verifikasi_identitas_db() {
+  step "Memeriksa jati diri server database"
+  if [ -n "${SKIP_DB_IDENTITY_CHECK:-}" ]; then
+    warn "SKIP_DB_IDENTITY_CHECK: jati diri server database TIDAK diperiksa. Pastikan sendiri bahwa DB_HOST tidak dipetakan ke database environment lain."
+    return 0
+  fi
+
+  local host want_server want_db wajib=0 salah=0
+  host="$(env_get "$BACKEND_ENV" DB_HOST):$(env_get "$BACKEND_ENV" DB_PORT)"
+  want_server=$(env_get "$DEPLOY_ENV" EXPECTED_DB_SERVER)
+  want_db=$(env_get "$DEPLOY_ENV" EXPECTED_DB_NAME)
+  [ -z "$want_server" ] || nama_server_valid "$want_server" || die "EXPECTED_DB_SERVER di deploy.env tidak valid: '$want_server' (huruf, angka, titik, garis bawah, minus, dan \\ untuk instans bernama)."
+  [ -z "$want_db" ] || nama_server_valid "$want_db" || die "EXPECTED_DB_NAME di deploy.env tidak valid: '$want_db'."
+  # Production wajib terbukti; di dev hanya bila EXPECTED_* diisi (selain itu jati diri hanya ditampilkan).
+  if [ "$ENVIRONMENT" = "prod" ] || [ -n "$want_server$want_db" ]; then wajib=1; fi
+
+  if ! baca_identitas_db; then
+    if [ "$wajib" -eq 1 ]; then
+      die "Jati diri server database tidak terbaca (lihat pesan di atas). Tanpa itu tidak bisa dipastikan database mana yang akan dimigrasi. Belum ada yang diubah di server."
+    fi
+    warn "Jati diri server database tidak terbaca; pemeriksaan dilewati (EXPECTED_DB_SERVER tidak diisi)."
+    return 0
+  fi
+  ok "Server database yang sebenarnya: $IDENT_SERVER (mesin ${IDENT_MESIN:--}, alamat ${IDENT_ALAMAT:--}), database ${IDENT_DATABASE:--}"
+  log "DB_HOST di backend/.env: ${host%:} (bisa saja dipetakan infrastruktur; yang dipercaya adalah nama server di atas)"
+
+  if [ -n "$want_server" ] && [ "${IDENT_SERVER,,}" != "${want_server,,}" ]; then
+    err "Server database TIDAK sesuai: diharapkan '$want_server' (EXPECTED_DB_SERVER), sebenarnya '$IDENT_SERVER'."
+    salah=1
+  fi
+  if [ -n "$want_db" ] && [ "${IDENT_DATABASE,,}" != "${want_db,,}" ]; then
+    err "Database TIDAK sesuai: diharapkan '$want_db' (EXPECTED_DB_NAME), sebenarnya '${IDENT_DATABASE:--}'."
+    salah=1
+  fi
+  if [ "$salah" -eq 1 ]; then
+    err "DB_HOST di backend/.env (${host%:}) kemungkinan dipetakan (IP masking) ke server database lain, mis. development. Minta tim infrastruktur alamat server database $(env_label) yang sebenarnya."
+    err "Bila server database memang dipindahkan dengan sengaja, ubah EXPECTED_DB_SERVER di deploy.env."
+    die "Deploy dihentikan sebelum migrasi. Container lama tidak diubah dan tidak ada yang ditulis ke database."
+  fi
+  if [ -n "$want_server" ]; then
+    ok "Sesuai dengan EXPECTED_DB_SERVER ($want_server)."
+  elif [ "$ENVIRONMENT" = "prod" ]; then
+    kunci_server_db_prod
+  else
+    log "EXPECTED_DB_SERVER tidak diisi: hanya ditampilkan, tidak dibandingkan."
+  fi
+  [ -z "$want_db" ] || ok "Sesuai dengan EXPECTED_DB_NAME ($want_db)."
 }
 
 run_migrations() {
@@ -1058,7 +1191,9 @@ main() {
   confirm_production   # hanya untuk prod
 
   snapshot_images
-  build_images
+  build_backend
+  verifikasi_identitas_db  # jati diri server database vs EXPECTED_DB_SERVER; setelah image backend ada, sebelum frontend dan migrasi
+  build_frontend
   run_migrations
 
   if ! start_stack || ! health_checks; then
