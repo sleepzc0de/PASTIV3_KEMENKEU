@@ -3,6 +3,7 @@ package routes
 import (
 	"github.com/gin-gonic/gin"
 
+	"pasti-v3-backend/apiakses"
 	"pasti-v3-backend/database"
 	"pasti-v3-backend/handlers"
 	"pasti-v3-backend/middleware"
@@ -97,6 +98,31 @@ func SetupRoutes(r *gin.Engine) {
 			monitorGrup.GET("/database", handlers.GetMonitorDatabase)
 		}
 
+		// API Akses Data PASTI: aplikasi lain mendaftar (formulir publik, dengan captcha dan batas per IP), superadmin menyetujui dan mengatur scope, batas laju, dan kuota,
+		// lalu klien menarik data lewat rute /api/data/v1 di bawah dengan kunci API (bukan JWT pengguna). Semua rute pengelolaan dan pemantauan khusus superadmin.
+		apiAksesGrup := api.Group("/api-akses")
+		{
+			apiAksesGrup.GET("/info", middleware.BatasLajuInfoAPI(), handlers.GetApiAksesInfo)
+			apiAksesGrup.POST("/pendaftaran", middleware.BatasLajuPendaftaranAPI(), handlers.PostApiAksesPendaftaran)
+			kelolaAkses := apiAksesGrup.Group("", middleware.AuthRequired(), middleware.RequireSuperadmin())
+			{
+				kelolaAkses.GET("/klien", handlers.GetApiAksesKlien)
+				kelolaAkses.GET("/klien/:id", handlers.GetApiAksesKlienDetail)
+				kelolaAkses.PUT("/klien/:id", handlers.PutApiAksesKlien)
+				kelolaAkses.POST("/klien/:id/setujui", handlers.PostApiAksesSetujui)
+				kelolaAkses.POST("/klien/:id/tolak", handlers.PostApiAksesTolak)
+				kelolaAkses.POST("/klien/:id/cabut", handlers.PostApiAksesCabut)
+				kelolaAkses.POST("/klien/:id/aktifkan", handlers.PostApiAksesAktifkan)
+				kelolaAkses.POST("/klien/:id/kunci", handlers.PostApiAksesKunci)
+				kelolaAkses.DELETE("/klien/:id/kunci/:kunciId", handlers.DeleteApiAksesKunci)
+				kelolaAkses.GET("/pengaturan", handlers.GetApiAksesPengaturan)
+				kelolaAkses.PUT("/pengaturan", handlers.PutApiAksesPengaturan)
+				kelolaAkses.GET("/pantau/ringkasan", handlers.GetApiAksesPantauRingkasan)
+				kelolaAkses.GET("/pantau/riwayat", handlers.GetApiAksesPantauRiwayat)
+				kelolaAkses.GET("/pantau/opsi", handlers.GetApiAksesPantauOpsi)
+			}
+		}
+
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.
 		hris2 := api.Group("/hris2", middleware.AuthRequired(), middleware.RequireSuperadmin(), middleware.Eksternal())
 		{
@@ -142,6 +168,17 @@ func SetupRoutes(r *gin.Engine) {
 				penarikan.PUT("/penarikan/pengaturan", middleware.RequireSuperadmin(), handlers.PutInaprocPenarikanPengaturan)
 			}
 		}
+	}
+
+	// API untuk klien eksternal (aplikasi lain): HANYA kunci API yang diterima (ApiAksesGerbang), tidak pernah JWT/SSO pengguna, dan hanya membaca. Katalog dan profil/pemakaian
+	// sendiri tidak menghabiskan kuota (tetap dikenai batas laju); pembacaan data menghabiskan kuota. Rute-rute ini sengaja tidak berada di bawah /api/v1.
+	dataKlien := r.Group(apiakses.AwalanRute)
+	{
+		dataKlien.GET("/katalog", handlers.ApiAksesGerbang(false), handlers.GetAksesKatalog)
+		dataKlien.GET("/aset/:dataset", handlers.ApiAksesGerbang(true), handlers.GetAksesDaftar)
+		dataKlien.GET("/aset/:dataset/:id", handlers.ApiAksesGerbang(true), handlers.GetAksesDetail)
+		dataKlien.GET("/saya", handlers.ApiAksesGerbang(false), handlers.GetAksesSaya)
+		dataKlien.GET("/saya/penggunaan", handlers.ApiAksesGerbang(false), handlers.GetAksesSayaPenggunaan)
 	}
 
 	// /health: proses hidup (murah, tidak menyentuh database; dipakai pemeriksa kesehatan container). /health/ready: siap melayani, yaitu database menjawab.

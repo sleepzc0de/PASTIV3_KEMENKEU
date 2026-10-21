@@ -13,6 +13,8 @@ import {
   ScrollText,
   Gauge,
   ServerCrash,
+  KeyRound,
+  Activity,
 } from "lucide-react";
 
 export interface NavItem {
@@ -130,6 +132,23 @@ export const NAV_ENTRIES: NavEntry[] = [
   },
   {
     type: "item",
+    label: "API Akses Data",
+    href: "/dashboard/api-akses",
+    icon: KeyRound,
+    description: "Kelola aplikasi lain yang menarik data PASTI lewat kunci API: persetujuan, scope, batas laju dan kuota, serta pemantauan penarikan data",
+    roles: ["superadmin"],
+    halaman: [
+      {
+        label: "Pemantauan Penarikan Data API",
+        href: "/dashboard/api-akses/monitoring",
+        icon: Activity,
+        description: "Jumlah permintaan per klien, endpoint, dan waktu; pemakaian kuota saat ini; galat, 429, dan waktu respons; riwayat permintaan terakhir",
+        roles: ["superadmin"],
+      },
+    ],
+  },
+  {
+    type: "item",
     label: "Log Audit",
     href: "/dashboard/audit",
     icon: ScrollText,
@@ -167,6 +186,7 @@ export function flattenNav(peran?: string): FlatNavItem[] {
     if (!ok(e.roles)) continue;
     if (e.type === "item") {
       out.push(e);
+      for (const h of e.halaman ?? []) if (ok(h.roles)) out.push(h);
     } else {
       for (const c of e.children) {
         if (!ok(c.roles)) continue;
@@ -191,6 +211,13 @@ export function breadcrumbsFor(pathname: string): Crumb[] {
   for (const e of NAV_ENTRIES) {
     if (e.type === "item") {
       if (isNavActive(pathname, e)) {
+        const sub = e.halaman?.find((h) => isNavActive(pathname, h));
+        if (sub) {
+          crumbs.push({ label: e.label, href: e.href });
+          crumbs.push({ label: sub.label, href: pathname === sub.href ? undefined : sub.href });
+          if (pathname !== sub.href) crumbs.push({ label: "Detail" });
+          return crumbs;
+        }
         crumbs.push({ label: e.label, href: pathname === e.href ? undefined : e.href });
         if (pathname !== e.href) crumbs.push({ label: "Detail" });
         return crumbs;

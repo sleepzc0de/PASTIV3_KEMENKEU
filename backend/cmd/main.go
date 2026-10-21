@@ -36,6 +36,7 @@ func main() {
 	handlers.InitServerLog()
 	handlers.InitAudit()
 	handlers.InitMonitor()
+	handlers.InitApiAkses()
 	handlers.InitDigitalisasi()
 	handlers.InitInaprocPenarikan()
 
@@ -98,6 +99,7 @@ func main() {
 		log.Println("[WARN] Penutupan server tidak tuntas:", err)
 	}
 	handlers.BerhentiMonitor()
+	handlers.BerhentiApiAkses(ctx)
 	handlers.BerhentiAudit(ctx)
 	handlers.BerhentiServerLog(ctx)
 	log.Println("[INFO] Server berhenti")

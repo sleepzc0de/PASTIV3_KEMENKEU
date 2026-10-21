@@ -83,6 +83,11 @@ type Config struct {
 	MonitorAktif       bool
 	MonitorRetensiHari int
 
+	// ============ API Akses Data (aplikasi klien eksternal) ============
+	// APIAksesPepper: rahasia untuk hash kunci API (HMAC). Kosong = diturunkan dari PASSWORD_PEPPER. Mengganti nilainya membuat SEMUA kunci API yang sudah terbit tidak berlaku.
+	// Batas laju dan kuota TIDAK diatur di sini; superadmin mengubahnya dari halaman API Akses Data (tersimpan di database).
+	APIAksesPepper string
+
 	// ============ Log server: hanya galat dan peringatan ============
 	// LogLevel: ambang cetak ke konsol (docker logs): error, warn, info, debug. Bawaan warn di production dan info di pengembangan. Pesan info/debug tidak pernah disimpan.
 	// LogSimpan: apa yang disimpan ke database untuk halaman Log Server: warn (error + warning, bawaan), error, atau off. Retensi per level dan batas jumlah baris menjaga tabel
@@ -169,7 +174,6 @@ func LoadConfig() {
 		SLDKDBPassword: getEnv("SLDK_DB_PASSWORD", ""),
 		SLDKDBName:     getEnv("SLDK_DB_NAME", ""),
 
-
 		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),
 		DigitalisasiAutoJamMulai:     getEnvInt("DIGITALISASI_AUTO_JAM_MULAI", 1),
@@ -192,6 +196,8 @@ func LoadConfig() {
 		AuditRetensiHari:   getEnvInt("AUDIT_RETENSI_HARI", 365),
 		MonitorAktif:       getEnvBool("MONITOR_AKTIF", true),
 		MonitorRetensiHari: getEnvInt("MONITOR_RETENSI_HARI", 30),
+
+		APIAksesPepper: getEnv("API_AKSES_PEPPER", ""),
 
 		LogLevel:            getEnv("LOG_LEVEL", ""),
 		LogSimpan:           getEnv("LOG_SIMPAN", "warn"),

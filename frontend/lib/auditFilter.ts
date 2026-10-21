@@ -157,6 +157,18 @@ export const LABEL_ALASAN: Record<string, string> = {
   akun_sso: "Akun SSO tidak punya kata sandi lokal",
   kata_sandi_salah: "Kata sandi salah",
   sso_ditolak: "SSO gagal",
+  // API Akses Data (kunci API klien eksternal)
+  kunci_tidak_ada_atau_salah_bentuk: "Kunci tidak dikirim atau bentuknya salah",
+  kunci_salah_bentuk: "Bentuk kunci salah",
+  kunci_tidak_dikenal: "Kunci tidak dikenal",
+  rahasia_salah: "Rahasia kunci salah (awalan dikenal)",
+  kunci_dicabut: "Kunci sudah dicabut",
+  kunci_kedaluwarsa: "Kunci sudah kedaluwarsa",
+  klien_menunggu: "Klien belum disetujui",
+  klien_ditolak: "Pendaftaran klien ditolak",
+  klien_dicabut: "Akses klien dicabut",
+  alamat_di_luar_allowlist: "Alamat IP di luar allowlist",
+  dataset_di_luar_scope: "Dataset di luar scope klien",
 };
 
 const LABEL_KUNCI: Record<string, string> = {
@@ -176,6 +188,22 @@ const LABEL_KUNCI: Record<string, string> = {
   kode: "Kode peran",
   baru: "Peran baru",
   peran_id: "ID peran",
+  klien: "Klien API",
+  kunci_prefix: "Awalan kunci",
+  kunci_id: "ID kunci",
+  rotasi: "Rotasi",
+  kedaluwarsa: "Kedaluwarsa",
+  dari: "Status sebelumnya",
+  ke: "Status sesudahnya",
+  cakupan: "Scope dan batas",
+  sebelum: "Sebelum",
+  sesudah: "Sesudah",
+  dataset: "Dataset",
+  ip_diizinkan: "Allowlist IP",
+  ue1_diizinkan: "Dibatasi ke UE1",
+  nama_aplikasi: "Nama aplikasi",
+  instansi: "Instansi",
+  jumlah_dataset: "Jumlah dataset diminta",
 };
 
 function teksNilai(v: unknown): string {

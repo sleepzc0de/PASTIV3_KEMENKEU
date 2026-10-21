@@ -22,9 +22,10 @@ interface Props {
   format: (v: number) => string; // nilai pada sumbu dan tooltip
   maksY?: number; // sumbu tetap (mis. 100 untuk persen); tanpa ini dibulatkan dari data
   denganTanggal?: boolean; // label sumbu X memuat tanggal (rentang lebih dari sehari)
+  pesanKosong?: string; // pesan bila belum ada cukup data (bawaan untuk pengukuran resource)
 }
 
-export function GrafikGaris({ judul, subjudul, waktu, deret, format, maksY, denganTanggal = false }: Props) {
+export function GrafikGaris({ judul, subjudul, waktu, deret, format, maksY, denganTanggal = false, pesanKosong }: Props) {
   const [sorot, setSorot] = useState<number | null>(null);
   const kotak = useRef<HTMLDivElement>(null);
   const atas = useMemo(() => batasAtas(deret.map((d) => d.nilai), maksY), [deret, maksY]);
@@ -59,7 +60,7 @@ export function GrafikGaris({ judul, subjudul, waktu, deret, format, maksY, deng
     <ChartCard title={judul} subtitle={subjudul} table={ada ? <DataTable columns={["Waktu (WIB)", ...deret.map((d) => d.nama)]} rows={tabel} /> : undefined}>
       {!ada ? (
         <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-10 text-center text-sm text-slate-500">
-          Belum ada cukup data pada rentang ini. Pengukuran disimpan setiap 5 menit, jadi grafik terisi setelah beberapa saat aplikasi berjalan.
+          {pesanKosong ?? "Belum ada cukup data pada rentang ini. Pengukuran disimpan setiap 5 menit, jadi grafik terisi setelah beberapa saat aplikasi berjalan."}
         </p>
       ) : (
         <div>

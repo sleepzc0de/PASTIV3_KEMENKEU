@@ -24,6 +24,7 @@ Satu baris `audit_log` per aktivitas, ditulis oleh middleware `audit.Middleware(
 | **Login** berhasil dan gagal (kata sandi dan SSO) beserta alasannya | `auth.login.berhasil`, `auth.login.gagal` (kata sandi salah, captcha salah, akun tidak aktif, akun dikunci, SSO gagal, ...) |
 | Setiap **akses ditolak** (403) bagi pengguna yang login | `akses.ditolak` (aksi aslinya ada di rincian `aksi_asal`) |
 | Mengekspor log audit itu sendiri | `audit.ekspor` |
+| **API Akses Data**: pendaftaran aplikasi klien, keputusan superadmin, perubahan scope/batas, penerbitan/rotasi/pencabutan kunci, dan kejadian keamanan (kunci tidak sah, IP atau dataset di luar izin) | `apiakses.daftar`, `apiakses.klien.setujui`, `apiakses.kunci.rotasi`, `apiakses.pengaturan.ubah`, `apiakses.akses.tidak_sah` (lihat [api-akses-data.md](api-akses-data.md)) |
 
 GET biasa (melihat daftar, dasbor) **tidak** dicatat. Rute pengubah data baru otomatis tercatat dengan uraian umum; tes `TestKatalogAuditSesuaiTabelRute` memaksa pengembang menambahkan aturan berlabel di
 `audit/katalog.go` untuk rute baru, dan `TestGETYangDicatatAdalahBacaanSensitif` menjaga daftar GET yang dicatat tetap disengaja.

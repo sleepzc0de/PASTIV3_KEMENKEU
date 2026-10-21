@@ -45,6 +45,7 @@ const (
 	KatEkspor       = "ekspor"
 	KatHRIS2        = "hris2"
 	KatAudit        = "audit"
+	KatAPIAkses     = "api_akses"
 	KatLainnya      = "lainnya"
 )
 
