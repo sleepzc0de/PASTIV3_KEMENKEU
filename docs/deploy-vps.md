@@ -104,6 +104,7 @@ chmod 600 backend/.env
 
 Sudah terisi otomatis dan sebaiknya tidak diubah: `APP_ENV` dan `SSO_ENV` (production), `FRONTEND_URL`, `SSO_REDIRECT_URI`. **`TOKEN_ENCRYPTION_KEY` tidak boleh diganti** setelah dipakai. Simpan salinan `backend/.env` dan `deploy.env` di tempat aman.
 Opsional: `AUDIT_RETENSI_HARI`, `MONITOR_AKTIF`, `MONITOR_RETENSI_HARI` (lihat [audit-dan-monitor.md](audit-dan-monitor.md)); `PERAN_DATA_WAJIB=true` setelah semua pengguna punya peran.
+Opsional: `API_AKSES_PEPPER` untuk hash kunci API (bawaan diturunkan dari `PASSWORD_PEPPER`; mengganti salah satunya membuat semua kunci API klien tidak berlaku). Batas laju dan kuota API diatur superadmin di aplikasi, bukan di `.env` (lihat [api-akses-data.md](api-akses-data.md)).
 
 Daftarkan **Redirect URI** `https://domain-anda/sso/callback/login` pada client SSO production (persis sama). Itu dilakukan di pihak SSO Kemenkeu.
 

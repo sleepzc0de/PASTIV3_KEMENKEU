@@ -89,16 +89,34 @@ var katalog = map[string]Aturan{
 
 	// ---- audit itu sendiri
 	"GET " + awalan + "/audit/ekspor": {KatAudit, "audit.ekspor", "Mengekspor log audit ke CSV", "", "", true, true},
+
+	// ---- API Akses Data (aplikasi klien eksternal). Pemakaian data oleh klien tidak masuk di sini (ada di riwayat permintaan API); yang dicatat adalah pendaftaran,
+	// pengelolaan oleh superadmin, dan kejadian keamanan (kunci tidak sah, alamat atau dataset di luar izin; ditandai oleh gerbang).
+	"POST " + awalan + "/api-akses/pendaftaran":                {KatAPIAkses, "apiakses.daftar", "Pendaftaran aplikasi klien API", "klien_api", "", false, false},
+	"PUT " + awalan + "/api-akses/klien/:id":                   {KatAPIAkses, "apiakses.klien.ubah", "Mengubah scope dan batas klien API {id}", "klien_api", "id", false, false},
+	"POST " + awalan + "/api-akses/klien/:id/setujui":          {KatAPIAkses, "apiakses.klien.setujui", "Menyetujui pendaftaran klien API {id}", "klien_api", "id", false, false},
+	"POST " + awalan + "/api-akses/klien/:id/tolak":            {KatAPIAkses, "apiakses.klien.tolak", "Menolak pendaftaran klien API {id}", "klien_api", "id", false, false},
+	"POST " + awalan + "/api-akses/klien/:id/cabut":            {KatAPIAkses, "apiakses.klien.cabut", "Mencabut akses klien API {id}", "klien_api", "id", false, false},
+	"POST " + awalan + "/api-akses/klien/:id/aktifkan":         {KatAPIAkses, "apiakses.klien.aktifkan", "Mengaktifkan kembali klien API {id}", "klien_api", "id", false, false},
+	"POST " + awalan + "/api-akses/klien/:id/kunci":            {KatAPIAkses, "apiakses.kunci.terbit", "Menerbitkan kunci API untuk klien {id}", "klien_api", "id", false, false},
+	"DELETE " + awalan + "/api-akses/klien/:id/kunci/:kunciId": {KatAPIAkses, "apiakses.kunci.cabut", "Mencabut kunci API klien {id}", "klien_api", "id", false, false},
+	"PUT " + awalan + "/api-akses/pengaturan":                  {KatAPIAkses, "apiakses.pengaturan.ubah", "Mengubah batas laju dan kuota bawaan API", "", "", false, false},
+}
+
+// aksiTambahan: aksi yang dicatat dengan tanda dari handler (bukan dari rute di katalog), supaya tetap muncul di pilihan filter.
+var aksiTambahan = []OpsiAksi{
+	{Kode: "apiakses.kunci.rotasi", Label: "Merotasi kunci API", Kategori: KatAPIAkses},
+	{Kode: "apiakses.akses.tidak_sah", Label: "Percobaan akses API dengan kunci yang tidak sah", Kategori: KatAPIAkses},
 }
 
 // Label kategori untuk tampilan.
 var labelKategori = map[string]string{
 	KatAuth: "Akun dan login", KatPengguna: "Pengguna", KatPeran: "Peran", KatSapa: "SAPA", KatDigitalisasi: "Digitalisasi Aset", KatPengadaan: "Pengadaan",
-	KatReferensi: "Referensi", KatEkspor: "Ekspor dan unduhan", KatHRIS2: "Data pegawai (HRIS2)", KatAudit: "Log audit", KatLainnya: "Lainnya",
+	KatReferensi: "Referensi", KatEkspor: "Ekspor dan unduhan", KatHRIS2: "Data pegawai (HRIS2)", KatAudit: "Log audit", KatAPIAkses: "API Akses Data", KatLainnya: "Lainnya",
 }
 
 // urutanKategori: urutan tampil di filter.
-var urutanKategori = []string{KatAuth, KatPengguna, KatPeran, KatSapa, KatDigitalisasi, KatPengadaan, KatReferensi, KatEkspor, KatHRIS2, KatAudit, KatLainnya}
+var urutanKategori = []string{KatAuth, KatPengguna, KatPeran, KatSapa, KatDigitalisasi, KatPengadaan, KatReferensi, KatEkspor, KatHRIS2, KatAudit, KatAPIAkses, KatLainnya}
 
 // OpsiKategori: pilihan kategori untuk filter.
 type OpsiKategori struct {
@@ -139,6 +157,9 @@ func DaftarOpsi() Opsi {
 	for _, a := range katalog {
 		tambah(a.Aksi, labelUmum(a.Label), a.Kategori)
 	}
+	for _, a := range aksiTambahan {
+		tambah(a.Kode, a.Label, a.Kategori)
+	}
 	sort.Slice(o.Aksi, func(i, j int) bool { return o.Aksi[i].Kode < o.Aksi[j].Kode })
 	return o
 }
@@ -155,6 +176,9 @@ func KunciKatalog() []string {
 
 // KategoriDariRute menentukan kategori dari awalan rute untuk rute yang tidak ada di katalog.
 func KategoriDariRute(rute string) string {
+	if strings.HasPrefix(rute, "/api/data/") { // API klien eksternal (apiakses), di luar /api/v1
+		return KatAPIAkses
+	}
 	p := strings.TrimPrefix(rute, awalan)
 	p = strings.TrimPrefix(p, "/")
 	seg := p
@@ -178,6 +202,8 @@ func KategoriDariRute(rute string) string {
 		return KatPengadaan
 	case seg == "audit":
 		return KatAudit
+	case seg == "api-akses":
+		return KatAPIAkses
 	}
 	return KatLainnya
 }

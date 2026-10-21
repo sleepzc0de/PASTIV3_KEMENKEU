@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/LoginForm";
@@ -103,6 +104,13 @@ export default function LoginPage() {
           </Suspense>
 
           <LoginForm />
+
+          <p className="mt-6 text-center text-xs text-slate-500">
+            Mengembangkan aplikasi yang membutuhkan data PASTI?{" "}
+            <Link href="/pendaftaran-api" className="font-medium text-blue-700 hover:underline">
+              Daftar API Akses Data
+            </Link>
+          </p>
 
           {teksVersi() && <p className="mt-8 text-center text-xs text-slate-400">PASTI V3 · {teksVersi()}</p>}
         </div>

@@ -204,6 +204,20 @@ func BatasLajuCaptcha() gin.HandlerFunc {
 	return lajuPerMenit(config.Cfg.RateLimitCaptchaPerMenit, "Terlalu banyak permintaan captcha dari alamat Anda. Coba lagi beberapa saat lagi")
 }
 
+// BatasLajuPendaftaranAPI: batas pengiriman formulir pendaftaran API Akses Data (publik, tanpa login) per IP: 5 per jam. Melengkapi captcha dan batas jumlah pendaftaran
+// yang menunggu.
+func BatasLajuPendaftaranAPI() gin.HandlerFunc {
+	if !lajuAktif() {
+		return BatasLaju(nil, "")
+	}
+	return BatasLaju(NewPembatasLaju(5.0/3600, 5, 20000), "Terlalu banyak pendaftaran dari alamat Anda. Coba lagi beberapa jam lagi")
+}
+
+// BatasLajuInfoAPI: batas pembacaan katalog pendaftaran (publik) per IP: 60 per menit.
+func BatasLajuInfoAPI() gin.HandlerFunc {
+	return lajuPerMenit(60, "Terlalu banyak permintaan dari alamat Anda. Tunggu sebentar lalu coba lagi")
+}
+
 // ---------------------------------------------------------------- batas permintaan serentak (pelindung beban)
 
 // BatasSerentak membatasi jumlah permintaan yang diproses bersamaan. Yang melebihi batas menunggu paling lama tunggu; bila tetap tidak ada tempat, ditolak 503 dengan Retry-After,
