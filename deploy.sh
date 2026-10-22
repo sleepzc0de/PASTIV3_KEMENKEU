@@ -106,6 +106,10 @@ Konfigurasi (dibuat otomatis saat pertama kali dijalankan):
                     FRONTEND_PORT=3000
                     EXPECTED_DB_SERVER=NAMA-SERVER-DB   # nama server database production menurut SQL Server sendiri
                     # LOGIN_PATH=/...   (opsional) menimpa alamat halaman login bawaan repo (frontend/login-path.txt)
+                    # SSO_CALLBACK_VIA_FRONTEND=1   (opsional, jalan pintas) frontend meneruskan /sso/callback/login ke backend
+                  SSO_CALLBACK_VIA_FRONTEND=1: hanya bila proxy di depan domain mengarahkan /sso/callback/login ke frontend
+                  (login SSO berakhir di halaman 404) dan belum bisa diperbaiki. Perbaikan yang benar ada di aturan proxy;
+                  mengubah nilai ini memerlukan build ulang frontend (./deploy.sh melakukannya).
                   EXPECTED_DB_SERVER: jati diri server database yang benar (hasil SELECT SERVERPROPERTY('ServerName'),
                   bukan IP). Sebelum migrasi, deploy.sh menanyakan nama server yang sebenarnya tersambung dan berhenti
                   bila berbeda, supaya alamat DB_HOST yang dipetakan (IP masking) ke database environment lain tidak
@@ -468,6 +472,8 @@ FRONTEND_PORT=$frontend_port
 # membandingkannya dengan server yang benar-benar tersambung, supaya DB_HOST yang dipetakan infrastruktur (IP masking) ke database environment lain tidak ikut termigrasi.
 # Production wajib: bila kosong, deploy production pertama meminta nama ini diketik lalu menyimpannya di sini. EXPECTED_DB_NAME (opsional) mengunci nama database.
 EXPECTED_DB_SERVER=
+# Jalan pintas (opsional): hapus tanda # dan isi 1 hanya bila proxy di depan domain mengarahkan /sso/callback/login ke frontend sehingga login SSO berakhir di halaman 404.
+# SSO_CALLBACK_VIA_FRONTEND=1
 EOF
   )
   own_file "$DEPLOY_ENV"
@@ -504,6 +510,12 @@ load_deploy_config() {
   valid_port "$BACKEND_PORT"  || die "BACKEND_PORT di deploy.env tidak valid: '$BACKEND_PORT'"
   valid_port "$FRONTEND_PORT" || die "FRONTEND_PORT di deploy.env tidak valid: '$FRONTEND_PORT'"
   [[ $CONTAINER_PREFIX =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "CONTAINER_PREFIX di deploy.env tidak valid: '$CONTAINER_PREFIX' (huruf kecil, angka, - dan _)"
+  SSO_VIA_FRONTEND=$(env_get "$DEPLOY_ENV" SSO_CALLBACK_VIA_FRONTEND)
+  SSO_VIA_FRONTEND=${SSO_VIA_FRONTEND//[[:space:]]/}
+  case "$SSO_VIA_FRONTEND" in
+    ""|0|1) ;;
+    *) die "SSO_CALLBACK_VIA_FRONTEND di deploy.env harus 1 (menyalakan) atau 0/kosong (mematikan), bukan '$SSO_VIA_FRONTEND'." ;;
+  esac
   [ "$API_URL" = "$API_ROOT_URL/api/v1" ] || warn "NEXT_PUBLIC_API_URL ($API_URL) tidak sama dengan NEXT_PUBLIC_API_ROOT_URL + /api/v1."
   if [ "$ENVIRONMENT" = "prod" ] && [[ $API_ROOT_URL != https://* ]]; then
     die "Environment production wajib memakai https:// (NEXT_PUBLIC_API_ROOT_URL sekarang: $API_ROOT_URL)."
@@ -512,6 +524,9 @@ load_deploy_config() {
   ok "Environment: $(env_label)"
   ok "API publik: $API_URL"
   ok "Port: backend $BACKEND_PORT, frontend $FRONTEND_PORT (bind $BIND_ADDRESS); container: ${CONTAINER_PREFIX}-backend / ${CONTAINER_PREFIX}-frontend"
+  if [ "$SSO_VIA_FRONTEND" = "1" ]; then
+    warn "SSO_CALLBACK_VIA_FRONTEND=1: frontend meneruskan /sso/callback/login ke backend (jalan pintas). Tetap minta tim infrastruktur meneruskan path itu ke backend (port $BACKEND_PORT) di proxy."
+  fi
 }
 
 create_backend_env() {

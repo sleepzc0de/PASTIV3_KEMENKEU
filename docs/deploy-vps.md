@@ -173,6 +173,25 @@ sudo nginx -t && sudo systemctl reload nginx
 
 `/api/`, `/health`, `/sso/login`, dan `/sso/callback/login` diteruskan ke backend; sisanya ke frontend. Pendaftaran akun publik (`/api/v1/auth/register`) ditutup oleh konfigurasi itu. Bila HTTPS diterminasi perangkat lain (WAF atau load balancer), perangkat itu harus meneruskan rute yang sama.
 
+### Login SSO berakhir di halaman 404
+
+Gejala: setelah mengisi username dan password di halaman SSO Kemenkeu, peramban kembali ke `https://domain-anda/sso/callback/login?code=...` dan menampilkan halaman "Halaman tidak ditemukan" milik PASTI. Artinya proxy di depan domain mengarahkan `/sso/callback/login` ke **frontend**, padahal path itu milik **backend** (menukar kode dengan token). Bukan masalah pepper, kredensial SSO, atau database. Pastikan dengan dua perintah; hasilnya harus sama (`302 https://domain-anda/kembali-masuk?...`). Bila yang kedua `404`, proxy-lah penyebabnya:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' 'http://127.0.0.1:8686/sso/callback/login?code=x&state=x'
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' 'https://domain-anda/sso/callback/login?code=x&state=x'
+```
+
+**Perbaikan yang benar:** minta pengelola proxy/WAF meneruskan ke backend path `/api/`, `/health`, `/sso/login`, dan `/sso/callback/login` (pencocokan persis, query string ikut), sisanya ke frontend. Hati-hati dengan aturan awalan `/sso/callback` ke frontend: aturan itu menangkap `/sso/callback/login`. `/sso/callback` (tanpa `/login`) tetap halaman frontend. Sesudah diperbaiki, klik "Masuk dengan SSO" lagi (kode di URL sekali pakai).
+
+**Jalan pintas sementara** bila proxy belum bisa diperbaiki: tambahkan baris ini di `deploy.env`, lalu `./deploy.sh prod` (frontend dibangun ulang karena aturannya dibaca saat build):
+
+```
+SSO_CALLBACK_VIA_FRONTEND=1
+```
+
+Frontend lalu meneruskan **persis** `/sso/callback/login` (dengan `code` dan `state`) ke backend lewat jaringan Docker (`http://backend:8686`); path lain tidak tersentuh. Mati secara bawaan, dan `deploy.sh` mencetak peringatan selama menyala. Catatan: (1) IP klien di Log Audit untuk login SSO mengikuti header `X-Real-IP` dari proxy yang ikut diteruskan frontend; `TRUSTED_PROXIES` bawaan sudah memuat jaringan Docker. (2) Ini menambal, bukan pengganti aturan proxy yang benar: setelah proxy diperbaiki, hapus barisnya dan deploy ulang. (3) Salah isi (`true`, `2`, dan sebagainya) menghentikan `deploy.sh` dan build, bukan diam-diam mati; hanya `1` yang menyalakan.
+
 ## G. Verifikasi
 
 ```bash

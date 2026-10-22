@@ -42,6 +42,10 @@ services:
         # Alamat halaman login yang tidak bisa ditebak. Kosong = pakai bawaan repo (frontend/login-path.txt); deploy.sh mengisinya
         # dengan alamat yang berlaku (bawaan repo atau LOGIN_PATH di deploy.env) agar sama dengan yang dipakai cek kesehatan.
         LOGIN_PATH: ${LOGIN_PATH:-}
+        # Jalan pintas callback SSO (mati bawaan): 1 = frontend meneruskan /sso/callback/login ke backend bila proxy di depan domain salah mengarahkannya ke frontend.
+        # Atur di deploy.env; lihat docs/deploy-vps.md. Alamat backend dari dalam jaringan Docker (nama layanan "backend", port di dalam container).
+        SSO_CALLBACK_VIA_FRONTEND: ${SSO_CALLBACK_VIA_FRONTEND:-0}
+        BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8686}
     container_name: ${CONTAINER_PREFIX:-pasti}-frontend
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${FRONTEND_PORT:-3000}:3000"
