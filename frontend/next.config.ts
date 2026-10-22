@@ -5,7 +5,7 @@ import { jalurMasukDari } from "./lib/loginPath";
 import { aturanCallbackSSO } from "./lib/ssoCallback";
 
 // Alamat halaman login yang tidak bisa ditebak (lihat lib/loginPath.ts). Bawaannya ada di login-path.txt, satu sumber untuk
-// `npm run dev`/`build` lokal, build Docker, dan deploy.sh, jadi tidak perlu mengisi apa pun. LOGIN_PATH di lingkungan (deploy.env
+// `npm run dev`/`build` lokal, build Docker, dan deploy.sh, jadi tidak perlu mengisi apa pun. LOGIN_PATH di lingkungan (deploy.<env>.env
 // atau .env.local) menimpanya; LOGIN_PATH=/login menampilkan halaman login di /login seperti semula.
 // Hasilnya dibaca saat build dan disisipkan ke middleware sebagai konstanta; tidak dipakai komponen klien, jadi tidak ikut ke bundel
 // JavaScript yang diunduh pengunjung.

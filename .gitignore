@@ -1,6 +1,7 @@
 # ============ Environment & Secrets (SELURUH PROJECT) ============
 .env
 .env.prod
+.env.dev
 .env.local
 .env.*.local
 *.env
@@ -8,6 +9,8 @@
 
 # ============ Docker ============
 docker-compose.override.yml
+# Environment yang sedang berjalan di server (ditulis deploy.sh)
+deploy.aktif
 
 # ============ Certbot / SSL ============
 certbot/conf/

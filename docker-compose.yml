@@ -5,8 +5,9 @@ services:
     # Awalan nama container diatur di deploy.env (CONTAINER_PREFIX). Default tetap "pasti"; dev dan prod
     # di server yang sama wajib berbeda (mis. pasti dan pasti-prod).
     container_name: ${CONTAINER_PREFIX:-pasti}-backend
+    # Di server, deploy.sh mengisi BACKEND_ENV_FILE di deploy.<env>.env dengan profil environment terpilih (./backend/.env.dev atau ./backend/.env.prod).
     env_file:
-      - ./backend/.env
+      - ${BACKEND_ENV_FILE:-./backend/.env}
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${BACKEND_PORT:-8686}:8686"
     extra_hosts:
