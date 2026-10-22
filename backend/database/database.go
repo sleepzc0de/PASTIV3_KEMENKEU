@@ -83,6 +83,14 @@ func Connect() {
 	}
 
 	log.Println("[INFO] Berhasil terhubung ke SQL Server 2022:", cfg.DBName)
+	// Jati diri server yang sebenarnya dituju (alamat di DB_HOST bisa dipetakan infrastruktur ke server lain): tercatat di docker logs setiap kali backend menyala.
+	ctx, batal := context.WithTimeout(context.Background(), 5*time.Second)
+	if id, err := BacaIdentitas(ctx, db); err != nil {
+		log.Println("[WARN] Identitas server database tidak terbaca:", err)
+	} else {
+		log.Println("[INFO] Server database:", id.Ringkas())
+	}
+	batal()
 	DB = db
 }
 

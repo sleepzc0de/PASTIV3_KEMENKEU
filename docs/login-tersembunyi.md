@@ -36,7 +36,7 @@ rute aplikasi (`login`, `dashboard`, `kembali-masuk`, `halaman-tidak-ada`, `sso`
 
 Penimpaan (opsional):
 
-- **`LOGIN_PATH` di `deploy.env`** (server) atau di `frontend/.env.local` (lokal) menimpa bawaan repo. `deploy.sh` memperingatkan bila
+- **`LOGIN_PATH` di `deploy.<env>.env`** (server) atau di `frontend/.env.local` (lokal) menimpa bawaan repo. `deploy.sh` memperingatkan bila
   nilainya berbeda dari bawaan repo.
 - `LOGIN_PATH=/login` mengembalikan halaman login ke `/login` seperti semula.
 - Versi `deploy.sh` yang lebih lama membuat alamat acak sendiri di `deploy.env` (dengan komentar "Dibuat otomatis oleh deploy.sh"). Nilai

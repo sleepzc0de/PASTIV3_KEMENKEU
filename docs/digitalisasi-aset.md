@@ -112,7 +112,7 @@ Nilai di luar rentang diganti bawaannya. Restart backend setelah mengubahnya.
 - Maksimum 100.000 titik per dataset; bila lebih, peta memberi peringatan dan UE1 bisa dipakai untuk mempersempit.
 - Peta dasar memakai OpenStreetMap lewat browser pengguna. Bila jaringan memblokirnya, titik tetap tampil dan halaman memberi
   catatan. Server lain dapat dipasang lewat variabel build `NEXT_PUBLIC_MAP_TILE_URL` (pola `https://host/{z}/{x}/{y}.png`) dan
-  `NEXT_PUBLIC_MAP_TILE_ATTRIBUTION` di `deploy.env`, lalu bangun ulang frontend.
+  `NEXT_PUBLIC_MAP_TILE_ATTRIBUTION` di `deploy.<env>.env`, lalu bangun ulang frontend.
 - Warna jenis aset tetap per jenis (tanah biru, kantor utama jingga, gedung lainnya aqua, rusunara merah muda, rumah negara
   ungu, mess kuning).
 

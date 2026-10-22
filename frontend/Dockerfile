@@ -25,6 +25,12 @@ ENV NEXT_PUBLIC_MAP_TILE_ATTRIBUTION=$NEXT_PUBLIC_MAP_TILE_ATTRIBUTION
 # dan tidak perlu ada di image runtime.
 ARG LOGIN_PATH
 ENV LOGIN_PATH=$LOGIN_PATH
+# Jalan pintas callback SSO (opsional, mati bawaan): SSO_CALLBACK_VIA_FRONTEND=1 membuat frontend meneruskan /sso/callback/login ke backend lewat jaringan Docker
+# (BACKEND_INTERNAL_URL). Aturannya dibaca Next saat build (next.config.ts), jadi hanya perlu ada di tahap build.
+ARG SSO_CALLBACK_VIA_FRONTEND
+ARG BACKEND_INTERNAL_URL
+ENV SSO_CALLBACK_VIA_FRONTEND=$SSO_CALLBACK_VIA_FRONTEND
+ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
 
 RUN npm run build
 
