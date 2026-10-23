@@ -200,6 +200,25 @@ SSO_CALLBACK_VIA_FRONTEND=1
 
 Frontend lalu meneruskan **persis** `/sso/callback/login` (dengan `code` dan `state`) ke backend lewat jaringan Docker (`http://backend:8686`); path lain tidak tersentuh. Mati secara bawaan, dan `deploy.sh` mencetak peringatan selama menyala. Catatan: (1) IP klien di Log Audit untuk login SSO mengikuti header `X-Real-IP` dari proxy yang ikut diteruskan frontend; `TRUSTED_PROXIES` bawaan sudah memuat jaringan Docker. (2) Ini menambal, bukan pengganti aturan proxy yang benar: setelah proxy diperbaiki, hapus barisnya dan deploy ulang. (3) Salah isi (`true`, `2`, dan sebagainya) menghentikan `deploy.sh` dan build, bukan diam-diam mati; hanya `1` yang menyalakan.
 
+### Semua rute backend di domain dijawab 404 (seluruh domain ke port frontend)
+
+Gejala: tombol "Masuk dengan SSO" langsung berakhir di halaman 404 PASTI, captcha di halaman login gagal dimuat, dan ketiga perintah ini menjawab `404` dengan halaman HTML (bukan JSON), padahal backend langsung sehat. Artinya proxy atau pemetaan alamat (mis. IP masking) mengirim **seluruh** domain ke port frontend:
+
+```bash
+curl -s https://domain-anda/health; echo                                      # harus {"service":"PASTI V3 Backend","status":"ok"}
+curl -sS -o /dev/null -w '%{http_code}\n' https://domain-anda/api/v1/auth/captcha   # harus 200
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' https://domain-anda/sso/login   # harus 302 ke sso.kemenkeu.go.id
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:8686/sso/login  # pembanding: backend langsung
+```
+
+**Perbaikan yang benar** sama dengan di atas: aturan proxy yang meneruskan `/api/`, `/health`, `/sso/login`, dan `/sso/callback/login` ke backend (port 8686). **Jalan pintas sementara**: tambahkan di `deploy.prod.env`, lalu `./deploy.sh prod` (frontend dibangun ulang):
+
+```
+BACKEND_VIA_FRONTEND=1
+```
+
+Frontend lalu meneruskan semua rute backend tersebut lewat jaringan Docker, persis seperti blok `location` backend di konfigurasi Nginx repo (callback SSO sudah termasuk; `SSO_CALLBACK_VIA_FRONTEND` tidak perlu). Pendaftaran akun publik (`/api/v1/auth/register`) tetap dijawab 404, `/api` tanpa path dan halaman `/sso/callback` tetap milik frontend, dan permintaan sampai 900 detik serta unggahan sampai 16 MB diteruskan utuh (bawaan Next: 30 detik dan 10 MB). Catatan: (1) semua panggilan API melewati proses frontend dulu, jadi ada satu lompatan tambahan; (2) `X-Real-IP` dan `X-Forwarded-For` dari proxy diteruskan apa adanya: bila semua aktivitas di Log Audit tampak dari satu IP, minta proxy mengirim header itu atau tambahkan IP proxy ke `TRUSTED_PROXIES`, karena pembatas laju login (30 per menit per IP) ikut terbagi; (3) setelah proxy diperbaiki, hapus barisnya dan deploy ulang; (4) hanya `1` yang menyalakan, nilai lain menghentikan `deploy.sh` dan build.
+
 ## G. Verifikasi
 
 ```bash

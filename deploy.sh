@@ -130,9 +130,12 @@ Konfigurasi (dibuat otomatis saat environment itu pertama kali dipilih):
                     BACKEND_ENV_FILE=./backend/.env.prod   # diisi otomatis
                     # LOGIN_PATH=/...   (opsional) menimpa alamat halaman login bawaan repo (frontend/login-path.txt)
                     # SSO_CALLBACK_VIA_FRONTEND=1   (opsional, jalan pintas) frontend meneruskan /sso/callback/login ke backend
+                    # BACKEND_VIA_FRONTEND=1        (opsional, jalan pintas) frontend meneruskan SEMUA rute backend
                   SSO_CALLBACK_VIA_FRONTEND=1: hanya bila proxy di depan domain mengarahkan /sso/callback/login ke frontend
-                  (login SSO berakhir di halaman 404) dan belum bisa diperbaiki. Perbaikan yang benar ada di aturan proxy;
-                  mengubah nilai ini memerlukan build ulang frontend (./deploy.sh melakukannya).
+                  (login SSO berakhir di halaman 404) dan belum bisa diperbaiki. BACKEND_VIA_FRONTEND=1: bila proxy
+                  mengirim seluruh domain ke port frontend (/health, /api, dan /sso/login di domain dijawab 404 frontend);
+                  mencakup callback SSO. Perbaikan yang benar ada di aturan proxy; mengubah nilai ini memerlukan build
+                  ulang frontend (./deploy.sh melakukannya).
                   EXPECTED_DB_SERVER: jati diri server database yang benar (hasil SELECT SERVERPROPERTY('ServerName'),
                   bukan IP). Sebelum migrasi, deploy.sh menanyakan nama server yang sebenarnya tersambung dan berhenti
                   bila berbeda, supaya alamat DB_HOST yang dipetakan (IP masking) ke database environment lain tidak
@@ -543,6 +546,8 @@ FRONTEND_PORT=$frontend_port
 EXPECTED_DB_SERVER=
 # Jalan pintas (opsional): hapus tanda # dan isi 1 hanya bila proxy di depan domain mengarahkan /sso/callback/login ke frontend sehingga login SSO berakhir di halaman 404.
 # SSO_CALLBACK_VIA_FRONTEND=1
+# Jalan pintas lebih luas (opsional): 1 bila proxy mengirim SELURUH domain ke port frontend (/health, /api, /sso/login di domain dijawab 404 frontend).
+# BACKEND_VIA_FRONTEND=1
 EOF
   )
   own_file "$DEPLOY_ENV"
@@ -622,6 +627,12 @@ load_deploy_config() {
     ""|0|1) ;;
     *) die "SSO_CALLBACK_VIA_FRONTEND di ${NAMA_DEPLOY_ENV} harus 1 (menyalakan) atau 0/kosong (mematikan), bukan '$SSO_VIA_FRONTEND'." ;;
   esac
+  SEMUA_VIA_FRONTEND=$(env_get "$DEPLOY_ENV" BACKEND_VIA_FRONTEND)
+  SEMUA_VIA_FRONTEND=${SEMUA_VIA_FRONTEND//[[:space:]]/}
+  case "$SEMUA_VIA_FRONTEND" in
+    ""|0|1) ;;
+    *) die "BACKEND_VIA_FRONTEND di ${NAMA_DEPLOY_ENV} harus 1 (menyalakan) atau 0/kosong (mematikan), bukan '$SEMUA_VIA_FRONTEND'." ;;
+  esac
   [ "$API_URL" = "$API_ROOT_URL/api/v1" ] || warn "NEXT_PUBLIC_API_URL ($API_URL) tidak sama dengan NEXT_PUBLIC_API_ROOT_URL + /api/v1."
   if [ "$ENVIRONMENT" = "prod" ] && [[ $API_ROOT_URL != https://* ]]; then
     die "Environment production wajib memakai https:// (NEXT_PUBLIC_API_ROOT_URL sekarang: $API_ROOT_URL)."
@@ -630,7 +641,9 @@ load_deploy_config() {
   ok "Environment: $(env_label)"
   ok "API publik: $API_URL"
   ok "Port: backend $BACKEND_PORT, frontend $FRONTEND_PORT (bind $BIND_ADDRESS); container: ${CONTAINER_PREFIX}-backend / ${CONTAINER_PREFIX}-frontend"
-  if [ "$SSO_VIA_FRONTEND" = "1" ]; then
+  if [ "$SEMUA_VIA_FRONTEND" = "1" ]; then
+    warn "BACKEND_VIA_FRONTEND=1: frontend meneruskan /api/, /health, /sso/login, dan /sso/callback/login ke backend (jalan pintas). Tetap minta tim infrastruktur meneruskan rute itu ke backend (port $BACKEND_PORT) di proxy, lalu matikan."
+  elif [ "$SSO_VIA_FRONTEND" = "1" ]; then
     warn "SSO_CALLBACK_VIA_FRONTEND=1: frontend meneruskan /sso/callback/login ke backend (jalan pintas). Tetap minta tim infrastruktur meneruskan path itu ke backend (port $BACKEND_PORT) di proxy."
   fi
 }
