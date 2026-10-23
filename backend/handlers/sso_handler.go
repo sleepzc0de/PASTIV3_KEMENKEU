@@ -79,6 +79,14 @@ func SSOCallback(c *gin.Context) {
 		c.Redirect(http.StatusFound, errURL)
 	}
 
+	// galatServer: kegagalan di sisi server (mis. database). Rincian teknisnya (nama tabel, constraint, data) hanya dicatat di log server bersama kode rujukan; layar
+	// login hanya menampilkan pesan umum dan kode itu.
+	galatServer := func(pesan string, err error) {
+		ref := kodeRujukan()
+		log.Printf("[SSO ERROR] kode=%s %s %v", ref, pesan, err)
+		redirectError(pesan + " (kode " + ref + ")")
+	}
+
 	code := c.Query("code")
 	state := c.Query("state")
 	errParam := c.Query("error")
@@ -193,8 +201,7 @@ func SSOCallback(c *gin.Context) {
 
 	employeeID, err := upsertEmployee(claims, sub, nip, nip9, email)
 	if err != nil {
-		log.Println("[SSO ERROR] gagal upsertEmployee:", err)
-		redirectError("Gagal menyimpan data pegawai: " + truncateError(err, 200))
+		galatServer("Gagal menyimpan data pegawai.", err)
 		return
 	}
 
@@ -210,8 +217,7 @@ func SSOCallback(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		log.Println("[SSO ERROR] gagal upsertUserFromSSO:", err)
-		redirectError("Gagal membuat sesi akun: " + truncateError(err, 200))
+		galatServer(pesanGalatSesiAkun(err), err)
 		return
 	}
 
@@ -231,10 +237,6 @@ func SSOCallback(c *gin.Context) {
 
 	redirectURL := cfg.FrontendURL + "/sso/callback#token=" + accessToken + "&expires_in=" + urlItoa(expiresIn)
 	c.Redirect(http.StatusFound, redirectURL)
-}
-
-func truncateError(err error, maxLen int) string {
-	return truncateString(err.Error(), maxLen)
 }
 
 func truncateString(s string, maxLen int) string {
@@ -306,6 +308,11 @@ func upsertEmployee(claims map[string]interface{}, sub, nip, nip9, email string)
 func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToken string, expiresIn int, userID string, err error) {
 	isProtected := utils.IsProtectedIdentity(email, nip)
 
+	username := email
+	if username == "" {
+		username = sub
+	}
+
 	var userIDRaw mssql.UniqueIdentifier
 	var role string
 	var isActive bool
@@ -313,15 +320,31 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToke
 		`SELECT id, role, is_active FROM users WHERE employee_id = @p1`, employeeID,
 	).Scan(&userIDRaw, &role, &isActive)
 
-	if errQ == sql.ErrNoRows {
+	// ditautkan: akun SSO yang sudah ada (tertaut ke identitas SSO lain; lihat sso_tautan.go) dipakai untuk pegawai ini alih-alih menambah pengguna baru.
+	ditautkan := false
+	switch {
+	case errQ == nil:
+		userID = userIDRaw.String()
+	case errQ == sql.ErrNoRows:
+		sama, errC := cariAkunSama(username, email)
+		if errC != nil {
+			return "", 0, "", fmt.Errorf("cek akun dengan email sama gagal: %w", errC)
+		}
+		switch putusanTautan(sama) {
+		case tautanBentrok:
+			return "", 0, "", errAkunBentrok
+		case tautanTautkan:
+			userID, role, isActive, ditautkan = sama[0].ID, sama[0].Role, sama[0].IsActive, true
+		}
+	default:
+		return "", 0, "", fmt.Errorf("query cek user existing gagal: %w", errQ)
+	}
+
+	if userID == "" {
 		userID = uuid.New().String()
 		role = "user"
 		if isProtected {
 			role = "superadmin"
-		}
-		username := email
-		if username == "" {
-			username = sub
 		}
 
 		_, err = database.DB.Exec(`
@@ -332,16 +355,20 @@ func upsertUserFromSSO(employeeID, sub, email, nip, fullName string) (accessToke
 		if err != nil {
 			return "", 0, "", fmt.Errorf("insert user gagal: %w", err)
 		}
-	} else if errQ != nil {
-		return "", 0, "", fmt.Errorf("query cek user existing gagal: %w", errQ)
 	} else {
-		userID = userIDRaw.String()
-
 		// Akun yang dinonaktifkan tidak boleh masuk lagi lewat SSO. Dicek sebelum ada perubahan apa
-		// pun (last_login, token). Akun protected dikecualikan: ia selalu diaktifkan kembali di
+		// pun (penautan, last_login, token). Akun protected dikecualikan: ia selalu diaktifkan kembali di
 		// bawah supaya superadmin permanen tidak pernah terkunci.
 		if !isActive && !isProtected {
 			return "", 0, "", errAccountInactive
+		}
+
+		if ditautkan {
+			if _, err = database.DB.Exec(`UPDATE users SET employee_id=@p1 WHERE id=@p2`, employeeID, userID); err != nil {
+				return "", 0, "", fmt.Errorf("tautkan akun ke pegawai gagal: %w", err)
+			}
+			// Peristiwa keamanan: terlihat di halaman Log Server (level warning).
+			log.Printf("[SSO WARN] akun yang sudah ada ditautkan ke identitas SSO baru: user %s, pegawai %s, sub %s", userID, employeeID, sub)
 		}
 
 		if isProtected {
