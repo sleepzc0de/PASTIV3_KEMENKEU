@@ -45,3 +45,40 @@ test("alamat backend yang salah bentuk ditolak saat jalan pintas nyala", () => {
     assert.throws(() => S.aturanCallbackSSO({ nyala: "1", backend: salah }), /BACKEND_INTERNAL_URL/, salah);
   }
 });
+
+test("BACKEND_VIA_FRONTEND mati secara bawaan dan hanya menyala dengan 1", () => {
+  for (const nilai of [undefined, null, "", " ", "0"]) {
+    assert.deepEqual(S.aturanJalanPintas({ semua: nilai }), [], JSON.stringify(nilai));
+  }
+  for (const salah of ["true", "ya", "on", "2"]) {
+    assert.throws(() => S.aturanJalanPintas({ semua: salah }), /BACKEND_VIA_FRONTEND/, salah);
+  }
+  // Salah tulis di SSO_CALLBACK_VIA_FRONTEND tetap menggagalkan walau BACKEND_VIA_FRONTEND menyala.
+  assert.throws(() => S.aturanJalanPintas({ semua: "1", nyala: "true" }), /SSO_CALLBACK_VIA_FRONTEND/);
+});
+
+test("BACKEND_VIA_FRONTEND=1 meneruskan semua rute backend seperti Nginx, mencakup callback SSO", () => {
+  const a = S.aturanJalanPintas({ semua: "1" });
+  assert.deepEqual(a, [
+    { source: "/api/:path+", destination: "http://backend:8686/api/:path+" },
+    { source: "/health", destination: "http://backend:8686/health" },
+    { source: "/sso/login", destination: "http://backend:8686/sso/login" },
+    { source: "/sso/callback/login", destination: "http://backend:8686/sso/callback/login" },
+  ]);
+  // Sama saja bila jalan pintas callback juga menyala (tidak ada aturan ganda).
+  assert.deepEqual(S.aturanJalanPintas({ semua: "1", nyala: "1" }), a);
+  // Halaman frontend /sso/callback (tanpa /login) tidak ikut diteruskan.
+  assert.ok(!a.some((r) => r.source === "/sso/callback"));
+  assert.equal(S.aturanJalanPintas({ semua: "1", backend: "http://localhost:18686" })[0].destination, "http://localhost:18686/api/:path+");
+});
+
+test("tanpa BACKEND_VIA_FRONTEND, jalan pintas callback tetap bekerja seperti sebelumnya", () => {
+  assert.deepEqual(S.aturanJalanPintas({ nyala: "1" }), S.aturanCallbackSSO({ nyala: "1" }));
+  assert.deepEqual(S.aturanJalanPintas({}), []);
+});
+
+test("pendaftaran akun publik ditutup dan batas proxy di atas batas backend", () => {
+  assert.equal(S.JALUR_DAFTAR_DITUTUP, "/api/v1/auth/register");
+  assert.equal(S.BATAS_WAKTU_PROXY_MS, 900_000);
+  assert.equal(S.BATAS_BADAN_PROXY, "16mb");
+});

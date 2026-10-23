@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { COOKIE_TOKEN, jalurMasukDari, samakanJalur, tentukanAksi } from "@/lib/loginPath";
+import { JALUR_DAFTAR_DITUTUP } from "@/lib/ssoCallback";
 
 // Alamat halaman login: LOGIN_PATH disisipkan saat build lewat next.config.ts (bawaan: frontend/login-path.txt); /login biasa
 // dijawab 404. Aturan lengkapnya ada di lib/loginPath.ts.
@@ -10,7 +11,8 @@ const JALUR_MASUK = jalurMasukDari(process.env.LOGIN_PATH);
 const RUTE_TIDAK_ADA = "/halaman-tidak-ada";
 
 export function middleware(request: NextRequest) {
-  const aksi = tentukanAksi({
+  // Pendaftaran akun publik ditutup seperti di Nginx; perlu di sini karena BACKEND_VIA_FRONTEND meneruskan /api ke backend. Middleware berjalan sebelum rewrite.
+  const aksi = request.nextUrl.pathname === JALUR_DAFTAR_DITUTUP ? ({ jenis: "tidak-ada" } as const) : tentukanAksi({
     pathname: samakanJalur(request.nextUrl.pathname, JALUR_MASUK),
     search: request.nextUrl.search,
     adaToken: Boolean(request.cookies.get(COOKIE_TOKEN)?.value),
