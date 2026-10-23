@@ -178,7 +178,7 @@ parse_args() {
       -y|--yes)     ASSUME_YES=1 ;;
       --kredensial) ATUR_KREDENSIAL=1 ;;
       -h|--help)    usage; exit 0 ;;
-      -*)           die "Opsi tidak dikenal: $1 (lihat --help)" ;;
+      -*)           die "Opsi tidak dikenal: $1 (lihat --help). Bila opsi ini baru ditambahkan, kode di server belum terbaru: jalankan git pull --ff-only lalu ulangi." ;;
       *)            die "Argumen tidak dikenal: '$1'. Environment yang valid: dev atau prod. Untuk memilih branch pakai --branch <nama>." ;;
     esac
     shift
@@ -318,8 +318,13 @@ acquire_lock() {
     warn "flock tidak tersedia; penguncian deploy ganda dilewati."
     return 0
   fi
+  # Dijalankan ulang oleh pastikan_skrip_terbaru: kuncinya masih dipegang deskriptor 9 yang diwariskan lewat exec (dan ikut dimiliki proses tee
+  # log). Membuka berkas kunci lagi menghasilkan kunci terpisah yang ditolak oleh kunci itu sendiri, jadi deskriptor yang sama dipakai lagi.
+  if [ -n "${PASTI_DEPLOY_ULANG:-}" ] && [ "$(readlink "/proc/$$/fd/9" 2>/dev/null)" = "$LOCK_FILE" ] && flock -n 9; then
+    return 0
+  fi
   exec 9>"$LOCK_FILE" || { warn "Tidak bisa membuat $LOCK_FILE; penguncian dilewati."; return 0; }
-  flock -n 9 || die "Deploy lain sedang berjalan (kunci: $LOCK_FILE)."
+  flock -n 9 || die "Deploy lain sedang berjalan (kunci: $LOCK_FILE). Bila yakin tidak ada, periksa: fuser -v $LOCK_FILE"
 }
 
 # ----------------------------------------------------------------------------
@@ -1098,6 +1103,7 @@ pastikan_skrip_terbaru() {
   fi
   warn "deploy.sh ikut diperbarui oleh git; menjalankan versi barunya dari awal (belum ada yang diubah di server)."
   exec 1>&7 2>&8   # tanpa tee lama, supaya deploy.log tidak mencatat dua kali
+  # Deskriptor 9 (kunci deploy) sengaja tetap terbuka: versi baru memakainya lagi (acquire_lock), jadi tidak ada celah tanpa kunci.
   exec env PASTI_DEPLOY_ULANG=1 bash "$APP_DIR/$SCRIPT_NAME" "${ORIG_ARGS[@]}" "$ENVIRONMENT"
 }
 
