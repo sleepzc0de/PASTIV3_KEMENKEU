@@ -41,6 +41,7 @@ NO_MIGRATE=0
 FORCE=0
 FRESH=0
 ASSUME_YES=0
+ATUR_KREDENSIAL=0   # --kredensial: tanyakan ulang semua kredensial environment ini
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"   # detik menunggu tiap layanan sehat; bisa diubah: HEALTH_TIMEOUT=180 ./deploy.sh
 LOCK_FILE="/tmp/pasti-deploy.lock"
@@ -107,6 +108,9 @@ Opsi:
   --force         buang perubahan lokal pada file yang dilacak git di server
                   (git reset --hard origin/<branch>). Hati-hati.
   -y, --yes       jawab "ya" otomatis pada konfirmasi (termasuk konfirmasi deploy prod)
+  --kredensial    tanyakan ulang kredensial environment ini di terminal: database, SSO (client ID
+                  dan secret), SLDK, dan token Inaproc. Enter = tetap. Tanpa opsi ini, hanya yang
+                  kosong yang ditanyakan (profil baru: semuanya).
   -h, --help      tampilkan bantuan ini
 
 Konfigurasi (dibuat otomatis saat environment itu pertama kali dipilih):
@@ -172,6 +176,7 @@ parse_args() {
       --fresh)      FRESH=1 ;;
       --force)      FORCE=1 ;;
       -y|--yes)     ASSUME_YES=1 ;;
+      --kredensial) ATUR_KREDENSIAL=1 ;;
       -h|--help)    usage; exit 0 ;;
       -*)           die "Opsi tidak dikenal: $1 (lihat --help)" ;;
       *)            die "Argumen tidak dikenal: '$1'. Environment yang valid: dev atau prod. Untuk memilih branch pakai --branch <nama>." ;;
@@ -637,12 +642,23 @@ frontend_url_bawaan() {
   if [[ $host_port == *:* ]]; then printf '%s://%s:%s' "$scheme" "$host" "$FRONTEND_PORT"; else printf '%s' "$API_ROOT_URL"; fi
 }
 
-# Nilai yang ditentukan oleh environment dan alamat di deploy.<env>.env: APP_ENV, SSO_ENV, FRONTEND_URL, SSO_REDIRECT_URI.
+# Nilai yang ditentukan oleh environment dan alamat di deploy.<env>.env: APP_ENV, SSO_ENV, FRONTEND_URL, dan SSO_REDIRECT_URI (callback SSO).
+# Disamakan pada setiap deploy, jadi tidak perlu diubah tangan saat berganti dev/prod atau mengubah alamat. "diam" = tanpa laporan (profil baru).
 isi_nilai_environment() {
-  env_set "$BACKEND_ENV" APP_ENV "$(app_env_bawaan)"
-  env_set "$BACKEND_ENV" SSO_ENV "$(app_env_bawaan)"
-  env_set "$BACKEND_ENV" FRONTEND_URL "$(frontend_url_bawaan)"
-  env_set "$BACKEND_ENV" SSO_REDIRECT_URI "$API_ROOT_URL/sso/callback/login"
+  local key mau lama
+  for key in APP_ENV SSO_ENV FRONTEND_URL SSO_REDIRECT_URI; do
+    case "$key" in
+      APP_ENV|SSO_ENV)  mau=$(app_env_bawaan) ;;
+      FRONTEND_URL)     mau=$(frontend_url_bawaan) ;;
+      SSO_REDIRECT_URI) mau="$API_ROOT_URL/sso/callback/login" ;;
+    esac
+    lama=$(env_get "$BACKEND_ENV" "$key")
+    [ "$lama" != "$mau" ] || continue
+    env_set "$BACKEND_ENV" "$key" "$mau"
+    [ "${1:-}" != "diam" ] || continue
+    log "$key disesuaikan dengan $(env_label): ${lama:--} -> $mau"
+    [ "$key" != "SSO_REDIRECT_URI" ] || warn "Pastikan $mau terdaftar sebagai Redirect URI client SSO $(env_label) di SSO Kemenkeu."
+  done
 }
 
 create_backend_env() {
@@ -655,7 +671,7 @@ create_backend_env() {
     umask 077
     cp "$BACKEND_ENV_EXAMPLE" "$BACKEND_ENV"
     # URL yang sudah diketahui dari deploy.<env>.env langsung diisi.
-    isi_nilai_environment
+    isi_nilai_environment diam
     env_set "$BACKEND_ENV" JWT_SECRET "$(gen_hex 48)"
     env_set "$BACKEND_ENV" PASSWORD_PEPPER "$(gen_hex 48)"
     {
@@ -671,10 +687,13 @@ create_backend_env() {
   own_file "$BACKEND_ENV"
   ok "${NAMA_BACKEND_ENV} dibuat untuk $(env_label); JWT_SECRET, PASSWORD_PEPPER, dan TOKEN_ENCRYPTION_KEY sudah diisi acak."
   ok "Sudah terisi otomatis: APP_ENV=$app_env, SSO_ENV=$sso_env, FRONTEND_URL, SSO_REDIRECT_URI."
+  # Di terminal, kredensialnya langsung ditanyakan (isi_kredensial); tanpa terminal, berhenti dengan petunjuk.
+  terminal_interaktif && return 0
 
   cat <<EOF
 
-    ${NAMA_BACKEND_ENV} baru dibuat dan BELUM siap dipakai. Isi dulu nilai berikut, lalu jalankan ulang ./deploy.sh ${ENVIRONMENT}:
+    ${NAMA_BACKEND_ENV} baru dibuat dan BELUM siap dipakai. Jalankan ./deploy.sh ${ENVIRONMENT} langsung di terminal server
+    supaya kredensialnya ditanyakan, atau isi dulu nilai berikut lalu jalankan ulang ./deploy.sh ${ENVIRONMENT}:
 
       nano ${NAMA_BACKEND_ENV}
 
@@ -778,16 +797,17 @@ validate_backend_env() {
   for w in "${warns[@]+"${warns[@]}"}"; do warn "$w"; done
   if [ ${#errors[@]} -gt 0 ]; then
     for w in "${errors[@]}"; do err "$w"; done
-    die "${NAMA_BACKEND_ENV} belum benar. Perbaiki (nano ${NAMA_BACKEND_ENV}) lalu jalankan ulang."
+    die "${NAMA_BACKEND_ENV} belum benar. Perbaiki (nano ${NAMA_BACKEND_ENV}, atau di terminal: ./deploy.sh ${ENVIRONMENT} --kredensial) lalu jalankan ulang."
   fi
   ok "${NAMA_BACKEND_ENV} lengkap."
 }
 
 # Profil backend environment kedua: disalin dari profil environment lain. Rahasia (JWT_SECRET, PASSWORD_PEPPER, TOKEN_ENCRYPTION_KEY), token Inaproc,
-# superadmin, SLDK, dan pengaturan lain ikut sama, sehingga data (sandi, kunci API, token SSO) tetap terbaca bila kedua environment ternyata
-# memakai database yang sama (IP masking). Yang ditentukan environment diisi ulang, dan koneksi database dikosongkan supaya dipilih dengan sadar.
+# superadmin, dan pengaturan lain ikut sama, sehingga data (sandi, kunci API, token SSO) tetap terbaca bila kedua environment ternyata memakai
+# database yang sama (IP masking). Yang ditentukan environment diisi ulang; kredensial yang khas environment (database, SSO, SLDK) dikosongkan
+# supaya ditanyakan dan dipilih dengan sadar.
 buat_profil_backend_dari_lain() {
-  local sumber nama_sumber key contoh_id contoh_secret
+  local sumber nama_sumber key
   sumber=$(profil_backend "$(env_lain "$ENVIRONMENT")")
   nama_sumber="backend/$(basename "$sumber")"
   step "Membuat ${NAMA_BACKEND_ENV} dari ${nama_sumber}"
@@ -795,47 +815,179 @@ buat_profil_backend_dari_lain() {
     umask 077
     cp "$sumber" "$BACKEND_ENV"
   )
-  isi_nilai_environment
-  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
-  # Kredensial SSO terikat ke SSO_ENV: development memakai client SSO demo (nilai contoh di repo); production tidak boleh memakainya.
-  contoh_id=$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_ID)
-  contoh_secret=$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)
+  isi_nilai_environment diam
+  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME SLDK_DB_HOST SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
+  # Kredensial SSO terikat ke SSO_ENV: development memakai client SSO demo (nilai contoh di repo) sebagai bawaan; production diisi sendiri.
   if [ "$ENVIRONMENT" = "dev" ]; then
-    env_set "$BACKEND_ENV" SSO_CLIENT_ID "$contoh_id"
-    env_set "$BACKEND_ENV" SSO_CLIENT_SECRET "$contoh_secret"
-  elif [ "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" = "$contoh_secret" ]; then
+    env_set "$BACKEND_ENV" SSO_CLIENT_ID "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_ID)"
+    env_set "$BACKEND_ENV" SSO_CLIENT_SECRET "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)"
+  else
     env_set "$BACKEND_ENV" SSO_CLIENT_ID ""
     env_set "$BACKEND_ENV" SSO_CLIENT_SECRET ""
   fi
   own_file "$BACKEND_ENV"
   ok "${NAMA_BACKEND_ENV} dibuat dari ${nama_sumber}: rahasia, token, dan pengaturan lain sama; APP_ENV/SSO_ENV=$(app_env_bawaan), FRONTEND_URL, SSO_REDIRECT_URI menyesuaikan."
+  # Di terminal, kredensialnya langsung ditanyakan (isi_kredensial); tanpa terminal, berhenti dengan petunjuk.
+  terminal_interaktif && return 0
 
   cat <<EOF
 
-    Tinggal mengisi database $(env_label) di ${NAMA_BACKEND_ENV}, lalu jalankan ulang ./deploy.sh ${ENVIRONMENT}:
-
-      nano ${NAMA_BACKEND_ENV}
+    Kredensial $(env_label) belum diisi. Jalankan ./deploy.sh ${ENVIRONMENT} langsung di terminal server supaya ditanyakan,
+    atau isi di ${NAMA_BACKEND_ENV} (nano ${NAMA_BACKEND_ENV}) lalu jalankan ulang ./deploy.sh ${ENVIRONMENT}:
 
       DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME   (dikosongkan; DB_PORT ikut ${nama_sumber})
+      SLDK_DB_HOST / SLDK_DB_USER / SLDK_DB_PASSWORD / SLDK_DB_NAME   (opsional; kosong = sinkronisasi SLDK nonaktif)
 EOF
   if [ "$ENVIRONMENT" = "prod" ]; then
-    if [ -z "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" ]; then
-      cat <<EOF
-      SSO_CLIENT_ID / SSO_CLIENT_SECRET   kredensial SSO Kemenkeu PRODUCTION (yang disalin adalah client SSO demo)
-EOF
-    fi
+    printf '      SSO_CLIENT_ID / SSO_CLIENT_SECRET   kredensial SSO Kemenkeu PRODUCTION\n'
     [ -n "$(env_get "$BACKEND_ENV" INAPROC_TOKEN)" ] || printf '      INAPROC_TOKEN   wajib di production\n'
-    printf '\n      Server database production dikunci saat deploy (EXPECTED_DB_SERVER di %s).\n' "$NAMA_DEPLOY_ENV"
   fi
   echo
   exit 1
 }
 
-prepare_backend_env() {
-  if [ ! -f "$BACKEND_ENV" ]; then
-    # Keduanya keluar dengan instruksi.
-    if [ -f "$(profil_backend "$(env_lain "$ENVIRONMENT")")" ]; then buat_profil_backend_dari_lain; else create_backend_env; fi
+# ----------------------------------------------------------------------------
+# Kredensial per environment: database aplikasi, SSO (client ID dan secret), SLDK, dan token Inaproc.
+#
+# Ditanyakan di terminal lalu disimpan di backend/.env.<env>. Yang kosong selalu ditanyakan; profil yang baru dibuat dan --kredensial menanyakan
+# semuanya (Enter = nilai sekarang). Sandi, secret, dan token tidak ditampilkan saat diketik sehingga juga tidak tercatat di deploy.log.
+# ----------------------------------------------------------------------------
+
+# Nilai untuk berkas .env: apa adanya bila hanya berisi karakter aman; selain itu diapit kutip tunggal supaya docker compose tidak menafsirkan
+# $, #, atau spasi di dalamnya (env_get membuang kutip itu lagi).
+nilai_env() {
+  if [[ $1 =~ ^[A-Za-z0-9._@:/+=,-]*$ ]]; then printf '%s' "$1"; else printf "'%s'" "$1"; fi
+}
+
+# kredensial_kosong KUNCI... -> status 0 bila salah satunya kosong atau masih nilai contoh.
+kredensial_kosong() {
+  local key val
+  for key in "$@"; do
+    val=$(env_get "$BACKEND_ENV" "$key")
+    if [ -z "$val" ] || is_placeholder "$val"; then return 0; fi
+  done
+  return 1
+}
+
+# tanya_nilai KUNCI "label" JENIS WAJIB  (JENIS: teks | rahasia | host | port; WAJIB: 1 atau 0)
+# Enter = nilai sekarang; "-" mengosongkan nilai yang tidak wajib. Langsung ditulis ke backend/.env.<env>.
+tanya_nilai() {
+  local key=$1 label=$2 jenis=$3 wajib=$4 asli lama baru petunjuk salah tries=0
+  asli=$(env_get "$BACKEND_ENV" "$key")
+  lama=$asli
+  is_placeholder "$lama" && lama=""
+  # Secret client SSO demo (contoh di repo) tidak ditawarkan sebagai nilai bawaan di production.
+  if [ "$ENVIRONMENT" = "prod" ] && [ "$key" = "SSO_CLIENT_SECRET" ] && [ "$lama" = "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)" ]; then lama=""; fi
+  [ "$jenis" != "port" ] || [ -n "$lama" ] || lama=1433
+  while :; do
+    tries=$((tries + 1))
+    [ "$tries" -le 3 ] || die "$key belum diisi dengan benar. Container yang berjalan tidak diubah; jalankan ulang ./deploy.sh $ENVIRONMENT."
+    petunjuk=""
+    if [ "$jenis" = "rahasia" ]; then
+      [ -z "$lama" ] || petunjuk=" (Enter = tetap)"
+      [ "$wajib" -eq 1 ] || [ -z "$lama" ] || petunjuk=" (Enter = tetap, - = kosongkan)"
+      IFS= read -r -s -p "      $label$petunjuk: " baru || baru=""
+      printf '\n'
+    else
+      [ -z "$lama" ] || petunjuk=" [$lama]"
+      [ "$wajib" -eq 1 ] || [ -z "$lama" ] || petunjuk="$petunjuk (- = kosongkan)"
+      read -r -p "      $label$petunjuk: " baru || baru=""
+    fi
+    baru=${baru:-$lama}
+    if [ "$wajib" -eq 0 ] && [ "$baru" = "-" ]; then baru=""; fi
+    salah=""
+    if [ -z "$baru" ]; then
+      [ "$wajib" -eq 0 ] || salah="wajib diisi."
+    elif [[ $baru == *"'"* ]]; then
+      salah="tanda kutip tunggal (') tidak didukung di berkas .env."
+    elif [ "$jenis" = "port" ] && ! valid_port "$baru"; then
+      salah="port tidak valid (1-65535)."
+    elif [ "$jenis" = "host" ] && ! [[ $baru =~ ^[A-Za-z0-9._-]+$ ]]; then
+      salah="tulis IP atau nama host saja (tanpa port, spasi, atau http://)."
+    elif [ "$jenis" = "host" ] && [[ $baru =~ ^(localhost|127\.0\.0\.1)$ ]]; then
+      salah="$baru di dalam container berarti container itu sendiri; pakai IP server database (atau host.docker.internal untuk server ini)."
+    fi
+    if [ -n "$salah" ]; then err "$label: $salah"; continue; fi
+    break
+  done
+  [ "$baru" = "$asli" ] || env_set "$BACKEND_ENV" "$key" "$(nilai_env "$baru")"
+}
+
+isi_kredensial() {  # isi_kredensial 1 = profil baru (tanyakan semuanya)
+  local semua=${1:-0} db=0 sso=0 sldk=0 inaproc=0 alamat_lama nama_lama
+  [ "$ATUR_KREDENSIAL" -eq 0 ] || semua=1
+  if [ "$semua" -eq 1 ]; then db=1; sso=1; sldk=1; inaproc=1; fi
+  if kredensial_kosong DB_HOST DB_USER DB_PASSWORD DB_NAME; then db=1; fi
+  if kredensial_kosong SSO_CLIENT_ID SSO_CLIENT_SECRET; then sso=1; fi
+  if [ "$ENVIRONMENT" = "prod" ] && [ "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" = "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)" ]; then sso=1; fi
+  if [ -n "$(env_get "$BACKEND_ENV" SLDK_DB_HOST)" ] && kredensial_kosong SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME; then sldk=1; fi
+  if [ "$ENVIRONMENT" = "prod" ] && kredensial_kosong INAPROC_TOKEN; then inaproc=1; fi
+  [ $((db + sso + sldk + inaproc)) -gt 0 ] || return 0
+  if ! terminal_interaktif; then
+    [ "$ATUR_KREDENSIAL" -eq 0 ] || die "--kredensial membutuhkan terminal interaktif (jalankan langsung di terminal server, tanpa pipe)."
+    return 0   # yang kurang disebutkan validate_backend_env
   fi
+
+  step "Kredensial $(env_label) (disimpan di ${NAMA_BACKEND_ENV})"
+  log "Enter = memakai nilai dalam [kurung]; sandi, secret, dan token tidak ditampilkan saat diketik."
+  alamat_lama="$(env_get "$BACKEND_ENV" DB_HOST):$(env_get "$BACKEND_ENV" DB_PORT)"
+  nama_lama=$(env_get "$BACKEND_ENV" DB_NAME)
+  if [ "$db" -eq 1 ]; then
+    log "Database aplikasi (SQL Server $(env_label)):"
+    tanya_nilai DB_HOST "Alamat server database (IP/host)" host 1
+    tanya_nilai DB_PORT "Port" port 1
+    tanya_nilai DB_NAME "Nama database" teks 1
+    tanya_nilai DB_USER "Login" teks 1
+    tanya_nilai DB_PASSWORD "Sandi" rahasia 1
+  fi
+  if [ "$sso" -eq 1 ]; then
+    log "SSO Kemenkeu $(env_label) (Redirect URI yang harus terdaftar untuk client ini: $API_ROOT_URL/sso/callback/login):"
+    tanya_nilai SSO_CLIENT_ID "Client ID" teks 1
+    tanya_nilai SSO_CLIENT_SECRET "Client secret" rahasia 1
+  fi
+  if [ "$sldk" -eq 1 ]; then
+    log "SLDK untuk Digitalisasi Aset (opsional; alamat kosong = sinkronisasi SLDK nonaktif):"
+    tanya_nilai SLDK_DB_HOST "Alamat server SLDK (IP/host)" host 0
+    if [ -n "$(env_get "$BACKEND_ENV" SLDK_DB_HOST)" ]; then
+      tanya_nilai SLDK_DB_PORT "Port" port 1
+      tanya_nilai SLDK_DB_NAME "Nama database" teks 1
+      tanya_nilai SLDK_DB_USER "Login" teks 1
+      tanya_nilai SLDK_DB_PASSWORD "Sandi" rahasia 1
+    fi
+  fi
+  if [ "$inaproc" -eq 1 ]; then
+    if [ "$ENVIRONMENT" = "prod" ]; then
+      log "Inaproc (wajib di production):"
+      tanya_nilai INAPROC_TOKEN "Token API Inaproc" rahasia 1
+    else
+      log "Inaproc (opsional; kosong = halaman Pengadaan/Tender membalas 503):"
+      tanya_nilai INAPROC_TOKEN "Token API Inaproc" rahasia 0
+    fi
+  fi
+  own_file "$BACKEND_ENV"
+  ok "Kredensial disimpan di ${NAMA_BACKEND_ENV}."
+
+  # Database diganti dengan sengaja: kunci jati diri server lama tidak berlaku lagi. Server yang baru dikunci saat pemeriksaan jati diri
+  # (production: nama servernya diketik setelah ditampilkan).
+  if [ "$(env_get "$BACKEND_ENV" DB_HOST):$(env_get "$BACKEND_ENV" DB_PORT)" != "$alamat_lama" ] && [ -n "$(env_get "$DEPLOY_ENV" EXPECTED_DB_SERVER)" ]; then
+    env_set "$DEPLOY_ENV" EXPECTED_DB_SERVER ""
+    warn "Alamat database berubah: EXPECTED_DB_SERVER di ${NAMA_DEPLOY_ENV} dikosongkan dan dikunci ulang saat pemeriksaan jati diri server database."
+  fi
+  if [ "$(env_get "$BACKEND_ENV" DB_NAME)" != "$nama_lama" ] && [ -n "$(env_get "$DEPLOY_ENV" EXPECTED_DB_NAME)" ]; then
+    env_set "$DEPLOY_ENV" EXPECTED_DB_NAME ""
+    warn "Nama database berubah: EXPECTED_DB_NAME di ${NAMA_DEPLOY_ENV} dikosongkan."
+  fi
+}
+
+prepare_backend_env() {
+  local baru=0
+  if [ ! -f "$BACKEND_ENV" ]; then
+    # Tanpa terminal interaktif keduanya keluar dengan petunjuk; dengan terminal, kredensialnya ditanyakan oleh isi_kredensial.
+    if [ -f "$(profil_backend "$(env_lain "$ENVIRONMENT")")" ]; then buat_profil_backend_dari_lain; else create_backend_env; fi
+    baru=1
+  fi
+  isi_nilai_environment   # APP_ENV, SSO_ENV, FRONTEND_URL, SSO_REDIRECT_URI selalu mengikuti environment dan alamatnya
+  isi_kredensial "$baru"
   validate_backend_env
 }
 
@@ -1118,11 +1270,19 @@ kunci_server_db_prod() {
     die "Deploy production tanpa EXPECTED_DB_SERVER tidak dilanjutkan; --yes tidak menggantikan pemeriksaan ini. Belum ada yang diubah di server."
   fi
   log "Server database yang akan menerima migrasi dan data: $IDENT_SERVER (alamat ${IDENT_ALAMAT:--}), database ${IDENT_DATABASE:--}"
-  local ans
-  read -r -p "    Ketik nama server database PRODUCTION yang benar untuk dikunci di ${NAMA_DEPLOY_ENV} (kosong = batal): " ans || ans=""
-  if [ -z "$ans" ] || [ "${ans,,}" != "${IDENT_SERVER,,}" ]; then
-    die "Dibatalkan: yang diketik ('$ans') tidak sama dengan server yang sebenarnya dituju ('$IDENT_SERVER'). Belum ada yang diubah di server."
-  fi
+  local ans tries=0
+  while :; do
+    tries=$((tries + 1))
+    read -r -p "    Ketik NAMA server database PRODUCTION yang benar (nama server, bukan alamat IP) untuk dikunci di ${NAMA_DEPLOY_ENV} (kosong = batal): " ans || ans=""
+    [ -n "$ans" ] || die "Dibatalkan. Belum ada yang diubah di server."
+    [ "${ans,,}" != "${IDENT_SERVER,,}" ] || break
+    if [[ $ans =~ ^[0-9.:]+$ ]] || [ "$ans" = "$IDENT_ALAMAT" ] || [ "$ans" = "$(env_get "$BACKEND_ENV" DB_HOST)" ]; then
+      err "Yang diminta NAMA server menurut SQL Server (baris 'Server database yang sebenarnya' di atas), bukan alamat IP."
+    else
+      err "'$ans' tidak sama dengan server yang sebenarnya dituju ('$IDENT_SERVER')."
+    fi
+    [ "$tries" -lt 3 ] || die "Dibatalkan: nama server tidak cocok. Bila '$IDENT_SERVER' bukan server production, perbaiki database di ${NAMA_BACKEND_ENV} (./deploy.sh $ENVIRONMENT --kredensial). Belum ada yang diubah di server."
+  done
   env_set "$DEPLOY_ENV" EXPECTED_DB_SERVER "$IDENT_SERVER"
   own_file "$DEPLOY_ENV"
   ok "EXPECTED_DB_SERVER=$IDENT_SERVER disimpan di ${NAMA_DEPLOY_ENV}; deploy berikutnya menolak server database lain."
@@ -1345,7 +1505,7 @@ summary() {
     Aplikasi  : ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}
     Halaman login: ${frontend_url:-http://$(primary_ip):${FRONTEND_PORT}}${LOGIN_PATH}
     API       : ${API_URL}
-    Konfigurasi: ${NAMA_DEPLOY_ENV} dan ${NAMA_BACKEND_ENV}
+    Konfigurasi: ${NAMA_DEPLOY_ENV} dan ${NAMA_BACKEND_ENV}  (ganti kredensial: ./deploy.sh $ENVIRONMENT --kredensial)
     Log       : docker compose --env-file ${NAMA_DEPLOY_ENV} logs -f   (atau: tail -f $LOG_FILE)
     Berikutnya: ./deploy.sh $ENVIRONMENT setiap kali ada pembaruan (kode ditarik otomatis);
                 ./deploy.sh $(env_lain "$ENVIRONMENT") untuk berganti ke $(env_label "$(env_lain "$ENVIRONMENT")") (cukup isi database-nya sekali).
