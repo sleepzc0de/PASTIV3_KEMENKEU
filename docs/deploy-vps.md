@@ -72,7 +72,7 @@ git clone --branch production_v3 https://github.com/sleepzc0de/PASTIV3_KEMENKEU.
 
 Bila repo privat: `ssh-keygen -t ed25519`, tambahkan kunci publik sebagai **Deploy key** di GitHub, lalu clone lewat `git@github.com:sleepzc0de/PASTIV3_KEMENKEU.git`.
 
-## C. Deploy pertama: skrip berhenti meminta `.env` diisi
+## C. Deploy pertama: pengaturan awal dan kredensial
 
 ```bash
 cd ~/pasti-prod && ./deploy.sh prod
@@ -85,26 +85,31 @@ cd ~/pasti-prod && ./deploy.sh prod
 | Port backend / frontend | Enter (8686 / 3000) |
 | Diakses lewat Nginx di server ini? | `Y` (port hanya terbuka ke 127.0.0.1) |
 
-Skrip membuat `deploy.prod.env` dan `backend/.env.prod` (`JWT_SECRET`, `PASSWORD_PEPPER`, `TOKEN_ENCRYPTION_KEY` terisi acak), lalu **berhenti** dengan pesan "backend/.env.prod baru dibuat dan BELUM siap". Itu normal.
+Skrip membuat `deploy.prod.env` dan `backend/.env.prod` (`JWT_SECRET`, `PASSWORD_PEPPER`, `TOKEN_ENCRYPTION_KEY` terisi acak), lalu **menanyakan kredensialnya** di terminal (langkah D) dan melanjutkan deploy. Bila dijalankan tanpa terminal interaktif (mis. lewat pipe), skrip berhenti dengan petunjuk berkas mana yang perlu diisi.
 
-## D. Isi `backend/.env.prod`
+## D. Kredensial (ditanyakan `deploy.sh`)
 
-```bash
-nano backend/.env.prod
-chmod 600 backend/.env.prod
-```
+Disimpan di `backend/.env.prod`. Yang kosong selalu ditanyakan; profil yang baru dibuat menanyakan semuanya. Sandi, secret, dan token tidak tampil saat diketik dan tidak tercatat di `deploy.log`. Enter = memakai nilai dalam `[kurung]`; untuk yang opsional, `-` mengosongkan.
+
+| Ditanyakan | Isi |
+|---|---|
+| Database aplikasi: alamat, port, nama database, login, sandi | **IP server database**, bukan `localhost` (itu menunjuk ke container sendiri; ditolak). Port 1433; `pasti_app` dan sandi dari langkah A |
+| SSO Kemenkeu: client ID, client secret | Kredensial SSO **production** (secret contoh di repo tidak ditawarkan dan ditolak) |
+| SLDK: alamat, port, nama database, login, sandi | Opsional, untuk sinkronisasi Digitalisasi Aset; alamat kosong = nonaktif. Firewall SLDK juga harus mengizinkan IP VPS |
+| Token Inaproc | Wajib di production |
+
+Mengganti kredensial kemudian (mis. database production berbeda dari yang tersalin): `./deploy.sh prod --kredensial` menanyakan semuanya lagi (Enter = tetap). Bila alamat atau nama database berubah, kunci `EXPECTED_DB_SERVER`/`EXPECTED_DB_NAME` dikosongkan dan server baru dikunci saat pemeriksaan jati diri.
+
+Diatur otomatis pada **setiap** deploy dan tidak perlu diubah: `APP_ENV` dan `SSO_ENV` (production/development sesuai environment), `FRONTEND_URL`, dan `SSO_REDIRECT_URI` (callback SSO, `alamat-di-deploy.prod.env/sso/callback/login`). Perubahannya dicetak saat deploy.
+
+Sisanya tetap diisi tangan bila perlu (`nano backend/.env.prod`, lalu `chmod 600 backend/.env.prod`):
 
 | Kunci | Isi |
 |---|---|
-| `DB_HOST`, `DB_PORT` | **IP server database**, bukan `localhost` (itu menunjuk ke container sendiri). Port 1433 |
-| `DB_USER`, `DB_PASSWORD`, `DB_NAME` | `pasti_app`, sandi dari langkah A, `pasti_v3_db`. Sandi berkarakter khusus diapit kutip tunggal `'...'` |
-| `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | Kredensial SSO **production** (secret contoh di repo ditolak skrip) |
 | `SSO_SCOPE` | Tambahkan `hris2 profil.hris` bila memakai Cari Pegawai (HRIS2) |
 | `SUPERADMIN_PROTECTED_EMAIL`, `SUPERADMIN_PROTECTED_NIP` | **Periksa.** Isi bawaan contoh adalah identitas pengembang; ganti dengan superadmin yang benar (boleh beberapa, dipisah koma). Jangan dikosongkan di production |
-| `INAPROC_TOKEN` | Wajib di production |
-| `SLDK_DB_HOST`, `SLDK_DB_PORT`, `SLDK_DB_USER`, `SLDK_DB_PASSWORD`, `SLDK_DB_NAME` | Opsional, untuk sinkronisasi Digitalisasi Aset. Firewall SLDK juga harus mengizinkan IP VPS |
 
-Sudah terisi otomatis dan sebaiknya tidak diubah: `APP_ENV` dan `SSO_ENV` (production), `FRONTEND_URL`, `SSO_REDIRECT_URI`. **`TOKEN_ENCRYPTION_KEY` tidak boleh diganti** setelah dipakai. Simpan salinan `backend/.env.prod` dan `deploy.prod.env` di tempat aman.
+**`TOKEN_ENCRYPTION_KEY` tidak boleh diganti** setelah dipakai. Simpan salinan `backend/.env.prod` dan `deploy.prod.env` di tempat aman.
 Opsional: `AUDIT_RETENSI_HARI`, `MONITOR_AKTIF`, `MONITOR_RETENSI_HARI` (lihat [audit-dan-monitor.md](audit-dan-monitor.md)); `PERAN_DATA_WAJIB=true` setelah semua pengguna punya peran.
 Opsional: `API_AKSES_PEPPER` untuk hash kunci API (bawaan diturunkan dari `PASSWORD_PEPPER`; mengganti salah satunya membuat semua kunci API klien tidak berlaku). Batas laju dan kuota API diatur superadmin di aplikasi, bukan di `.env`; klien API didaftarkan superadmin (tidak ada pendaftaran publik). Lihat [api-akses-data.md](api-akses-data.md).
 
@@ -127,6 +132,7 @@ Urutannya: memeriksa port database terjangkau dari VPS → konfirmasi (ketik `pr
 | "Server database TIDAK sesuai" | `DB_HOST` dipetakan (IP masking) ke server database lain, mis. development. Minta tim infrastruktur alamat server production yang sebenarnya. Deploy berhenti sebelum migrasi, jadi belum ada data yang tertulis |
 | "Deploy production tanpa EXPECTED_DB_SERVER tidak dilanjutkan" | Pakai `--yes` atau tanpa terminal sebelum nama server database dikunci. Isi `EXPECTED_DB_SERVER` di `deploy.prod.env` (atau jalankan interaktif sekali) |
 | "Jati diri server database tidak terbaca" | Login database tidak bisa menjalankan pemeriksaan, atau sambungan terputus; baca pesan di atasnya |
+| "Yang diminta NAMA server ..., bukan alamat IP" | Saat mengunci, ketik nama server dari baris "Server database yang sebenarnya" (mis. `NAMA-SERVER`), bukan IP. Bila server itu bukan production, batalkan (Enter) dan ganti database: `./deploy.sh prod --kredensial` |
 | Migrasi gagal dengan "permission denied" | Login belum berperan `db_owner` |
 | "Port ... sudah dipakai" | Ubah port di `deploy.prod.env` |
 | Build gagal kehabisan memori | Tambah swap (langkah B) |
@@ -241,7 +247,8 @@ Di browser:
 ```
 
 - Saat sebuah environment dipilih pertama kali dan profil environment lainnya sudah ada, profilnya **dibuat otomatis** dari profil itu. Branch, alamat publik (`https://pasti.kemenkeu.go.id` untuk prod, `http://IP-server:port-backend` untuk dev), `APP_ENV`, `SSO_ENV`, `FRONTEND_URL`, dan `SSO_REDIRECT_URI` menyesuaikan. Container, port, bind, rahasia (`JWT_SECRET`, `PASSWORD_PEPPER`, `TOKEN_ENCRYPTION_KEY`), `INAPROC_TOKEN`, superadmin, dan pengaturan lain ikut sama. Rahasia sengaja sama supaya sandi, kunci API, dan token SSO tetap terbaca bila kedua environment ternyata memakai database yang sama.
-- Yang **dikosongkan** dan perlu diisi sekali: `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` di `backend/.env.<env>`, serta `EXPECTED_DB_SERVER` (tiap environment mengunci server database-nya sendiri). Untuk prod, `SSO_CLIENT_ID`/`SSO_CLIENT_SECRET` juga dikosongkan bila yang tersalin adalah client SSO demo; untuk dev, diisi client SSO demo. Skrip berhenti setelah membuat profil dan menyebutkan apa yang perlu diisi; jalankan lagi `./deploy.sh <env>` sesudahnya.
+- Yang **dikosongkan lalu ditanyakan** (langkah D): database aplikasi, SLDK, dan SSO (untuk prod; dev memakai client SSO demo sebagai bawaan), serta `EXPECTED_DB_SERVER` (tiap environment mengunci server database-nya sendiri). Tanpa terminal interaktif, skrip berhenti dan menyebutkan apa yang perlu diisi. Kredensial yang sudah tersimpan diganti dengan `./deploy.sh <env> --kredensial`.
+- `APP_ENV`, `SSO_ENV`, `FRONTEND_URL`, dan `SSO_REDIRECT_URI` (callback SSO) disamakan dengan environment dan alamatnya pada setiap deploy. Daftarkan kedua Redirect URI (prod dan dev) pada client SSO masing-masing.
 - **Berganti environment mengganti container yang sedang berjalan.** Semua alamat yang mengarah ke server ini, termasuk domain production yang di-mask, langsung melayani environment baru. Karena itu skrip selalu bertanya dulu (`--yes` menjawab ya). Selama dev berjalan, domain production ikut melayani build dev, yang alamat API-nya tidak sama dengan domain itu.
 - Bila deploy environment baru gagal, rollback menjalankan lagi image sebelumnya dengan profil environment sebelumnya. `deploy.aktif` hanya berubah setelah deploy berhasil.
 - Alamat atau branch bawaan yang tidak cocok: ubah `deploy.<env>.env` lalu deploy lagi.
