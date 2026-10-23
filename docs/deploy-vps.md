@@ -219,6 +219,19 @@ BACKEND_VIA_FRONTEND=1
 
 Frontend lalu meneruskan semua rute backend tersebut lewat jaringan Docker, persis seperti blok `location` backend di konfigurasi Nginx repo (callback SSO sudah termasuk; `SSO_CALLBACK_VIA_FRONTEND` tidak perlu). Pendaftaran akun publik (`/api/v1/auth/register`) tetap dijawab 404, `/api` tanpa path dan halaman `/sso/callback` tetap milik frontend, dan permintaan sampai 900 detik serta unggahan sampai 16 MB diteruskan utuh (bawaan Next: 30 detik dan 10 MB). Catatan: (1) semua panggilan API melewati proses frontend dulu, jadi ada satu lompatan tambahan; (2) `X-Real-IP` dan `X-Forwarded-For` dari proxy diteruskan apa adanya: bila semua aktivitas di Log Audit tampak dari satu IP, minta proxy mengirim header itu atau tambahkan IP proxy ke `TRUSTED_PROXIES`, karena pembatas laju login (30 per menit per IP) ikut terbagi; (3) setelah proxy diperbaiki, hapus barisnya dan deploy ulang; (4) hanya `1` yang menyalakan, nilai lain menghentikan `deploy.sh` dan build.
 
+### Login SSO gagal setelah berpindah ke SSO Kemenkeu
+
+Layar login menampilkan salah satu pesan berikut (galat basis data mentah tidak ditampilkan lagi):
+
+- **"Gagal membuat sesi akun ... (kode XXXXXXXX)"** atau **"Gagal menyimpan data pegawai ... (kode XXXXXXXX)"**: kegagalan di sisi server. Rinciannya hanya ada di log dengan kode yang sama: `docker logs pasti-backend 2>&1 | grep XXXXXXXX`.
+- **"Email Anda sudah terdaftar sebagai akun lain di PASTI dan tidak dapat ditautkan otomatis"**: email dari SSO sudah dipakai akun lokal (bukan akun SSO) atau lebih dari satu akun. Periksa di database, lalu selesaikan secara manual (hapus atau gabungkan akun yang tidak dipakai) dan minta pengguna masuk lagi:
+
+  ```sql
+  SELECT id, username, email, auth_provider, role, is_active, employee_id FROM users WHERE email = '<email>' OR username = '<email>';
+  ```
+
+- Bila database sebelumnya dipakai dengan SSO demo (development), akun SSO yang sudah ada **ditautkan otomatis** pada login pertama lewat SSO Kemenkeu: peran dan data akun tetap, dan peristiwanya tercatat sebagai warning `[SSO WARN] akun yang sudah ada ditautkan ke identitas SSO baru` di halaman Log Server. Penjelasan lengkap ada di [architecture.md](architecture.md) (bagian "Penautan akun saat login SSO").
+
 ## G. Verifikasi
 
 ```bash

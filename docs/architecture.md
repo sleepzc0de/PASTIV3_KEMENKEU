@@ -115,6 +115,19 @@ sequenceDiagram
     F-->>B: Redirect ke /dashboard
 \```
 
+### Penautan akun saat login SSO
+
+Pegawai dikenali lewat `employees.sso_sub` (ID unik dari penyedia SSO) dan pengguna lewat `users.employee_id`. Penyedia SSO yang berbeda (mis. SSO demo di development dan SSO Kemenkeu di production) menerbitkan `sub` yang berbeda untuk orang yang sama, sehingga pegawai baru dibuat dan belum ada pengguna yang tertaut ke sana, sementara `users.username` dan `users.email` unik. Karena itu, sebelum menambah pengguna baru, backend mencari akun dengan email (atau username) yang sama (`handlers/sso_tautan.go`):
+
+| Yang ditemukan | Perlakuan |
+|---|---|
+| Tidak ada | Pengguna baru dibuat (peran `user`, atau `superadmin` untuk identitas permanen) |
+| Tepat satu akun dengan `auth_provider = sso` | Akun itu **ditautkan** ke pegawai baru (`employee_id` diperbarui). Peran dan data akun tetap. Peristiwanya tercatat sebagai warning `[SSO WARN] akun yang sudah ada ditautkan ...` di Log Server |
+| Akun lokal (`auth_provider = local`), atau lebih dari satu akun | Login ditolak dengan pesan "Email Anda sudah terdaftar sebagai akun lain ... tidak dapat ditautkan otomatis"; akun lokal tidak diambil alih |
+| Akun SSO yang dinonaktifkan | Ditolak ("Akun Anda telah dinonaktifkan") dan tidak ditautkan. Identitas superadmin permanen selalu diaktifkan kembali |
+
+Penautan bergantung pada email dari SSO Kemenkeu, jadi aman hanya selama SSO itu memverifikasi email. Kegagalan di sisi server (mis. database) tidak menampilkan galat mentah di layar login: pengguna hanya melihat pesan umum dan **kode rujukan** 8 karakter, sedangkan rincian galatnya hanya ada di log server dengan kode yang sama (`docker logs pasti-backend 2>&1 | grep KODE`).
+
 ## 4. Skema Database (ERD)
 
 \```mermaid
