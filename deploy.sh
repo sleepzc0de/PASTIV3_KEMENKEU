@@ -403,6 +403,9 @@ preflight_system() {
 env_label() { if [ "${1:-$ENVIRONMENT}" = "prod" ]; then printf 'PRODUCTION'; else printf 'DEVELOPMENT'; fi; }
 env_lain() { if [ "$1" = "prod" ]; then printf 'dev'; else printf 'prod'; fi; }
 branch_bawaan() { if [ "$1" = "prod" ]; then printf 'production_v3'; else printf 'development'; fi; }
+# Awalan nama container bila CONTAINER_PREFIX tidak ditulis di profil (deploy.env lama sering tidak memuatnya). Berbeda per environment, jadi
+# profil yang dipindah atau disalin selalu ditulisi nilainya secara eksplisit supaya tetap menunjuk container yang sedang berjalan.
+prefix_bawaan() { if [ "$1" = "prod" ]; then printf 'pasti-prod'; else printf 'pasti'; fi; }
 profil_deploy() { printf '%s/deploy.%s.env' "$APP_DIR" "$1"; }
 profil_backend() { printf '%s/backend/.env.%s' "$APP_DIR" "$1"; }
 
@@ -424,6 +427,7 @@ pindahkan_konfigurasi_lama() {
   mv "$LEGACY_DEPLOY_ENV" "$tujuan"
   env_set "$tujuan" ENVIRONMENT "$env"
   env_set "$tujuan" BACKEND_ENV_FILE "./backend/.env.$env"
+  [ -n "$(env_get "$tujuan" CONTAINER_PREFIX)" ] || env_set "$tujuan" CONTAINER_PREFIX "$(prefix_bawaan "$env")"
   ok "deploy.env -> $(basename "$tujuan")"
   if [ -f "$LEGACY_BACKEND_ENV" ] && [ ! -f "$be" ]; then
     mv "$LEGACY_BACKEND_ENV" "$be"
@@ -558,8 +562,10 @@ EOF
 # jalan pintas SSO tetap sama (satu folder = satu stack yang berganti environment; proxy/masking infra mengarah ke port yang sama). Yang khas
 # environment diganti: branch, alamat publik, dan kunci server database (database environment ini dikunci ulang).
 buat_profil_deploy_dari_lain() {
-  local sumber root port
+  local sumber root port prefix
   sumber=$(profil_deploy "$(env_lain "$ENVIRONMENT")")
+  prefix=$(env_get "$sumber" CONTAINER_PREFIX)
+  prefix=${prefix:-$(prefix_bawaan "$(env_lain "$ENVIRONMENT")")}
   step "Membuat $NAMA_DEPLOY_ENV dari $(basename "$sumber")"
   if [ "$ENVIRONMENT" = "prod" ]; then
     root="https://pasti.kemenkeu.go.id"
@@ -573,6 +579,7 @@ buat_profil_deploy_dari_lain() {
   )
   env_set "$DEPLOY_ENV" ENVIRONMENT "$ENVIRONMENT"
   env_set "$DEPLOY_ENV" BACKEND_ENV_FILE "./backend/.env.$ENVIRONMENT"
+  env_set "$DEPLOY_ENV" CONTAINER_PREFIX "$prefix"
   env_set "$DEPLOY_ENV" DEPLOY_BRANCH "$(branch_bawaan "$ENVIRONMENT")"
   env_set "$DEPLOY_ENV" NEXT_PUBLIC_API_ROOT_URL "$root"
   env_set "$DEPLOY_ENV" NEXT_PUBLIC_API_URL "$root/api/v1"
@@ -612,9 +619,7 @@ load_deploy_config() {
   FRONTEND_PORT=$(env_get "$DEPLOY_ENV" FRONTEND_PORT); FRONTEND_PORT=${FRONTEND_PORT:-3000}
   DEPLOY_BRANCH=$(env_get "$DEPLOY_ENV" DEPLOY_BRANCH)   # kosong (profil lama tanpa DEPLOY_BRANCH) = branch yang sedang aktif
   CONTAINER_PREFIX=$(env_get "$DEPLOY_ENV" CONTAINER_PREFIX)
-  if [ -z "$CONTAINER_PREFIX" ]; then
-    if [ "$ENVIRONMENT" = "prod" ]; then CONTAINER_PREFIX="pasti-prod"; else CONTAINER_PREFIX="pasti"; fi
-  fi
+  CONTAINER_PREFIX=${CONTAINER_PREFIX:-$(prefix_bawaan "$ENVIRONMENT")}
 
   valid_url "$API_ROOT_URL" || die "NEXT_PUBLIC_API_ROOT_URL di ${NAMA_DEPLOY_ENV} tidak valid: '$API_ROOT_URL'"
   valid_api_url "$API_URL"  || die "NEXT_PUBLIC_API_URL di ${NAMA_DEPLOY_ENV} tidak valid: '$API_URL'"
@@ -1390,6 +1395,9 @@ port_owner() {
   printf '%s' "${owner:-proses tidak dikenal}"
 }
 
+# Container yang memublikasikan port host ini (kosong bila yang memakainya bukan container). ss hanya melihat "docker-proxy".
+container_di_port() { docker ps --filter "publish=$1" --format '{{.Names}}' 2>/dev/null | head -1 || true; }
+
 # Container dengan nama yang sama hanya boleh dimiliki folder ini. Bila dev dan prod berjalan di server
 # yang sama, keduanya harus memakai CONTAINER_PREFIX berbeda; tanpa pemeriksaan ini, compose gagal
 # dengan pesan "container name already in use" yang membingungkan.
@@ -1414,7 +1422,8 @@ check_containers() {
 check_ports() {
   step "Memeriksa container dan port"
   check_containers
-  local entry cname cport want label have
+  local entry cname cport want label have pemegang folder_pemegang here
+  here=$(readlink -f "$APP_DIR" 2>/dev/null || echo "$APP_DIR")
   for entry in "${CONTAINER_PREFIX}-backend:8686:${BACKEND_PORT}:Backend" "${CONTAINER_PREFIX}-frontend:3000:${FRONTEND_PORT}:Frontend"; do
     IFS=: read -r cname cport want label <<<"$entry"
 
@@ -1428,6 +1437,15 @@ check_ports() {
     fi
 
     if [ "$have" != "$want" ] && port_in_use "$want"; then
+      pemegang=$(container_di_port "$want")
+      if [ -n "$pemegang" ]; then
+        folder_pemegang=$(docker container inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$pemegang" 2>/dev/null || true)
+        # Container stack folder ini sendiri dengan nama lain: CONTAINER_PREFIX di profil tidak sama dengan container yang sedang berjalan.
+        if [ -n "$folder_pemegang" ] && [ "$(readlink -f "$folder_pemegang" 2>/dev/null || echo "$folder_pemegang")" = "$here" ]; then
+          die "Port $want ($label) dipakai container '$pemegang' dari folder ini, sedangkan ${NAMA_DEPLOY_ENV} memakai nama '$cname' (CONTAINER_PREFIX=$CONTAINER_PREFIX). Samakan dengan menulis CONTAINER_PREFIX=${pemegang%-*} di ${NAMA_DEPLOY_ENV}, lalu jalankan ulang. Belum ada yang diubah di server."
+        fi
+        die "Port $want ($label) sudah dipakai container '$pemegang'${folder_pemegang:+ (folder $folder_pemegang)}. Ubah port di ${NAMA_DEPLOY_ENV}, atau hentikan container itu. Belum ada yang diubah di server."
+      fi
       die "Port $want ($label) sudah dipakai $(port_owner "$want"). Ubah port di ${NAMA_DEPLOY_ENV}, atau hentikan proses itu. Belum ada yang diubah di server."
     fi
     ok "$label: port $want siap"
