@@ -47,12 +47,23 @@ type Config struct {
 	SLDKDBPassword string
 	SLDKDBName     string
 
+	// ============ Datamart SLDK (cadangan sinkronisasi Digitalisasi Aset) ============
+	// Salinan data SLDK yang dibutuhkan query Digitalisasi Aset (backend/datamart, docs/datamart-sldk.md). Opsional: kosong = tidak ada cadangan.
+	DatamartDBHost     string
+	DatamartDBPort     string
+	DatamartDBUser     string
+	DatamartDBPassword string
+	DatamartDBName     string
+
 	// ============ Sinkronisasi otomatis Digitalisasi Aset ============
-	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Hanya berjalan bila SLDK tersambung.
+	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Berjalan bila ada sumber data: SLDK atau datamart.
 	DigitalisasiAutoSync         bool
 	DigitalisasiAutoIntervalHari int
 	DigitalisasiAutoJamMulai     int
 	DigitalisasiAutoJamAkhir     int
+	// DigitalisasiSumber: dari mana sinkronisasi membaca data. "otomatis" (bawaan) = SLDK, dan bila SLDK gagal dibaca beralih ke datamart; "sldk" = hanya SLDK;
+	// "datamart" = hanya datamart. Nilai lain diganti "otomatis".
+	DigitalisasiSumber string
 
 	// ============ Penarikan data Pengadaan/Tender/E-Katalog otomatis (Inaproc) ============
 	// Nilai bawaan penarikan otomatis; pengaturan yang disimpan dari halaman Penarikan Data menggantikannya. Aktif bawaan: tiap
@@ -174,6 +185,13 @@ func LoadConfig() {
 		SLDKDBPassword: getEnv("SLDK_DB_PASSWORD", ""),
 		SLDKDBName:     getEnv("SLDK_DB_NAME", ""),
 
+		DatamartDBHost:     getEnv("DATAMART_DB_HOST", ""),
+		DatamartDBPort:     getEnv("DATAMART_DB_PORT", "1433"),
+		DatamartDBUser:     getEnv("DATAMART_DB_USER", ""),
+		DatamartDBPassword: getEnv("DATAMART_DB_PASSWORD", ""),
+		DatamartDBName:     getEnv("DATAMART_DB_NAME", ""),
+
+		DigitalisasiSumber:           SumberDigitalisasi(getEnv("DIGITALISASI_SUMBER", "")),
 		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),
 		DigitalisasiAutoJamMulai:     getEnvInt("DIGITALISASI_AUTO_JAM_MULAI", 1),
@@ -255,6 +273,15 @@ func getEnvBool(key string, fallback bool) bool {
 		return true
 	}
 	return fallback
+}
+
+// SumberDigitalisasi merapikan nilai DIGITALISASI_SUMBER: "otomatis", "sldk", atau "datamart" (huruf besar/kecil dan spasi tepi diabaikan); selain itu "otomatis".
+func SumberDigitalisasi(v string) string {
+	switch s := strings.ToLower(strings.TrimSpace(v)); s {
+	case "sldk", "datamart":
+		return s
+	}
+	return "otomatis"
 }
 
 // getEnvInt membaca bilangan bulat; kosong atau tidak terbaca = fallback.

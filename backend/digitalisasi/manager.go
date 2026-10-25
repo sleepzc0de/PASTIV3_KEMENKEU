@@ -22,7 +22,7 @@ const (
 
 var (
 	ErrBusy           = errors.New("sinkronisasi lain sedang berjalan")
-	ErrNoSLDK         = errors.New("koneksi ke SLDK tidak tersedia")
+	ErrNoSLDK         = errors.New("tidak ada sumber data (SLDK atau datamart) yang tersedia")
 	ErrUnknownDataset = errors.New("dataset tidak dikenal")
 	ErrNothingToRun   = errors.New("tidak ada dataset yang dipilih")
 )
@@ -42,12 +42,18 @@ type activeRun struct {
 	info   RunInfo
 	logIDs map[string]int64
 	cancel context.CancelFunc
+	// sldkMati: sambungan ke SLDK sudah gagal pada antrean ini, jadi dataset berikutnya tidak menunggu SLDK lagi. Hanya dibaca dan ditulis goroutine execute.
+	sldkMati bool
 }
 
 // Manager menjalankan sinkronisasi di latar belakang (di luar permintaan HTTP) dan menjaga agar hanya satu
 // antrean berjalan pada satu waktu, karena tiap query membebani server SLDK.
 type Manager struct {
 	pasti, sldk *sql.DB
+	// datamart: cadangan sumber data (nil = tidak ada) dan mode pemilihan sumber; diisi PasangDatamart (sumber.go).
+	datamart    *sql.DB
+	mode        string
+	cacheSumber cacheInfoSumber
 	// Timeout: batas waktu per dataset. 0 (bawaan) = tanpa batas: query ke tabel aset SLDK (ratusan GB) boleh berjalan sampai
 	// selesai, baik dijalankan manual maupun otomatis. Sinkronisasi yang macet bisa dibatalkan lewat Cancel (tombol Batalkan).
 	Timeout time.Duration
@@ -114,7 +120,7 @@ func (m *Manager) Cancel() bool {
 // Start memasukkan dataset terpilih ke antrean dan langsung kembali; pekerjaannya berjalan di goroutine.
 // Urutan antrean selalu mengikuti urutan Datasets, apa pun urutan masukan.
 func (m *Manager) Start(keys []string, user string) (RunInfo, error) {
-	if m.sldk == nil {
+	if !m.AdaSumber() {
 		return RunInfo{}, ErrNoSLDK
 	}
 	want := map[string]bool{}
@@ -222,25 +228,28 @@ func (m *Manager) execute(ctx context.Context, run *activeRun, queue []Dataset) 
 			dctx, dcancel = context.WithTimeout(ctx, m.Timeout)
 		}
 		lastWrite := time.Time{}
-		res, err := m.run(dctx, m.sldk, m.pasti, ds, Options{
-			RunID: logID,
-			Progress: func(msg string) {
-				// Pesan kemajuan ditulis paling cepat tiap 3 detik.
-				if time.Since(lastWrite) < 3*time.Second {
-					return
-				}
-				lastWrite = time.Now()
-				m.setMessage(logID, msg)
-			},
+		// Sumber data dipilih per dataset (SLDK, atau datamart bila SLDK gagal dibaca; lihat sumber.go).
+		hasil, err := m.bacaDataset(dctx, run, ds, logID, func(msg string) {
+			// Pesan kemajuan ditulis paling cepat tiap 3 detik.
+			if time.Since(lastWrite) < 3*time.Second {
+				return
+			}
+			lastWrite = time.Now()
+			m.setMessage(logID, msg)
 		})
+		res := hasil.Result
 		timedOut := errors.Is(dctx.Err(), context.DeadlineExceeded)
 		dcancel()
 
 		switch {
 		case err == nil:
 			rows, coords := int64(res.Rows), int64(res.WithCoords)
-			m.finishLog(logID, StatusSukses, &logCounts{Rows: rows, Coords: coords}, res.Summary())
-			log.Printf("[DIGITALISASI] %s: %s", ds.Key, res.Summary())
+			ringkas := res.Summary()
+			if hasil.Catatan != "" {
+				ringkas += " · " + hasil.Catatan
+			}
+			m.finishLog(logID, StatusSukses, &logCounts{Rows: rows, Coords: coords}, ringkas)
+			log.Printf("[DIGITALISASI] %s: %s", ds.Key, ringkas)
 		case ctx.Err() != nil:
 			m.finishLog(logID, StatusDibatalkan, nil, "Dibatalkan oleh pengguna")
 			log.Printf("[DIGITALISASI] %s dibatalkan", ds.Key)
@@ -326,17 +335,22 @@ type LogEntry struct {
 	JumlahKoordinat *int64     `json:"jumlah_koordinat"`
 	Pesan           *string    `json:"pesan"`
 	DijalankanOleh  *string    `json:"dijalankan_oleh"`
+	// Sumber: dari mana data dibaca ("sldk" | "datamart"); nil pada riwayat sebelum fitur datamart (artinya SLDK).
+	Sumber *string `json:"sumber"`
 }
 
-const logColumns = `id, dataset, status, dibuat, mulai, selesai, jumlah_baris, jumlah_koordinat, pesan, dijalankan_oleh`
+const logColumns = `id, dataset, status, dibuat, mulai, selesai, jumlah_baris, jumlah_koordinat, pesan, dijalankan_oleh, sumber`
 
 func scanLog(rows *sql.Rows) (LogEntry, error) {
 	var e LogEntry
 	var mulai, selesai sql.NullTime
 	var baris, koord sql.NullInt64
-	var pesan, oleh sql.NullString
-	if err := rows.Scan(&e.ID, &e.Dataset, &e.Status, &e.Dibuat, &mulai, &selesai, &baris, &koord, &pesan, &oleh); err != nil {
+	var pesan, oleh, sumber sql.NullString
+	if err := rows.Scan(&e.ID, &e.Dataset, &e.Status, &e.Dibuat, &mulai, &selesai, &baris, &koord, &pesan, &oleh, &sumber); err != nil {
 		return e, err
+	}
+	if sumber.Valid {
+		e.Sumber = &sumber.String
 	}
 	if mulai.Valid {
 		e.Mulai = &mulai.Time

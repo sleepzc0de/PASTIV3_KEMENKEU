@@ -45,7 +45,28 @@ type Options struct {
 	MaxRows  int
 	RunID    int64            // dicatat di kolom id_sinkron
 	Progress func(msg string) // dipanggil berkala; boleh nil
+	// NamaSumber: nama sumber yang dibaca untuk pesan ("SLDK" bila kosong, atau "datamart"). Hanya memengaruhi teks.
+	NamaSumber string
 }
+
+func (o Options) sumber() string {
+	if o.NamaSumber == "" {
+		return "SLDK"
+	}
+	return o.NamaSumber
+}
+
+// SumberError menandai kegagalan MEMBACA dari sumber data (SLDK atau datamart): tidak dapat terhubung, query ditolak, atau sambungan terputus di tengah. Galat jenis ini
+// yang boleh memicu peralihan ke sumber cadangan. Sengaja tidak mencakup galat yang sama di sumber mana pun (hasil query tidak memuat kolom, melebihi batas baris, nilai tak
+// terbaca) maupun galat menulis ke PASTI.
+type SumberError struct {
+	Err error
+	// Koneksi: kegagalan saat membuka sambungan (sumber tidak terjangkau), bukan query yang ditolak atau terputus.
+	Koneksi bool
+}
+
+func (e *SumberError) Error() string { return e.Err.Error() }
+func (e *SumberError) Unwrap() error { return e.Err }
 
 func quoteIdent(name string) string { return "[" + strings.ReplaceAll(name, "]", "]]") + "]" }
 
@@ -67,7 +88,7 @@ func Sync(ctx context.Context, sldkDB, pastiDB *sql.DB, ds Dataset, opt Options)
 		return Result{}, fmt.Errorf("query %s tidak ditemukan: %w", ds.QueryFile, err)
 	}
 
-	opt.progress("Membaca dari SLDK...")
+	opt.progress("Membaca dari " + opt.sumber() + "...")
 	data, st, err := readSource(ctx, sldkDB, ds, query, opt)
 	if err != nil {
 		return Result{}, err
@@ -91,7 +112,7 @@ func Sync(ctx context.Context, sldkDB, pastiDB *sql.DB, ds Dataset, opt Options)
 			return Result{}, fmt.Errorf("gagal memeriksa isi tabel %s: %w", ds.Table, err)
 		}
 		if existing > 0 {
-			return Result{}, errors.New("SLDK mengembalikan 0 baris sedangkan tabel sudah berisi data; data lama TIDAK diganti. Periksa akses ke SLDK dan filter query")
+			return Result{}, errors.New(opt.sumber() + " mengembalikan 0 baris sedangkan tabel sudah berisi data; data lama TIDAK diganti. Periksa akses ke " + opt.sumber() + " dan filter query")
 		}
 	}
 
@@ -126,13 +147,13 @@ func readSource(ctx context.Context, db *sql.DB, ds Dataset, query string, opt O
 	var st convStats
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return nil, st, fmt.Errorf("tidak bisa terhubung ke SLDK: %w", err)
+		return nil, st, &SumberError{Err: fmt.Errorf("tidak bisa terhubung ke %s: %w", opt.sumber(), err), Koneksi: true}
 	}
 	defer conn.Close()
 
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
-		return nil, st, fmt.Errorf("query SLDK gagal: %w", err)
+		return nil, st, &SumberError{Err: fmt.Errorf("query %s gagal: %w", opt.sumber(), err)}
 	}
 	defer rows.Close()
 
@@ -180,17 +201,17 @@ func readSource(ctx context.Context, db *sql.DB, ds Dataset, query string, opt O
 		fixCoordinates(row, latIdx, lngIdx, &st)
 		data = append(data, row)
 		if len(data)%20000 == 0 {
-			opt.progress(fmt.Sprintf("Membaca dari SLDK... %d baris", len(data)))
+			opt.progress(fmt.Sprintf("Membaca dari %s... %d baris", opt.sumber(), len(data)))
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, st, fmt.Errorf("query SLDK terputus: %w", err)
+		return nil, st, &SumberError{Err: fmt.Errorf("query %s terputus: %w", opt.sumber(), err)}
 	}
 	// Skrip bertahap (tabel #) bisa mengirim hasil tambahan; menelusurinya memunculkan galat di langkah penutup.
 	for rows.NextResultSet() {
 	}
 	if err := rows.Err(); err != nil {
-		return nil, st, fmt.Errorf("query SLDK terputus: %w", err)
+		return nil, st, &SumberError{Err: fmt.Errorf("query %s terputus: %w", opt.sumber(), err)}
 	}
 	return data, st, nil
 }

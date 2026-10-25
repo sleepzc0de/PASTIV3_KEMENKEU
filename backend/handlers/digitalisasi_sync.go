@@ -18,8 +18,10 @@ import (
 // InitDigitalisasi menyiapkan pengelola sinkronisasi dan penjadwal sinkronisasi otomatis; dipanggil sekali saat server dimulai,
 // setelah koneksi database tersedia.
 func InitDigitalisasi() {
-	digitalisasi.Init(database.DB, database.SLDKDB)
+	// Handle SLDK yang dikonfigurasi (bukan SLDKDB): SLDK yang mati saat server dimulai tetap dicoba lagi saat sinkronisasi, dan sinkronisasi dapat beralih ke datamart.
+	digitalisasi.Init(database.DB, database.SLDKDBTerkonfigurasi)
 	c := config.Cfg
+	digitalisasi.Default.PasangDatamart(database.DatamartDB, c.DigitalisasiSumber)
 	digitalisasi.Default.MulaiPenjadwal(context.Background(),
 		digitalisasi.NewJadwal(c.DigitalisasiAutoSync, c.DigitalisasiAutoIntervalHari, c.DigitalisasiAutoJamMulai, c.DigitalisasiAutoJamAkhir))
 }
@@ -99,7 +101,8 @@ func GetDigitalisasiSinkronisasi(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil status sinkronisasi", gin.H{
-		"sldk_tersedia": database.SLDKDB != nil,
+		"sldk_tersedia": database.SLDKDB != nil, // SLDK terjangkau saat server dimulai; yang menentukan bisa-tidaknya sinkronisasi adalah sumber.tersedia
+		"sumber":        m.InfoSumber(ctx),      // mode (otomatis | sldk | datamart), konfigurasi SLDK/datamart, dan kesegaran datamart
 		"aktif":         m.Active(),
 		"otomatis":      m.InfoOtomatis(time.Now(), latest, lastOK), // jadwal sinkronisasi otomatis dan perkiraan berikutnya
 		"datasets":      list,
@@ -135,7 +138,7 @@ func StartDigitalisasiSync(c *gin.Context) {
 	case errors.Is(err, digitalisasi.ErrBusy):
 		utils.ErrorResponse(c, http.StatusConflict, "Sinkronisasi lain sedang berjalan. Tunggu sampai selesai atau batalkan dulu.")
 	case errors.Is(err, digitalisasi.ErrNoSLDK):
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Koneksi ke SLDK belum tersedia. Periksa pengaturan SLDK_DB_* di server.")
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Tidak ada sumber data yang tersedia. Periksa pengaturan SLDK_DB_*, DATAMART_DB_*, dan DIGITALISASI_SUMBER di server.")
 	case errors.Is(err, digitalisasi.ErrUnknownDataset), errors.Is(err, digitalisasi.ErrNothingToRun):
 		utils.ErrorResponse(c, http.StatusBadRequest, "Pilih minimal satu dataset yang valid")
 	default:

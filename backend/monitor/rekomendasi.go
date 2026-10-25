@@ -524,7 +524,7 @@ func nilaiDBTersambung(m Masukan) Kapasitas {
 			k.Rincian = append(k.Rincian, fmt.Sprintf("SLDK menjawab dalam %s ms.", fmtAngka(s.PingMS, 1)))
 		} else {
 			k.Status = lebihBuruk(k.Status, StatusPerhatian)
-			k.Rincian = append(k.Rincian, "SLDK tidak dapat dihubungi: "+s.Galat+" (sinkronisasi data aset tidak akan berjalan).")
+			k.Rincian = append(k.Rincian, "SLDK tidak dapat dihubungi: "+s.Galat+" (sinkronisasi data aset dari SLDK tidak akan berjalan; bila datamart dikonfigurasi, sinkronisasi membaca datamart).")
 		}
 	}
 	k.Tindakan = tindakan(k.Status, "—", "periksa koneksi ke server database/SLDK")

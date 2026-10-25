@@ -45,6 +45,9 @@ type Jadwal struct {
 	Interval time.Duration
 	JamMulai int // jam (WIB, 0-23) paling awal sinkronisasi otomatis boleh dimulai
 	JamAkhir int // jam (WIB, 0-23) batas akhir; sinkronisasi dimulai pada [JamMulai, JamAkhir). Sama = sepanjang hari
+	// UlangBilaDatamart: sinkronisasi sukses yang dibaca dari datamart dicoba lagi setelah jedaCoba (bukan Interval), supaya data kembali dari SLDK begitu SLDK pulih. Diisi
+	// MulaiPenjadwal; hanya berlaku bila SLDK memang dipakai (mode otomatis dengan SLDK terkonfigurasi).
+	UlangBilaDatamart bool
 }
 
 // NewJadwal membuat Jadwal dari nilai konfigurasi; nilai di luar rentang diganti bawaannya.
@@ -75,7 +78,11 @@ func (j Jadwal) DalamJendela(t time.Time) bool {
 func (j Jadwal) saatJatuhTempo(now time.Time, key string, latest, lastOK map[string]LogEntry) time.Time {
 	t := now
 	if ok, has := lastOK[key]; has && ok.Selesai != nil {
-		t = ok.Selesai.Add(j.Interval)
+		interval := j.Interval
+		if j.UlangBilaDatamart && ok.Sumber != nil && *ok.Sumber == SumberDatamart {
+			interval = jedaCoba
+		}
+		t = ok.Selesai.Add(interval)
 	}
 	if l, has := latest[key]; has {
 		if tunggu := l.Dibuat.Add(jedaCoba); tunggu.After(t) {
@@ -139,10 +146,10 @@ func (m *Manager) Jadwal() Jadwal {
 	return m.jadwal
 }
 
-// InfoOtomatis dihitung dari riwayat yang sudah dibaca pemanggil (tanpa query tambahan). Tanpa koneksi SLDK otomatis tidak berjalan.
+// InfoOtomatis dihitung dari riwayat yang sudah dibaca pemanggil (tanpa query tambahan). Tanpa sumber data (SLDK atau datamart) otomatis tidak berjalan.
 func (m *Manager) InfoOtomatis(now time.Time, latest, lastOK map[string]LogEntry) InfoOtomatis {
 	j := m.Jadwal()
-	aktif := j.Aktif && m.sldk != nil
+	aktif := j.Aktif && m.AdaSumber()
 	info := InfoOtomatis{Aktif: aktif, IntervalHari: int(j.Interval / (24 * time.Hour)), JamMulai: j.JamMulai, JamAkhir: j.JamAkhir, Zona: "WIB"}
 	if aktif {
 		info.Berikutnya = j.Berikutnya(now, latest, lastOK)
@@ -150,8 +157,10 @@ func (m *Manager) InfoOtomatis(now time.Time, latest, lastOK map[string]LogEntry
 	return info
 }
 
-// MulaiPenjadwal menetapkan Jadwal dan, bila aktif dan SLDK tersedia, menjalankan penjadwal di latar belakang sampai ctx berakhir.
+// MulaiPenjadwal menetapkan Jadwal dan, bila aktif dan ada sumber data (SLDK atau datamart), menjalankan penjadwal di latar belakang sampai ctx berakhir.
+// Panggil setelah PasangDatamart.
 func (m *Manager) MulaiPenjadwal(ctx context.Context, j Jadwal) {
+	j.UlangBilaDatamart = m.ulangDariSLDK()
 	m.mu.Lock()
 	m.jadwal = j
 	m.mu.Unlock()
@@ -159,8 +168,8 @@ func (m *Manager) MulaiPenjadwal(ctx context.Context, j Jadwal) {
 	case !j.Aktif:
 		log.Println("[DIGITALISASI] sinkronisasi otomatis dinonaktifkan (DIGITALISASI_AUTO_SYNC)")
 		return
-	case m.sldk == nil:
-		log.Println("[DIGITALISASI] sinkronisasi otomatis tidak berjalan: koneksi SLDK tidak tersedia")
+	case !m.AdaSumber():
+		log.Println("[DIGITALISASI] sinkronisasi otomatis tidak berjalan: tidak ada sumber data (SLDK_DB_* atau DATAMART_DB_* belum diisi)")
 		return
 	}
 	log.Printf("[DIGITALISASI] sinkronisasi otomatis aktif: tiap %d hari, dimulai pukul %02d.00-%02d.00 WIB",
@@ -188,7 +197,7 @@ func (m *Manager) cekOtomatis(ctx context.Context, now time.Time) {
 		}
 	}()
 	j := m.Jadwal()
-	if !j.Aktif || m.sldk == nil || !j.DalamJendela(now) || m.Active() != nil {
+	if !j.Aktif || !m.AdaSumber() || !j.DalamJendela(now) || m.Active() != nil {
 		return
 	}
 	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)

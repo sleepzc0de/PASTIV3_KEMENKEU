@@ -255,6 +255,8 @@ export interface DGSyncLog {
   jumlah_koordinat: number | null;
   pesan: string | null;
   dijalankan_oleh: string | null;
+  // Dari mana data sinkronisasi ini dibaca; null/tidak ada pada riwayat lama = SLDK.
+  sumber?: "sldk" | "datamart" | null;
 }
 
 export interface DGDatasetStatus {
@@ -285,8 +287,21 @@ export interface DGAutoInfo {
   berikutnya: string | null; // perkiraan mulai berikutnya
 }
 
+// Sumber data sinkronisasi: SLDK, dan datamart sebagai cadangan bila SLDK gagal dibaca (docs/datamart-sldk.md).
+export interface DGSumberInfo {
+  mode: "otomatis" | "sldk" | "datamart";
+  sldk: boolean; // SLDK dikonfigurasi di server
+  datamart: boolean; // datamart dikonfigurasi di server
+  tersedia: boolean; // ada sumber yang dapat dipakai sinkronisasi menurut mode
+  cadangan: boolean; // datamart dipakai otomatis bila SLDK gagal dibaca
+  datamart_disegarkan: string | null; // awal penyegaran datamart terakhir yang berhasil
+  datamart_terjangkau: boolean;
+}
+
 export interface DGSyncOverview {
   sldk_tersedia: boolean;
+  // Tidak ada pada backend lama.
+  sumber?: DGSumberInfo;
   aktif: DGActiveRun | null;
   otomatis: DGAutoInfo;
   datasets: DGDatasetStatus[];

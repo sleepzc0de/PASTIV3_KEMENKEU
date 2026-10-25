@@ -91,7 +91,7 @@ membaca riwayat `digitalisasi_sync_log`, jadi keadaannya bertahan saat server di
   paling cepat 20 jam kemudian, yaitu pada malam berikutnya, supaya SLDK tidak dibebani berulang saat ada masalah.
 - Tidak pernah bersamaan dengan sinkronisasi lain: bila superadmin sedang menyinkronkan manual, penjadwal menunggu putaran berikutnya.
 - **Tanpa batas waktu**, baik manual maupun otomatis; sinkronisasi yang macet dihentikan lewat tombol *Batalkan*.
-- Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila `SLDK_DB_*` terisi (koneksi SLDK ada).
+- Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila ada sumber data: `SLDK_DB_*` atau `DATAMART_DB_*` terisi. Sinkronisasi yang berhasil dari datamart dicoba lagi setelah 20 jam (bukan 7 hari) supaya kembali dari SLDK begitu SLDK pulih.
 - Dataset yang belum pernah disinkronkan ikut diantrekan pada malam pertama setelah deploy; sebelum itu, coba satu dataset kecil dulu
   secara manual (lihat *Menjalankan pertama kali*), atau matikan otomatis dulu.
 
@@ -104,6 +104,12 @@ Pengaturan opsional di `backend/.env` (tanpa mengisinya: aktif, 7 hari, 01-05 WI
 | `DIGITALISASI_AUTO_JAM_MULAI` / `DIGITALISASI_AUTO_JAM_AKHIR` | jendela jam (WIB, 0-23) sinkronisasi boleh dimulai; sama = sepanjang hari | `1` / `5` |
 
 Nilai di luar rentang diganti bawaannya. Restart backend setelah mengubahnya.
+
+### Cadangan bila SLDK tidak dapat dihubungi: datamart
+
+Bila SLDK tidak terhubung atau akses ditolak, sinkronisasi **beralih sendiri ke datamart**: salinan data SLDK yang dibutuhkan ketujuh query ini, dengan nama skema, tabel, dan kolom yang sama (`DJKN.SIMAN2_*`), sehingga query yang sama berjalan tanpa diubah.
+Aktif bila `DATAMART_DB_*` terisi; `DIGITALISASI_SUMBER` memilih `otomatis` (bawaan: SLDK dulu, datamart bila SLDK gagal dibaca), `sldk`, atau `datamart`. Datamart hanya dipakai bila lebih baru daripada data PASTI yang ada (tidak memundurkan data), riwayat mencatat sumbernya, dan halaman Sinkronisasi menandainya.
+Script pembuat dan penyegarnya ada di `backend/datamart/`; aturan peralihan, pemasangan, penjadwalan, dan pengaturannya ada di [datamart-sldk.md](datamart-sldk.md). Tes menjaga script tetap sejalan dengan query.
 
 ## Peta
 
@@ -144,7 +150,7 @@ terlihat superadmin.
 ## Menjalankan pertama kali
 
 1. `./deploy.sh` (migrasi 020 berjalan otomatis; image backend tidak berubah selain kodenya).
-2. Pastikan `SLDK_DB_*` terisi dan IP server diizinkan di SLDK (halaman Sinkronisasi menampilkan peringatan bila koneksi SLDK tidak ada).
+2. Pastikan `SLDK_DB_*` terisi dan IP server diizinkan di SLDK (halaman Sinkronisasi menampilkan peringatan bila tidak ada sumber data). Opsional: `DATAMART_DB_*` sebagai cadangan (migrasi 063 ikut berjalan di langkah 1).
 3. Buka Digitalisasi Aset → Sinkronisasi → mulai dari satu dataset kecil (mis. *Mess Rumah Negara*) untuk memastikan query dan
    koordinat benar, baru "Sinkronkan semua".
 

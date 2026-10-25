@@ -704,6 +704,8 @@ create_backend_env() {
       printf '# Integrasi Inaproc\nINAPROC_BASE_URL=https://data.inaproc.id\nINAPROC_TOKEN=\n'
       printf '# Integrasi SLDK untuk Digitalisasi Aset (opsional; kosongkan SLDK_DB_HOST untuk menonaktifkan)\n'
       printf 'SLDK_DB_HOST=\nSLDK_DB_PORT=1433\nSLDK_DB_USER=\nSLDK_DB_PASSWORD=\nSLDK_DB_NAME=\n'
+      printf '# Datamart SLDK = cadangan sinkronisasi Digitalisasi Aset bila SLDK gagal dibaca (opsional; lihat docs/datamart-sldk.md). DIGITALISASI_SUMBER: otomatis | sldk | datamart\n'
+      printf 'DATAMART_DB_HOST=\nDATAMART_DB_PORT=1433\nDATAMART_DB_USER=\nDATAMART_DB_PASSWORD=\nDATAMART_DB_NAME=\nDIGITALISASI_SUMBER=otomatis\n'
       printf '# Peran data (Pengguna Barang, UE1, Kanwil, Satker): true = pengguna yang belum diberi peran tidak melihat data apa pun. Nyalakan setelah semua pengguna diberi peran.\nPERAN_DATA_WAJIB=false\n'
     } >> "$BACKEND_ENV"
   )
@@ -839,7 +841,7 @@ buat_profil_backend_dari_lain() {
     cp "$sumber" "$BACKEND_ENV"
   )
   isi_nilai_environment diam
-  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME SLDK_DB_HOST SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
+  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME SLDK_DB_HOST SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME DATAMART_DB_HOST DATAMART_DB_USER DATAMART_DB_PASSWORD DATAMART_DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
   # Kredensial SSO terikat ke SSO_ENV: development memakai client SSO demo (nilai contoh di repo) sebagai bawaan; production diisi sendiri.
   if [ "$ENVIRONMENT" = "dev" ]; then
     env_set "$BACKEND_ENV" SSO_CLIENT_ID "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_ID)"
@@ -860,6 +862,7 @@ buat_profil_backend_dari_lain() {
 
       DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME   (dikosongkan; DB_PORT ikut ${nama_sumber})
       SLDK_DB_HOST / SLDK_DB_USER / SLDK_DB_PASSWORD / SLDK_DB_NAME   (opsional; kosong = sinkronisasi SLDK nonaktif)
+      DATAMART_DB_HOST / DATAMART_DB_USER / DATAMART_DB_PASSWORD / DATAMART_DB_NAME   (opsional; cadangan bila SLDK gagal dibaca; dikosongkan)
 EOF
   if [ "$ENVIRONMENT" = "prod" ]; then
     printf '      SSO_CLIENT_ID / SSO_CLIENT_SECRET   kredensial SSO Kemenkeu PRODUCTION\n'

@@ -203,14 +203,17 @@ type envJadwal struct {
 }
 
 func logRow(e LogEntry) []driver.Value {
-	var mulai, selesai, baris, koord, pesan, oleh driver.Value
+	var mulai, selesai, baris, koord, pesan, oleh, sumber driver.Value
 	if e.Mulai != nil {
 		mulai = *e.Mulai
 	}
 	if e.Selesai != nil {
 		selesai = *e.Selesai
 	}
-	return []driver.Value{e.ID, e.Dataset, e.Status, e.Dibuat, mulai, selesai, baris, koord, pesan, oleh}
+	if e.Sumber != nil {
+		sumber = *e.Sumber
+	}
+	return []driver.Value{e.ID, e.Dataset, e.Status, e.Dibuat, mulai, selesai, baris, koord, pesan, oleh, sumber}
 }
 
 func newEnvJadwal(t *testing.T, j Jadwal) *envJadwal {
@@ -234,7 +237,7 @@ func newEnvJadwal(t *testing.T, j Jadwal) *envJadwal {
 			if strings.Contains(q, "WHERE status = 'sukses'") {
 				src = e.lastOK
 			}
-			cols := []string{"id", "dataset", "status", "dibuat", "mulai", "selesai", "jumlah_baris", "jumlah_koordinat", "pesan", "dijalankan_oleh"}
+			cols := []string{"id", "dataset", "status", "dibuat", "mulai", "selesai", "jumlah_baris", "jumlah_koordinat", "pesan", "dijalankan_oleh", "sumber"}
 			var rows [][]driver.Value
 			for _, ds := range Datasets {
 				if en, has := src[ds.Key]; has {
