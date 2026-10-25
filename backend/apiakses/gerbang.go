@@ -56,7 +56,7 @@ func (i *Identitas) BolehDataset(kode string) bool { return i != nil && i.Datase
 // DaftarDataset: dataset dalam scope, urut menurut katalog.
 func (i *Identitas) DaftarDataset() []string {
 	var out []string
-	for _, d := range Katalog() {
+	for _, d := range SemuaDataset() {
 		if i.Dataset[d.Kode] {
 			out = append(out, d.Kode)
 		}

@@ -50,6 +50,7 @@ func HasilSah(h string) bool {
 func DaftarEndpoint() []Opsi {
 	return []Opsi{
 		{"/katalog", "Katalog dataset"}, {"/aset/:dataset", "Daftar data aset"}, {"/aset/:dataset/:id", "Detail data aset"},
+		{"/pengadaan/:dataset", "Daftar data pengadaan"}, {"/pengadaan/:dataset/:id", "Detail data pengadaan"},
 		{"/saya", "Profil dan batas klien"}, {"/saya/penggunaan", "Pemakaian klien"},
 	}
 }

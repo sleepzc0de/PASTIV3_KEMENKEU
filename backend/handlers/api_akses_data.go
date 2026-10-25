@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strconv"
@@ -38,16 +40,28 @@ type infoKolomRes struct {
 }
 
 type katalogItemRes struct {
-	Kode      string         `json:"kode"`
-	Label     string         `json:"label"`
-	Deskripsi string         `json:"deskripsi"`
-	Alamat    string         `json:"alamat"`
-	Geo       bool           `json:"geo"`
-	Kolom     []infoKolomRes `json:"kolom"`
+	Kode        string         `json:"kode"`
+	Label       string         `json:"label"`
+	Deskripsi   string         `json:"deskripsi"`
+	Kelompok    string         `json:"kelompok"`
+	Subkelompok string         `json:"subkelompok,omitempty"`
+	Alamat      string         `json:"alamat"`
+	Geo         bool           `json:"geo"`
+	Penyaring   []string       `json:"penyaring"` // parameter penyaring yang berlaku untuk dataset ini (selain per_halaman, kursor, dan hitung)
+	Kolom       []infoKolomRes `json:"kolom"`
 }
 
 func itemKatalog(d apiakses.DatasetAPI) katalogItemRes {
-	r := katalogItemRes{Kode: d.Kode, Label: d.Label, Deskripsi: d.Deskripsi, Geo: d.Geo, Alamat: apiakses.AwalanRute + "/aset/" + d.Kunci(), Kolom: []infoKolomRes{{Nama: "id", Tipe: "bilangan"}}}
+	r := katalogItemRes{
+		Kode: d.Kode, Label: d.Label, Deskripsi: d.Deskripsi, Kelompok: apiakses.KelompokAset, Geo: d.Geo, Alamat: apiakses.AwalanRute + "/aset/" + d.Kunci(),
+		Penyaring: []string{"q", "kode_satker", "kode_ue1"}, Kolom: []infoKolomRes{{Nama: "id", Tipe: "bilangan"}},
+	}
+	if d.KolomProvinsi() != "" {
+		r.Penyaring = append(r.Penyaring, "provinsi")
+	}
+	if d.KolomKabKota() != "" {
+		r.Penyaring = append(r.Penyaring, "kab_kota")
+	}
 	for _, k := range d.Kolom {
 		r.Kolom = append(r.Kolom, infoKolomRes{Nama: k.Nama, Tipe: k.Tipe})
 	}
@@ -55,32 +69,57 @@ func itemKatalog(d apiakses.DatasetAPI) katalogItemRes {
 	return r
 }
 
-// GET /katalog: dataset dalam scope kunci ini beserta kolomnya dan penyaring yang didukung.
+func itemKatalogPengadaan(d apiakses.DatasetPengadaan) katalogItemRes {
+	r := katalogItemRes{
+		Kode: d.Kode, Label: d.Label, Deskripsi: d.Deskripsi, Kelompok: apiakses.KelompokPengadaan, Subkelompok: d.Subkelompok, Alamat: apiakses.AwalanRute + "/pengadaan/" + d.Kunci(),
+		Penyaring: []string{"kode_satker", "kode_ue1"}, Kolom: []infoKolomRes{{Nama: "id", Tipe: "teks"}},
+	}
+	if len(d.KolomPencarian()) > 0 {
+		r.Penyaring = append([]string{"q"}, r.Penyaring...)
+	}
+	if d.PunyaKLPD() {
+		r.Penyaring = append(r.Penyaring, "kode_klpd")
+	}
+	if d.PunyaTahun() {
+		r.Penyaring = append(r.Penyaring, "tahun")
+	}
+	for _, k := range d.Kolom {
+		r.Kolom = append(r.Kolom, infoKolomRes{Nama: k.Nama, Tipe: k.Tipe})
+	}
+	r.Kolom = append(r.Kolom, infoKolomRes{Nama: "disinkronkan_pada", Tipe: "waktu"})
+	return r
+}
+
+// GET /katalog: dataset dalam scope kunci ini (aset dan pengadaan) beserta kolomnya dan penyaring yang didukung.
 func GetAksesKatalog(c *gin.Context) {
 	id := klienTerotentikasi(c)
 	if id == nil {
 		return
 	}
-	var items []katalogItemRes
+	items := []katalogItemRes{}
 	for _, d := range apiakses.Katalog() {
 		if id.BolehDataset(d.Kode) {
 			items = append(items, itemKatalog(d))
 		}
 	}
-	if items == nil {
-		items = []katalogItemRes{}
+	for _, d := range apiakses.KatalogPengadaan() {
+		if id.BolehDataset(d.Kode) {
+			items = append(items, itemKatalogPengadaan(d))
+		}
 	}
 	utils.SuccessResponse(c, http.StatusOK, "OK", gin.H{
 		"dataset": items,
 		"parameter": []gin.H{
 			{"nama": "per_halaman", "uraian": "Jumlah baris per permintaan (bawaan 100, maksimal sesuai pengaturan PASTI)"},
-			{"nama": "kursor", "uraian": "Nilai kursor_berikutnya dari respons sebelumnya; kosongkan untuk mulai dari awal"},
+			{"nama": "kursor", "uraian": "Nilai kursor_berikutnya dari respons sebelumnya; kosongkan untuk mulai dari awal. Dataset aset: bilangan; dataset pengadaan: teks buram (sama dengan id baris terakhir)"},
 			{"nama": "hitung", "uraian": "1 untuk menyertakan total baris yang cocok (lebih lambat)"},
-			{"nama": "q", "uraian": "Pencarian teks (minimal 3 karakter) pada nama, alamat, dan kode"},
-			{"nama": "kode_satker", "uraian": "Kode satker 6 digit, atau awalan kode satker lengkap"},
-			{"nama": "kode_ue1", "uraian": "Kode UE1 5 digit"},
-			{"nama": "provinsi", "uraian": "Nama provinsi persis"},
-			{"nama": "kab_kota", "uraian": "Nama kabupaten/kota persis"},
+			{"nama": "q", "uraian": "Pencarian teks (minimal 3 karakter) pada nama, alamat, dan kode (aset) atau nama paket, satker, dan kode paket (pengadaan)"},
+			{"nama": "kode_satker", "uraian": "Dataset aset: kode satker 6 digit, atau awalan kode satker lengkap. Dataset pengadaan: kode satker 6 digit"},
+			{"nama": "kode_ue1", "uraian": "Kode UE1 5 digit. Dataset pengadaan memakai daftar satker data aset untuk menentukan satker milik UE1 itu"},
+			{"nama": "provinsi", "uraian": "Nama provinsi persis (hanya dataset aset yang punya kolomnya)"},
+			{"nama": "kab_kota", "uraian": "Nama kabupaten/kota persis (hanya dataset aset yang punya kolomnya)"},
+			{"nama": "kode_klpd", "uraian": "Kode KLPD Inaproc, mis. K10 (hanya dataset pengadaan)"},
+			{"nama": "tahun", "uraian": "Tahun anggaran empat digit (hanya dataset pengadaan yang punya kolom tahun)"},
 		},
 	})
 }
@@ -109,22 +148,23 @@ var (
 	}{}
 )
 
-func sinkronTerakhir(c *gin.Context, d apiakses.DatasetAPI) *time.Time {
+// sinkronTerakhir membaca waktu sinkronisasi terakhir dataset berkode kode lewat baca (dataset aset dan pengadaan punya sumber yang berbeda).
+func sinkronTerakhir(c *gin.Context, kode string, baca func(context.Context, *sql.DB) (*time.Time, error)) *time.Time {
 	now := time.Now()
 	muSinkron.Lock()
-	if v, ok := cacheSinkr[d.Kode]; ok && now.Before(v.exp) {
+	if v, ok := cacheSinkr[kode]; ok && now.Before(v.exp) {
 		muSinkron.Unlock()
 		return v.t
 	}
 	muSinkron.Unlock()
 	ctx, cancel := aksesCtx(c)
 	defer cancel()
-	t, err := d.TerakhirSinkron(ctx, database.DB)
+	t, err := baca(ctx, database.DB)
 	if err != nil {
 		return nil // tidak fatal: hanya keterangan kesegaran data
 	}
 	muSinkron.Lock()
-	cacheSinkr[d.Kode] = struct {
+	cacheSinkr[kode] = struct {
 		t   *time.Time
 		exp time.Time
 	}{t, now.Add(time.Minute)}
@@ -189,7 +229,7 @@ func GetAksesDaftar(c *gin.Context) {
 	if h.Total != nil {
 		data["total"] = *h.Total
 	}
-	if t := sinkronTerakhir(c, d); t != nil {
+	if t := sinkronTerakhir(c, d.Kode, d.TerakhirSinkron); t != nil {
 		data["disinkronkan_terakhir"] = t
 	}
 	utils.SuccessResponse(c, http.StatusOK, "OK", data)

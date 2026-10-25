@@ -174,6 +174,8 @@ func SetupRoutes(r *gin.Engine) {
 		dataKlien.GET("/katalog", handlers.ApiAksesGerbang(false), handlers.GetAksesKatalog)
 		dataKlien.GET("/aset/:dataset", handlers.ApiAksesGerbang(true), handlers.GetAksesDaftar)
 		dataKlien.GET("/aset/:dataset/:id", handlers.ApiAksesGerbang(true), handlers.GetAksesDetail)
+		dataKlien.GET("/pengadaan/:dataset", handlers.ApiAksesGerbang(true), handlers.GetPengadaanDaftar)
+		dataKlien.GET("/pengadaan/:dataset/:id", handlers.ApiAksesGerbang(true), handlers.GetPengadaanDetail)
 		dataKlien.GET("/saya", handlers.ApiAksesGerbang(false), handlers.GetAksesSaya)
 		dataKlien.GET("/saya/penggunaan", handlers.ApiAksesGerbang(false), handlers.GetAksesSayaPenggunaan)
 	}

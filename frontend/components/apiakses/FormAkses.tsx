@@ -1,7 +1,7 @@
 "use client";
 
 import type { InfoDataset, Pengaturan } from "@/lib/apiAkses";
-import { type NilaiFormAkses, teksPeriode } from "@/lib/apiAksesFormat";
+import { type NilaiFormAkses, alihKelompokDataset, jumlahTerpilih, kelompokkanDataset, teksPeriode } from "@/lib/apiAksesFormat";
 
 const inputCls =
   "w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-500 focus:shadow-glow";
@@ -37,25 +37,58 @@ export function FormAkses({
   diminta?: string[];
 }) {
   const alih = (kode: string) => onUbah({ dataset: nilai.dataset.includes(kode) ? nilai.dataset.filter((d) => d !== kode) : [...nilai.dataset, kode] });
+  const kelompok = kelompokkanDataset(dataset);
   return (
     <div className="space-y-4">
       <fieldset>
         <legend className="mb-1.5 text-xs font-medium text-slate-700">Dataset yang diizinkan (hak akses minimum)</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {dataset.map((d) => (
-            <label key={d.kode} className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-2.5 text-sm hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50">
-              <input type="checkbox" checked={nilai.dataset.includes(d.kode)} onChange={() => alih(d.kode)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-              <span className="min-w-0">
-                <span className="block font-medium text-slate-800">
-                  {d.label} <span className="font-mono text-[11px] font-normal text-slate-400">{d.kode}</span>
-                  {diminta?.includes(d.kode) && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">diminta</span>}
-                </span>
-                <span className="block text-xs text-slate-500">{d.deskripsi}</span>
-              </span>
-            </label>
+        <div className="space-y-4">
+          {kelompok.map((g) => (
+            <div key={g.kelompok}>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="text-xs font-semibold text-slate-600">
+                  {g.judul} <span className="font-normal text-slate-400">({jumlahTerpilih(nilai.dataset, g.kode)}/{g.kode.length} dipilih)</span>
+                </p>
+                <div className="flex gap-3 text-xs">
+                  <button type="button" onClick={() => onUbah({ dataset: alihKelompokDataset(nilai.dataset, g.kode, true) })} className="font-medium text-blue-600 hover:underline">
+                    Pilih semua
+                  </button>
+                  <button type="button" onClick={() => onUbah({ dataset: alihKelompokDataset(nilai.dataset, g.kode, false) })} className="font-medium text-slate-500 hover:underline">
+                    Kosongkan
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {g.bagian.map((b) => (
+                  <div key={b.judul || g.kelompok}>
+                    {b.judul && <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">{b.judul}</p>}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {b.dataset.map((d) => (
+                        <label key={d.kode} className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-white p-2.5 text-sm hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50">
+                          <input type="checkbox" checked={nilai.dataset.includes(d.kode)} onChange={() => alih(d.kode)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                          <span className="min-w-0">
+                            <span className="block font-medium text-slate-800">
+                              {d.label} <span className="break-all font-mono text-[11px] font-normal text-slate-400">{d.kode}</span>
+                              {diminta?.includes(d.kode) && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">diminta</span>}
+                            </span>
+                            <span className="block text-xs text-slate-500">{d.deskripsi}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
         {galat.dataset && <p className="mt-1 text-xs font-medium text-red-600">{galat.dataset}</p>}
+        {nilai.dataset.some((k) => k.startsWith("pengadaan.")) && (
+          <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Data pengadaan memuat nama paket, satker, nilai, dan penyedia. Nama dan NIP PPK/Pokja, NPWP, rekening, serta isian bebas petugas tidak pernah diberikan. Bila klien dibatasi ke UE1, hanya pengadaan satker milik UE1 itu
+            (menurut data aset) yang terlihat.
+          </p>
+        )}
       </fieldset>
 
       <div className="grid gap-4 sm:grid-cols-2">

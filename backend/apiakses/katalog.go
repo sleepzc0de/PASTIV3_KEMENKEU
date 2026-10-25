@@ -7,8 +7,9 @@ import (
 )
 
 // Katalog dataset yang boleh ditarik klien eksternal. Hanya dataset yang strukturnya dikenal dan kolomnya sudah dinilai yang masuk: tidak ada pembacaan generik
-// dari tabel mana pun. Saat ini: data aset hasil sinkronisasi SLDK (Digitalisasi Aset), kode "aset.<dataset>". Menambah dataset lain berarti menambah entri di
-// Katalog() beserta aturan kolomnya, bukan mengubah pembaca.
+// dari tabel mana pun. Ada dua kelompok: data aset hasil sinkronisasi SLDK (Digitalisasi Aset), kode "aset.<dataset>", di berkas ini; dan data pengadaan Inaproc, kode
+// "pengadaan.<dataset>", di katalog_pengadaan.go. Menambah dataset berarti menambah entri beserta aturan kolomnya, bukan mengubah pembaca. Katalog() hanya memuat dataset aset;
+// SemuaDataset() memuat keduanya.
 //
 // Kolom yang TIDAK pernah keluar (kolomTertutup): kolom bertanda Sensitive pada definisi dataset (data pribadi, mis. nama penghuni rumah negara), tautan foto
 // (alamat berkas internal), dan nama pengguna bangunan. Kolom teknis tabel (alamat sinkronisasi, dll.) juga tidak dipetakan sama sekali.
@@ -119,10 +120,10 @@ func (d DatasetAPI) KolomKabKota() string  { return d.ds.Roles.KabKota }
 // Kunci: kunci dataset pada Digitalisasi Aset ("tanah").
 func (d DatasetAPI) Kunci() string { return d.ds.Key }
 
-// DaftarKode: kode semua dataset pada katalog.
+// DaftarKode: kode semua dataset pada katalog gabungan (aset lalu pengadaan).
 func DaftarKode() []string {
 	var out []string
-	for _, d := range Katalog() {
+	for _, d := range SemuaDataset() {
 		out = append(out, d.Kode)
 	}
 	return out
