@@ -12,10 +12,15 @@ export interface BatasEfektif {
   kuota_periode_detik: number;
 }
 
+export type KelompokData = "aset" | "pengadaan";
+
 export interface InfoDataset {
   kode: string;
   label: string;
   deskripsi: string;
+  // Backend lama belum mengirim kelompok: dataset tanpa kelompok dianggap aset.
+  kelompok?: KelompokData;
+  subkelompok?: string;
 }
 
 export interface KunciInfo {

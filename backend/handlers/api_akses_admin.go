@@ -549,19 +549,8 @@ func PutApiAksesPengaturan(c *gin.Context) {
 
 // ---------------------------------------------------------------- pendaftaran klien oleh superadmin
 
-type infoDatasetAPI struct {
-	Kode      string `json:"kode"`
-	Label     string `json:"label"`
-	Deskripsi string `json:"deskripsi"`
-}
-
-func daftarInfoDataset() []infoDatasetAPI {
-	var out []infoDatasetAPI
-	for _, d := range apiakses.Katalog() {
-		out = append(out, infoDatasetAPI{Kode: d.Kode, Label: d.Label, Deskripsi: d.Deskripsi})
-	}
-	return out
-}
+// daftarInfoDataset: semua dataset yang dapat diberikan sebagai scope (aset dan pengadaan), beserta kelompoknya untuk pengelompokan pilihan di halaman.
+func daftarInfoDataset() []apiakses.InfoDataset { return apiakses.SemuaDataset() }
 
 // klienBaruReq: isian pendaftaran klien oleh superadmin: data pemohon (Pendaftaran; dataset_diminta diabaikan, yang berlaku dataset_diberikan) ditambah scope dan batas.
 type klienBaruReq struct {

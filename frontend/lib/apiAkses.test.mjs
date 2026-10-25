@@ -170,3 +170,54 @@ test("susunBodyAkses: menyusun badan sah dan menolak isian buruk", () => {
   assert.equal(buruk.body, undefined);
   for (const k of ["dataset", "ip", "ue1", "limit", "jendela"]) assert.ok(buruk.galat[k], `kolom ${k}`);
 });
+
+test("contohCurl mengikuti dataset pertama klien, dan jatuh ke aset.tanah untuk kode yang tidak dikenal", () => {
+  const dasar = "https://pasti.example/api/data/v1";
+  assert.match(A.contohCurl(dasar, "k", "pengadaan.tender_pengumuman"), /\/api\/data\/v1\/pengadaan\/tender_pengumuman\?per_halaman=100/);
+  assert.match(A.contohCurl(dasar, "k", "aset.satker"), /\/api\/data\/v1\/aset\/satker\?/);
+  for (const buruk of [undefined, "", "tanah", "users", "aset.", "aset.tanah; rm -rf /", 'pengadaan.x"; curl evil', "../aset.tanah"]) {
+    assert.equal(A.alamatDataset(buruk), "/aset/tanah", `kode ${JSON.stringify(buruk)}`);
+  }
+});
+
+const infoDataset = [
+  { kode: "aset.satker", label: "Satker", deskripsi: "d", kelompok: "aset" },
+  { kode: "aset.tanah", label: "Tanah", deskripsi: "d", kelompok: "aset" },
+  { kode: "pengadaan.rup_paket_penyedia", label: "Paket Penyedia", deskripsi: "d", kelompok: "pengadaan", subkelompok: "Perencanaan (RUP)" },
+  { kode: "pengadaan.tender_pengumuman", label: "Pengumuman Tender", deskripsi: "d", kelompok: "pengadaan", subkelompok: "Tender" },
+  { kode: "pengadaan.rup_paket_swakelola", label: "Paket Swakelola", deskripsi: "d", kelompok: "pengadaan", subkelompok: "Perencanaan (RUP)" },
+];
+
+test("kelompokkanDataset: aset dulu lalu pengadaan, subkelompok menurut urutan kemunculan", () => {
+  // urutan masukan sengaja dibalik: urutan kelompok tidak boleh bergantung pada urutan dari backend
+  const g = A.kelompokkanDataset([...infoDataset].reverse());
+  assert.deepEqual(g.map((x) => x.kelompok), ["aset", "pengadaan"]);
+  assert.equal(g[0].judul, "Aset (Digitalisasi Aset)");
+  assert.equal(g[1].judul, "Pengadaan (Inaproc)");
+  assert.deepEqual(g[0].kode.sort(), ["aset.satker", "aset.tanah"]);
+  assert.equal(g[0].bagian.length, 1);
+  assert.equal(g[0].bagian[0].judul, "");
+  const peng = A.kelompokkanDataset(infoDataset)[1];
+  assert.deepEqual(peng.bagian.map((b) => b.judul), ["Perencanaan (RUP)", "Tender"]);
+  assert.deepEqual(peng.bagian[0].dataset.map((d) => d.kode), ["pengadaan.rup_paket_penyedia", "pengadaan.rup_paket_swakelola"]);
+  assert.equal(peng.kode.length, 3);
+});
+
+test("kelompokkanDataset: backend lama tanpa kelompok dianggap aset; kelompok tak dikenal tetap tampil di akhir", () => {
+  const lama = A.kelompokkanDataset([{ kode: "aset.tanah", label: "Tanah", deskripsi: "d" }]);
+  assert.deepEqual(lama.map((x) => x.kelompok), ["aset"]);
+  const baru = A.kelompokkanDataset([{ kode: "x.y", label: "Y", deskripsi: "d", kelompok: "lain" }, ...infoDataset]);
+  assert.deepEqual(baru.map((x) => x.kelompok), ["aset", "pengadaan", "lain"]);
+  assert.equal(baru[2].judul, "lain");
+  assert.deepEqual(A.kelompokkanDataset([]), []);
+});
+
+test("alihKelompokDataset hanya mengubah kelompoknya dan tidak menggandakan pilihan", () => {
+  const [aset, peng] = A.kelompokkanDataset(infoDataset);
+  assert.deepEqual(A.alihKelompokDataset(["aset.tanah"], peng.kode, true), ["aset.tanah", ...peng.kode]);
+  assert.deepEqual(A.alihKelompokDataset(["aset.tanah", peng.kode[0]], peng.kode, true).filter((k) => k === peng.kode[0]).length, 1);
+  assert.deepEqual(A.alihKelompokDataset(["aset.tanah", ...peng.kode], peng.kode, false), ["aset.tanah"]);
+  assert.deepEqual(A.alihKelompokDataset([], aset.kode, false), []);
+  assert.equal(A.jumlahTerpilih(["aset.tanah", peng.kode[0], "tidak.ada"], peng.kode), 1);
+  assert.equal(A.jumlahTerpilih([], peng.kode), 0);
+});

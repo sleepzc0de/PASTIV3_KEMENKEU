@@ -36,7 +36,7 @@ function alamatDasar(): string {
 
 // Menampilkan kunci API yang baru diterbitkan. Kunci hanya ada di layar ini: server hanya menyimpan hash-nya, jadi tidak dapat ditampilkan lagi. Modal tidak ditutup
 // diam-diam (Escape atau klik di luar) sebelum pengguna menyatakan sudah menyimpannya.
-export function KunciBaruModal({ kunci, judul, onTutup }: { kunci: string; judul: string; onTutup: () => void }) {
+export function KunciBaruModal({ kunci, judul, datasetContoh, onTutup }: { kunci: string; judul: string; datasetContoh?: string; onTutup: () => void }) {
   const toast = useToast();
   const [disalin, setDisalin] = useState(false);
   const [sudah, setSudah] = useState(false);
@@ -91,7 +91,7 @@ export function KunciBaruModal({ kunci, judul, onTutup }: { kunci: string; judul
 
         <div>
           <p className="mb-1 text-xs font-medium text-slate-600">Contoh pemakaian</p>
-          <pre className="overflow-x-auto rounded-xl bg-slate-900 px-3.5 py-3 text-xs leading-relaxed text-slate-100">{contohCurl(alamatDasar(), kunci)}</pre>
+          <pre className="overflow-x-auto rounded-xl bg-slate-900 px-3.5 py-3 text-xs leading-relaxed text-slate-100">{contohCurl(alamatDasar(), kunci, datasetContoh)}</pre>
           <p className="mt-1.5 text-xs text-slate-500">
             Kunci dikirim lewat header <span className="font-mono">Authorization: Bearer</span> atau <span className="font-mono">X-API-Key</span>, tidak pernah lewat alamat (URL). Panduan lengkap ada di docs/api-akses-data-pemakaian.md.
           </p>

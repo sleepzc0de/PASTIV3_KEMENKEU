@@ -35,7 +35,7 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
   const [versi, setVersi] = useState(0);
   const [terbuka, setTerbuka] = useState<number | null>(null);
   const [bukaBaru, setBukaBaru] = useState(false);
-  const [kunciBaru, setKunciBaru] = useState<{ kunci: KunciBaru; judul: string } | null>(null);
+  const [kunciBaru, setKunciBaru] = useState<{ kunci: KunciBaru; judul: string; dataset?: string } | null>(null);
   const toast = useToast();
   const pertama = useRef(true);
 
@@ -213,13 +213,13 @@ export function KlienManager({ bawaan }: { bawaan: Pengaturan | null }) {
           onTutup={() => setBukaBaru(false)}
           onSukses={(klien, kunci) => {
             setBukaBaru(false);
-            if (kunci) setKunciBaru({ kunci, judul: `Klien ${klien.nama_aplikasi} didaftarkan: kunci API pertama` });
+            if (kunci) setKunciBaru({ kunci, judul: `Klien ${klien.nama_aplikasi} didaftarkan: kunci API pertama`, dataset: klien.dataset_diberikan?.[0] });
             toast.success("Klien didaftarkan dan disetujui");
             muatUlang();
           }}
         />
       )}
-      {kunciBaru && <KunciBaruModal kunci={kunciBaru.kunci.kunci} judul={kunciBaru.judul} onTutup={() => setKunciBaru(null)} />}
+      {kunciBaru && <KunciBaruModal kunci={kunciBaru.kunci.kunci} judul={kunciBaru.judul} datasetContoh={kunciBaru.dataset} onTutup={() => setKunciBaru(null)} />}
       {terbuka !== null && <KlienDetail id={terbuka} dataset={dataset} bawaan={bawaan} onTutup={() => setTerbuka(null)} onBerubah={muatUlang} />}
     </div>
   );

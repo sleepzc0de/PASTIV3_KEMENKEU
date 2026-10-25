@@ -59,7 +59,7 @@ const (
 	maksPICTelepon   = 40
 	minTujuan        = 20
 	maksTujuan       = 2000
-	maksDatasetMinta = 30
+	maksDatasetMinta = 64
 	maksCatatan      = 1000
 )
 
@@ -158,8 +158,8 @@ func (p *Pendaftaran) Bersihkan() map[string]string {
 	return g
 }
 
-// NormalisasiDataset memeriksa daftar kode dataset terhadap katalog: hanya kode yang dikenal, tanpa duplikat, urut menurut katalog. Kode yang tidak dikenal
-// ditolak (bukan diabaikan) supaya salah ketik atau percobaan memasukkan kode lain tidak lolos diam-diam.
+// NormalisasiDataset memeriksa daftar kode dataset terhadap katalog gabungan (aset dan pengadaan): hanya kode yang dikenal, tanpa duplikat, urut menurut katalog. Kode yang
+// tidak dikenal ditolak (bukan diabaikan) supaya salah ketik atau percobaan memasukkan kode lain tidak lolos diam-diam.
 func NormalisasiDataset(kode []string, maks int) ([]string, error) {
 	if len(kode) > maks {
 		return nil, errors.New("Terlalu banyak dataset dipilih")
@@ -167,13 +167,13 @@ func NormalisasiDataset(kode []string, maks int) ([]string, error) {
 	ada := map[string]bool{}
 	for _, k := range kode {
 		k = strings.TrimSpace(k)
-		if _, ok := CariDataset(k); !ok {
+		if !DatasetDikenal(k) {
 			return nil, errors.New("Ada dataset yang tidak dikenal")
 		}
 		ada[k] = true
 	}
 	var out []string
-	for _, d := range Katalog() {
+	for _, d := range SemuaDataset() {
 		if ada[d.Kode] {
 			out = append(out, d.Kode)
 		}

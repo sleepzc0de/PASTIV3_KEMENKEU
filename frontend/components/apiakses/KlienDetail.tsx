@@ -74,7 +74,7 @@ export function KlienDetail({
   const [labelKunci, setLabelKunci] = useState("");
   const [rotasi, setRotasi] = useState(false);
   const [sibuk, setSibuk] = useState(false);
-  const [kunciBaru, setKunciBaru] = useState<{ kunci: KunciBaru; judul: string } | null>(null);
+  const [kunciBaru, setKunciBaru] = useState<{ kunci: KunciBaru; judul: string; dataset?: string } | null>(null);
   const [cabutKunci, setCabutKunci] = useState<KunciInfo | null>(null);
   const [aktifkan, setAktifkan] = useState(false);
 
@@ -130,7 +130,7 @@ export function KlienDetail({
     void jalankan(async () => {
       if (mode === "setujui") {
         const r = await postSetujui(klien.id, { ...body, label_kunci: labelKunci.trim() });
-        if (r.data.kunci_baru) setKunciBaru({ kunci: r.data.kunci_baru, judul: "Pendaftaran disetujui: kunci API pertama" });
+        if (r.data.kunci_baru) setKunciBaru({ kunci: r.data.kunci_baru, judul: "Pendaftaran disetujui: kunci API pertama", dataset: body.dataset_diberikan[0] });
         else toast.warning(r.message);
         await selesai("Pendaftaran disetujui");
       } else {
@@ -157,7 +157,7 @@ export function KlienDetail({
     if (!klien) return;
     void jalankan(async () => {
       const r = await postKunci(klien.id, labelKunci.trim(), rotasi);
-      setKunciBaru({ kunci: r.data, judul: rotasi ? "Kunci hasil rotasi" : "Kunci API baru" });
+      setKunciBaru({ kunci: r.data, judul: rotasi ? "Kunci hasil rotasi" : "Kunci API baru", dataset: klien.dataset_diberikan[0] });
       await selesai(rotasi ? "Kunci dirotasi" : "Kunci diterbitkan");
     }, "Gagal menerbitkan kunci");
   };
@@ -167,7 +167,7 @@ export function KlienDetail({
     void jalankan(async () => {
       const r = await postAktifkan(klien.id, "");
       setAktifkan(false);
-      if (r.data.kunci_baru) setKunciBaru({ kunci: r.data.kunci_baru, judul: "Klien diaktifkan kembali: kunci API baru" });
+      if (r.data.kunci_baru) setKunciBaru({ kunci: r.data.kunci_baru, judul: "Klien diaktifkan kembali: kunci API baru", dataset: klien.dataset_diberikan[0] });
       await selesai("Klien diaktifkan kembali");
     }, "Gagal mengaktifkan kembali");
   };
@@ -444,7 +444,7 @@ export function KlienDetail({
         </div>
       </ModalShell>
 
-      {kunciBaru && <KunciBaruModal kunci={kunciBaru.kunci.kunci} judul={kunciBaru.judul} onTutup={() => setKunciBaru(null)} />}
+      {kunciBaru && <KunciBaruModal kunci={kunciBaru.kunci.kunci} judul={kunciBaru.judul} datasetContoh={kunciBaru.dataset} onTutup={() => setKunciBaru(null)} />}
       {cabutKunci && (
         <ConfirmDialog
           title="Cabut kunci ini?"

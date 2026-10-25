@@ -1,6 +1,6 @@
 // Fungsi murni untuk fitur API Akses Data (tanpa React dan tanpa axios, jadi bisa diuji dengan Node): label, format batas, validasi formulir klien baru, dan kueri
 // pemantauan. Tipe ada di lib/apiAkses.ts.
-import type { BatasEfektif, FormKlienBaru, Klien, Metrik, StatusKlien } from "./apiAkses";
+import type { BatasEfektif, FormKlienBaru, InfoDataset, Klien, Metrik, StatusKlien } from "./apiAkses";
 
 export const URUTAN_STATUS: StatusKlien[] = ["menunggu", "disetujui", "ditolak", "dicabut"];
 
@@ -240,9 +240,76 @@ export function angkaOpsional(s: string): number | null | undefined {
 
 export const teksDariAngka = (n: number | null | undefined): string => (n === null || n === undefined ? "" : String(n));
 
-// Contoh perintah curl untuk pemegang kunci (kunci hanya muncul di layar penerbitan).
-export function contohCurl(alamatDasar: string, kunci: string, dataset = "tanah"): string {
-  return `curl -H "Authorization: Bearer ${kunci}" \\\n  "${alamatDasar}/aset/${dataset}?per_halaman=100"`;
+// Alamat dataset pada API klien dari kodenya: "aset.tanah" -> "/aset/tanah", "pengadaan.tender_pengumuman" -> "/pengadaan/tender_pengumuman". Kode yang bentuknya tidak dikenal
+// (atau kosong) jatuh ke contoh aset.tanah, jadi contoh selalu berupa alamat yang ada.
+export function alamatDataset(kode: string | undefined): string {
+  const m = /^(aset|pengadaan)\.([a-z0-9_]+)$/.exec(kode ?? "");
+  return m ? `/${m[1]}/${m[2]}` : "/aset/tanah";
+}
+
+// Contoh perintah curl untuk pemegang kunci (kunci hanya muncul di layar penerbitan). kodeDataset: dataset pertama dalam scope klien, supaya contoh tidak berujung 403.
+export function contohCurl(alamatDasar: string, kunci: string, kodeDataset?: string): string {
+  return `curl -H "Authorization: Bearer ${kunci}" \\\n  "${alamatDasar}${alamatDataset(kodeDataset)}?per_halaman=100"`;
+}
+
+// ---------------------------------------------------------------- pilihan dataset per kelompok
+
+export interface BagianDataset {
+  judul: string; // subkelompok; kosong bila kelompok tidak punya subkelompok
+  dataset: InfoDataset[];
+}
+
+export interface KelompokDataset {
+  kelompok: string;
+  judul: string;
+  kode: string[]; // semua kode dataset di kelompok ini
+  bagian: BagianDataset[];
+}
+
+export const JUDUL_KELOMPOK_DATA: Record<string, string> = {
+  aset: "Aset (Digitalisasi Aset)",
+  pengadaan: "Pengadaan (Inaproc)",
+};
+
+const URUTAN_KELOMPOK_DATA = ["aset", "pengadaan"];
+
+// Mengelompokkan dataset untuk pilihan scope: kelompok menurut urutan tetap (aset, lalu pengadaan, lalu yang tidak dikenal), subkelompok menurut urutan kemunculan, dan
+// dataset dalam subkelompok menurut urutan dari backend. Dataset tanpa kelompok (backend lama) masuk kelompok aset.
+export function kelompokkanDataset(dataset: InfoDataset[]): KelompokDataset[] {
+  const peta = new Map<string, KelompokDataset>();
+  for (const d of dataset) {
+    const kel = d.kelompok ?? "aset";
+    let g = peta.get(kel);
+    if (!g) {
+      g = { kelompok: kel, judul: JUDUL_KELOMPOK_DATA[kel] ?? kel, kode: [], bagian: [] };
+      peta.set(kel, g);
+    }
+    g.kode.push(d.kode);
+    const judul = d.subkelompok ?? "";
+    let b = g.bagian.find((x) => x.judul === judul);
+    if (!b) {
+      b = { judul, dataset: [] };
+      g.bagian.push(b);
+    }
+    b.dataset.push(d);
+  }
+  const rank = (k: string) => {
+    const i = URUTAN_KELOMPOK_DATA.indexOf(k);
+    return i < 0 ? URUTAN_KELOMPOK_DATA.length : i;
+  };
+  return [...peta.values()].sort((a, b) => rank(a.kelompok) - rank(b.kelompok));
+}
+
+// Memilih atau mengosongkan semua dataset satu kelompok tanpa mengubah pilihan di kelompok lain.
+export function alihKelompokDataset(terpilih: string[], kodeKelompok: string[], pilih: boolean): string[] {
+  const kelompok = new Set(kodeKelompok);
+  const lain = terpilih.filter((k) => !kelompok.has(k));
+  return pilih ? [...lain, ...kodeKelompok] : lain;
+}
+
+export function jumlahTerpilih(terpilih: string[], kodeKelompok: string[]): number {
+  const kelompok = new Set(kodeKelompok);
+  return terpilih.filter((k) => kelompok.has(k)).length;
 }
 
 // ---------------------------------------------------------------- formulir akses dan batas klien (persetujuan dan ubah)

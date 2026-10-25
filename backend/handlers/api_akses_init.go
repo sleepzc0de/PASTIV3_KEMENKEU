@@ -27,6 +27,8 @@ func InitApiAkses() {
 	if database.DB == nil || config.Cfg == nil {
 		return
 	}
+	// Katalog pengadaan disusun saat pertama dipakai dan panic bila definisinya tidak konsisten; susun sekarang supaya kesalahan itu muncul saat server mulai, bukan pada permintaan klien.
+	log.Printf("[API-AKSES] katalog dataset: %d aset, %d pengadaan", len(apiakses.Katalog()), len(apiakses.KatalogPengadaan()))
 	pepper := config.Cfg.APIAksesPepper
 	if pepper == "" {
 		pepper = config.Cfg.PasswordPepper
