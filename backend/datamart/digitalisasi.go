@@ -23,9 +23,6 @@ import (
 // BerkasDigitalisasi: nama berkas script hasil generator.
 const BerkasDigitalisasi = "buat_datamart_digitalisasi.sql"
 
-// SumberBawaan: nilai awal @Sumber pada script (awalan database SLDK).
-const SumberBawaan = "[Interchange]"
-
 // urutanTambahan: dataset yang querynya berakhir dengan ORDER BY. Urutan yang sama dipakai saat memuat supaya kolom id (identity) mengikuti urutan keluaran query seperti pada aplikasi.
 var urutanTambahan = map[string]string{
 	"rusunara":          "r.[Kode_Satker], r.[NUP_Rusun]",
@@ -259,74 +256,117 @@ func prosedurMuat(ds digitalisasi.Dataset) (string, error) {
 	return b.String(), nil
 }
 
+// Baris-baris konfigurasi pada kepala script; tes membacanya apa adanya untuk mengatur script saat diuji.
+const (
+	BarisSumber    = "DECLARE @Sumber NVARCHAR(300) = N'';"
+	BarisBersihkan = "DECLARE @Bersihkan BIT = 1;"
+	// PenandaPemetaan: pengguna menulis penyesuaian pemetaan sumber tepat di bawah baris ini.
+	PenandaPemetaan = "-- (tulis penyesuaian pemetaan di bawah baris ini)"
+)
+
 // Potongan statis.
 const kepala = `-- ============================================================================================================================================
--- DATAMART DIGITALISASI ASET: membentuk tabel DIGITALISASI_* langsung dari SLDK
+-- DATAMART DIGITALISASI ASET: membentuk tujuh tabel DIGITALISASI_* dari tabel SLDK di data warehouse
 --
 -- FILE INI DIHASILKAN dari backend/digitalisasi (datasets.go dan queries/*.sql) oleh backend/datamart/digitalisasi.go. Jangan disunting manual: ubah sumbernya lalu jalankan
 --   go test ./datamart -run TestSkripDigitalisasiSesuaiGenerator -update
 -- (tes biasa gagal bila berkas ini tidak sejalan dengan aplikasi).
 --
 -- APA INI
---   Satu script yang, dijalankan di database DATAMART, (1) membaca SLDK dengan ketujuh query asli Digitalisasi Aset (disisipkan apa adanya di bawah), (2) mengubah hasilnya persis
---   seperti yang dilakukan aplikasi saat sinkronisasi (pangkas spasi, kosong menjadi NULL, potong sesuai panjang kolom, angka berkoma desimal, koordinat divalidasi dan berpasangan),
---   dan (3) mengisi tujuh tabel DIGITALISASI_* yang kolom dan tipenya sama dengan tabel aplikasi (migrasi 020). Hasilnya: data datamart = data yang akan disimpan aplikasi.
---   Aplikasi lalu cukup menarik dari tabel DIGITALISASI_* datamart ini tanpa menyentuh SLDK.
+--   Satu script yang, dijalankan di database data warehouse tempat tabel SLDK berada, (1) membaca tabel SLDK (DJKN.SIMAN2_*) dengan ketujuh query asli Digitalisasi Aset (disisipkan
+--   apa adanya di bawah), (2) mengubah hasilnya persis seperti yang dilakukan aplikasi saat sinkronisasi (pangkas spasi, kosong menjadi NULL, potong sesuai panjang kolom, angka berkoma
+--   desimal, koordinat divalidasi dan berpasangan), dan (3) membentuk dan mengisi tujuh tabel DIGITALISASI_* yang kolom dan tipenya sama dengan tabel aplikasi (migrasi 020).
+--   Aplikasi lalu menarik dari tabel DIGITALISASI_* ini tanpa menyentuh SLDK.
 --
 -- CARA MEMAKAI (SSMS atau sqlcmd; tidak perlu mode SQLCMD)
---   1. Buka database DATAMART (terpisah dari database PASTI dan dari SLDK) dan pastikan server ini dapat membaca SLDK.
---   2. Ubah satu baris @Sumber di bawah: awalan database SLDK, mis. [Interchange] (satu server) atau [LNK_SLDK].[Interchange] (linked server). Kosongkan bila script ini
---      dijalankan di dalam database SLDK sendiri.
---   3. Jalankan seluruh script. Pertama kali ia membuat tabel; menjalankannya lagi menyegarkan isinya.
---   Sesudah terpasang, penyegaran berikutnya cukup:   EXEC dbo.datamart_digitalisasi_segarkan;   (langkah Transact-SQL biasa pada SQL Agent, di luar jam kerja).
---   Memberi hak baca kepada pengguna aplikasi:        GRANT SELECT ON dbo.DIGITALISASI_SATKER TO <pengguna>; ... (hak tabel tidak hilang saat penyegaran), serta SELECT pada dbo.datamart_digitalisasi_run.
+--   1. Buka database data warehouse yang berisi tabel SLDK. Tabelnya dibaca dengan nama DJKN.SIMAN2_M_ASET dan seterusnya (daftar lengkap: bagian PEMETAAN SUMBER di bawah).
+--      Database ini harus TERPISAH dari database aplikasi PASTI.
+--   2. Jalankan seluruh script. Selesai: tabel DIGITALISASI_* terbentuk dan terisi. Menjalankannya lagi menyegarkan isinya; tabel tidak di-drop sehingga hak akses tabel tetap.
+--   3. HANYA bila tabel SLDK tidak ada di database ini dengan nama DJKN.SIMAN2_*: ubah @Sumber (database lain di server ini, atau linked server) atau tulis pemetaan per tabel di bagian
+--      PEMETAAN SUMBER. Script memeriksa SEMUA tabel sumber sebelum membuat apa pun, dan menyebut mana yang tidak terbaca beserta alasannya.
+--   Bawaan (@Bersihkan = 1): setelah berhasil, fungsi, prosedur, dan sinonim sementara dibuang sehingga yang tersisa hanya TABEL (tujuh DIGITALISASI_* dan dua tabel jejak). Untuk
+--   mempertahankannya agar penyegaran berikutnya cukup   EXEC dbo.datamart_digitalisasi_segarkan;   (langkah Transact-SQL biasa pada SQL Agent), ubah @Bersihkan menjadi 0.
+--   Memberi hak baca kepada pengguna aplikasi:  GRANT SELECT ON dbo.DIGITALISASI_SATKER TO <pengguna>; ... (hak tabel tidak hilang saat penyegaran), serta SELECT pada dbo.datamart_digitalisasi_run.
 --
 -- JAMINAN
---   * SLDK hanya DIBACA (lewat sinonim DJKN.*). Tabel DIGITALISASI_* diisi lewat staging dan diganti dalam SATU transaksi setelah ketujuh dataset berhasil; bila ada yang gagal atau
---     SLDK mengembalikan 0 baris sementara datamart sudah berisi, isi datamart yang lama TIDAK berubah.
+--   * Tabel SLDK hanya DIBACA. Tabel DIGITALISASI_* diisi lewat staging dan diganti dalam SATU transaksi setelah ketujuh dataset berhasil; bila ada yang gagal atau sumber
+--     mengembalikan 0 baris sementara tabel sudah berisi, isi yang lama TIDAK berubah.
 --   * Satu proses pada satu waktu. Jejak tiap proses: dbo.datamart_digitalisasi_run (mulai, selesai, status, pesan) dan dbo.datamart_digitalisasi_tabel (jumlah baris dan berkoordinat).
---     Kolom id_sinkron tiap baris = id proses penyegarannya. Waktu data datamart: SELECT MAX(mulai) FROM dbo.datamart_digitalisasi_run WHERE status = N'sukses'.
+--     Kolom id_sinkron tiap baris = id proses penyegarannya. Waktu data: SELECT MAX(mulai) FROM dbo.datamart_digitalisasi_run WHERE status = N'sukses'.
 --   * Script menolak berjalan di database yang berisi digitalisasi_sync_log (database aplikasi PASTI).
---   * Kolom Nama_Penghuni (DIGITALISASI_RUMAH_NEGARA) adalah data pribadi: batasi akses ke datamart seperti ke database PASTI.
+--   * Kolom Nama_Penghuni (DIGITALISASI_RUMAH_NEGARA) adalah data pribadi: batasi akses seperti ke database PASTI.
 --   * Kolom Status_Gedung_Kantor dan Foto pada DIGITALISASI_SATKER diisi manual (query selalu mengirim NULL): nilainya dipertahankan per Kode_Satker, seperti pada aplikasi.
 --   * Kesamaan dengan aplikasi dibuktikan tes (bandingan tabel demi tabel, kolom demi kolom). Batasnya: angka dengan lebih dari 15 digit penting (aplikasi membacanya sebagai float64,
---     datamart mempertahankan digitnya), bilangan bulat di atas 2^53, dan bentuk heksadesimal Go (0x1p3) pada kolom angka bertipe teks. Rincian: docs/datamart-digitalisasi.md.
+--     script ini mempertahankan digitnya), bilangan bulat di atas 2^53, dan bentuk heksadesimal Go (0x1p3) pada kolom angka bertipe teks. Rincian: docs/datamart-digitalisasi.md.
 --
--- Syarat: SQL Server 2017 atau lebih baru (STRING_AGG, TRIM), hak membaca tabel SLDK, dan hak CREATE TABLE/SCHEMA/PROCEDURE/FUNCTION/SYNONYM di datamart.
+-- Syarat: SQL Server 2017 atau lebih baru (STRING_AGG, TRIM), hak SELECT pada tabel SLDK, dan hak CREATE TABLE/SCHEMA/PROCEDURE/FUNCTION di database ini (SYNONYM hanya bila pemetaan memerlukannya).
 -- ============================================================================================================================================
 
 SET NOCOUNT ON;
 
-DECLARE @Sumber NVARCHAR(300) = N'%[1]s';   -- <<< UBAH DI SINI: awalan database SLDK ([Interchange], [LNK_SLDK].[Interchange], atau kosong bila dijalankan di database SLDK sendiri)
+DECLARE @Sumber NVARCHAR(300) = N'';   -- Awalan lokasi tabel SLDK. KOSONG (bawaan) = tabel DJKN.SIMAN2_* ada di database tempat script ini dijalankan. Isi [NamaDatabase] bila di database lain pada server ini, atau [LinkedServer].[NamaDatabase] bila di server lain.
+DECLARE @Bersihkan BIT = 1;            -- 1 (bawaan) = buang fungsi/prosedur/sinonim sementara setelah berhasil, sisakan tabel saja. 0 = pertahankan (untuk EXEC dbo.datamart_digitalisasi_segarkan terjadwal).
 DECLARE @sql NVARCHAR(MAX) = N'';
 
 -- Pengaman: jangan pernah dijalankan di database aplikasi PASTI (tabel DIGITALISASI_* aplikasi akan tertimpa).
 IF OBJECT_ID(N'dbo.digitalisasi_sync_log', N'U') IS NOT NULL
 BEGIN
-    RAISERROR (N'Database ini tampaknya database aplikasi PASTI (ada tabel digitalisasi_sync_log). Jalankan script ini di database datamart yang terpisah. TIDAK ADA yang diubah.', 16, 1);
+    RAISERROR (N'Database ini tampaknya database aplikasi PASTI (ada tabel digitalisasi_sync_log). Jalankan script ini di database data warehouse yang terpisah. TIDAK ADA yang diubah.', 16, 1);
     SET NOEXEC ON;   -- batch berikutnya hanya dikompilasi, tidak dijalankan (dimatikan lagi di akhir script)
 END;
 
--- Objek SLDK yang dibaca ketujuh query (skema DJKN).
-DECLARE @objek TABLE (nama SYSNAME NOT NULL PRIMARY KEY);
-INSERT @objek (nama) VALUES
-%[2]s;
+-- ============================================================================================================================================
+-- PEMETAAN SUMBER: tempat tiap tabel/view SLDK yang dibaca ketujuh query. Bawaan: DJKN.<nama> di database ini (atau di bawah @Sumber).
+-- ============================================================================================================================================
+DECLARE @peta TABLE (nama SYSNAME NOT NULL PRIMARY KEY, sumber NVARCHAR(400) NOT NULL);
+INSERT @peta (nama, sumber)
+SELECT v.nama, CASE WHEN NULLIF(LTRIM(RTRIM(@Sumber)), N'') IS NULL THEN N'DJKN.' ELSE LTRIM(RTRIM(@Sumber)) + N'.DJKN.' END + v.nama
+FROM (VALUES
+{{OBJEK}}
+) AS v(nama);
 
--- Pengaman @Sumber: diperiksa SEBELUM ada yang dibuat.
-IF NULLIF(LTRIM(RTRIM(@Sumber)), N'') IS NULL
+-- OPSIONAL: bila nama tabel di data warehouse BERBEDA dari SLDK (skema atau nama lain), tulis nama sebenarnya per tabel. Contoh (hapus tanda -- di depannya):
+--   UPDATE @peta SET sumber = N'SLDK.SIMAN2_M_ASET' WHERE nama = N'SIMAN2_M_ASET';
+--   UPDATE @peta SET sumber = N'[NamaDatabase].[skema].[NamaTabel]' WHERE nama = N'SIMAN2_R_SATKER';
+-- (tulis penyesuaian pemetaan di bawah baris ini)
+
+-- Pemeriksaan awal, SEBELUM ada yang dibuat: tiap tabel/view sumber harus dapat dibaca dari database ini.
+DECLARE @hilang NVARCHAR(MAX) = N'', @nama SYSNAME, @src NVARCHAR(400);
+DECLARE c_peta CURSOR LOCAL FAST_FORWARD FOR SELECT nama, sumber FROM @peta ORDER BY nama;
+OPEN c_peta;
+FETCH NEXT FROM c_peta INTO @nama, @src;
+WHILE @@FETCH_STATUS = 0
 BEGIN
-    -- Dijalankan DI database SLDK sendiri: objek DJKN.* harus ada sebagai tabel/view sungguhan.
-    IF EXISTS (SELECT 1 FROM @objek AS o WHERE OBJECT_ID(N'DJKN.' + o.nama) IS NULL)
-    BEGIN
-        RAISERROR (N'@Sumber kosong, tetapi objek DJKN.SIMAN2_* tidak ada di database ini. Isi @Sumber dengan awalan database SLDK, mis. [Interchange]. TIDAK ADA yang diubah.', 16, 1);
-        SET NOEXEC ON;
-    END;
-END
-ELSE IF EXISTS (SELECT 1 FROM sys.objects AS x WHERE x.schema_id = SCHEMA_ID(N'DJKN') AND x.type IN (N'U', N'V') AND x.name IN (SELECT nama FROM @objek))
+    BEGIN TRY
+        SET @sql = N'DECLARE @x INT; SELECT TOP (0) @x = 1 FROM ' + @src + N';';
+        EXEC (@sql);
+    END TRY
+    BEGIN CATCH
+        SET @hilang += N'  - ' + @src + N'  ->  ' + ERROR_MESSAGE() + NCHAR(10);
+    END CATCH;
+    FETCH NEXT FROM c_peta INTO @nama, @src;
+END;
+CLOSE c_peta;
+DEALLOCATE c_peta;
+IF @hilang <> N''
 BEGIN
-    RAISERROR (N'Skema DJKN di database ini sudah berisi tabel/view sungguhan (bukan sinonim), mis. dari script datamart lain. Gunakan database datamart yang bersih. TIDAK ADA yang diubah.', 16, 1);
+    SET @hilang = LEFT(N'Tabel/view sumber SLDK berikut tidak dapat dibaca dari database ini. Periksa lokasinya (ubah @Sumber atau tulis pemetaan di bagian PEMETAAN SUMBER) dan hak SELECT-nya. TIDAK ADA yang diubah.' + NCHAR(10) + @hilang, 2000);
+    RAISERROR (N'%s', 16, 1, @hilang);
     SET NOEXEC ON;
 END;
+
+-- Sinonim hanya dibuat untuk tabel yang tidak berada di DJKN.<nama> database ini. Bila di DJKN sudah ada tabel/view sungguhan bernama sama, sinonim tidak dapat dibuat.
+IF EXISTS (SELECT 1 FROM @peta AS p INNER JOIN sys.objects AS x ON x.schema_id = SCHEMA_ID(N'DJKN') AND x.name = p.nama AND x.type IN (N'U', N'V')
+           WHERE REPLACE(REPLACE(p.sumber, N'[', N''), N']', N'') NOT IN (N'DJKN.' + p.nama, DB_NAME() + N'.DJKN.' + p.nama))
+BEGIN
+    RAISERROR (N'Skema DJKN di database ini sudah berisi tabel/view sungguhan dengan nama yang sama dengan tabel sumber yang dipetakan ke tempat lain (bukan sinonim), mis. dari script datamart lain. Samakan pemetaan atau pakai database yang bersih. TIDAK ADA yang diubah.', 16, 1);
+    SET NOEXEC ON;
+END;
+
+-- Pilihan pembersihan, dibawa ke batch penutup lewat tabel sementara sesi.
+DROP TABLE IF EXISTS #opsi;
+CREATE TABLE #opsi (bersihkan BIT NOT NULL);
+INSERT #opsi (bersihkan) VALUES (ISNULL(@Bersihkan, 1));
 
 IF SCHEMA_ID(N'DJKN') IS NULL EXEC (N'CREATE SCHEMA DJKN');
 IF SCHEMA_ID(N'DIGITALISASI_STG') IS NULL EXEC (N'CREATE SCHEMA DIGITALISASI_STG');
@@ -338,7 +378,7 @@ IF OBJECT_ID(N'dbo.datamart_digitalisasi_run', N'U') IS NULL
         mulai   DATETIME2(3)  NOT NULL CONSTRAINT df_datamart_digitalisasi_run_mulai DEFAULT SYSUTCDATETIME(),   -- UTC
         selesai DATETIME2(3)  NULL,
         status  NVARCHAR(10)  NOT NULL,                                                                          -- berjalan | sukses | gagal
-        sumber  NVARCHAR(400) NULL,                                                                              -- SLDK yang dibaca (sinonim DJKN.SIMAN2_M_ASET)
+        sumber  NVARCHAR(400) NULL,                                                                              -- tempat tabel SLDK yang dibaca (sinonim, atau langsung)
         pesan   NVARCHAR(2000) NULL
     );
 
@@ -355,17 +395,15 @@ IF OBJECT_ID(N'dbo.datamart_digitalisasi_tabel', N'U') IS NULL
 `
 
 const sinonim = `
--- Sinonim DJKN.* ke objek SLDK yang dibaca query. Query asli di bawah memakai nama DJKN.SIMAN2_* apa adanya, sehingga tidak perlu diubah satu karakter pun.
--- (@Sumber kosong = objek DJKN.* sudah ada di database ini: tidak ada sinonim.)
-IF NULLIF(LTRIM(RTRIM(@Sumber)), N'') IS NOT NULL
-BEGIN
-    SET @sql = N'';
-    SELECT @sql += N'DROP SYNONYM DJKN.' + QUOTENAME(name) + N';' FROM sys.synonyms WHERE schema_id = SCHEMA_ID(N'DJKN');
-    EXEC (@sql);
-    SET @sql = N'';
-    SELECT @sql += N'CREATE SYNONYM DJKN.' + QUOTENAME(nama) + N' FOR ' + @Sumber + N'.DJKN.' + QUOTENAME(nama) + N';' FROM @objek;
-    EXEC (@sql);
-END;
+-- Sinonim DJKN.<nama> ke tempat tabel SLDK yang sebenarnya, HANYA untuk tabel yang tidak berada di DJKN.<nama> database ini (lihat PEMETAAN SUMBER). Query asli di bawah memakai nama
+-- DJKN.SIMAN2_* apa adanya, sehingga tidak perlu diubah satu karakter pun. Bila semua tabel sudah berada di DJKN database ini, tidak ada sinonim.
+SET @sql = N'';
+SELECT @sql += N'DROP SYNONYM DJKN.' + QUOTENAME(s.name) + N';' FROM sys.synonyms AS s WHERE s.schema_id = SCHEMA_ID(N'DJKN') AND s.name IN (SELECT nama FROM @peta);
+EXEC (@sql);
+SET @sql = N'';
+SELECT @sql += N'CREATE SYNONYM DJKN.' + QUOTENAME(nama) + N' FOR ' + sumber + N';' FROM @peta
+WHERE REPLACE(REPLACE(sumber, N'[', N''), N']', N'') NOT IN (N'DJKN.' + nama, DB_NAME() + N'.DJKN.' + nama);
+EXEC (@sql);
 GO
 
 `
@@ -598,7 +636,7 @@ func SkripDigitalisasi() (string, error) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, kepala, SumberBawaan, strings.Join(nilai, ",\n"))
+	b.WriteString(strings.Replace(kepala, "{{OBJEK}}", strings.Join(nilai, ",\n"), 1))
 
 	// tabel hidup (dbo); dibuat bila belum ada, supaya prosedur dapat membaca nilai manual lama
 	b.WriteString("-- Tabel DIGITALISASI_* datamart (sama dengan migrasi 020 aplikasi); dibuat bila belum ada.\n")
@@ -623,8 +661,47 @@ func SkripDigitalisasi() (string, error) {
 	}
 
 	b.WriteString(orkestrator())
-	b.WriteString("-- Jalankan sekarang (pemasangan pertama membuat tabel; pemasangan ulang menyegarkannya).\nEXEC dbo.datamart_digitalisasi_segarkan;\nGO\n\nSET NOEXEC OFF;\nGO\n")
+	b.WriteString("-- Jalankan sekarang (pemasangan pertama membuat tabel; pemasangan ulang menyegarkannya).\nEXEC dbo.datamart_digitalisasi_segarkan;\nGO\n\n")
+	b.WriteString(penutup())
+	b.WriteString("SET NOEXEC OFF;\nGO\n")
 	return b.String(), nil
+}
+
+// namaFungsi: fungsi konversi yang dibuat script (dibuang lagi bila @Bersihkan = 1).
+var namaFungsi = []string{"dm_pangkas", "dm_teks", "dm_polos_lambat", "dm_pangkas_pendek", "dm_polos", "dm_angka", "dm_bilangan", "dm_desimal", "dm_float_ke_teks", "dm_koordinat"}
+
+// penutup: batch pembersihan. Bila @Bersihkan = 1 dan penyegaran TERAKHIR berhasil, fungsi, prosedur, dan sinonim sementara dibuang sehingga yang tersisa hanya tabel. Bila penyegaran
+// gagal, semuanya dipertahankan supaya penyebabnya dapat diperiksa dan EXEC dbo.datamart_digitalisasi_segarkan dapat diulang.
+func penutup() string {
+	var b strings.Builder
+	b.WriteString(`-- Pembersihan: bila @Bersihkan = 1 dan penyegaran terakhir BERHASIL, buang fungsi, prosedur, dan sinonim sementara. Yang tersisa hanya tabel (tujuh DIGITALISASI_* dan dua tabel jejak).
+-- Bila penyegaran gagal, semuanya dipertahankan supaya penyebabnya dapat diperiksa.
+IF OBJECT_ID(N'tempdb..#opsi') IS NOT NULL
+   AND EXISTS (SELECT 1 FROM #opsi WHERE bersihkan = 1)
+   AND (SELECT TOP (1) status FROM dbo.datamart_digitalisasi_run ORDER BY id DESC) = N'sukses'
+BEGIN
+    DECLARE @sql NVARCHAR(MAX) = N'';
+    DROP PROCEDURE IF EXISTS dbo.datamart_digitalisasi_segarkan;
+`)
+	for _, ds := range digitalisasi.Datasets {
+		fmt.Fprintf(&b, "    DROP PROCEDURE IF EXISTS dbo.datamart_dg_muat_%s;\n", ds.Key)
+	}
+	for _, f := range namaFungsi {
+		fmt.Fprintf(&b, "    DROP FUNCTION IF EXISTS dbo.%s;\n", f)
+	}
+	b.WriteString(`
+    -- sinonim DJKN.* buatan script (tabel sungguhan di DJKN tidak disentuh), lalu skema yang kosong
+    SELECT @sql += N'DROP SYNONYM DJKN.' + QUOTENAME(name) + N';' FROM sys.synonyms WHERE schema_id = SCHEMA_ID(N'DJKN');
+    EXEC (@sql);
+    IF SCHEMA_ID(N'DJKN') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sys.objects WHERE schema_id = SCHEMA_ID(N'DJKN')) DROP SCHEMA DJKN;
+    IF SCHEMA_ID(N'DIGITALISASI_STG') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sys.objects WHERE schema_id = SCHEMA_ID(N'DIGITALISASI_STG')) DROP SCHEMA DIGITALISASI_STG;
+    PRINT N'Fungsi, prosedur, dan sinonim sementara dibuang; yang tersisa hanya tabel. Penyegaran berikutnya: jalankan ulang script ini.';
+END;
+DROP TABLE IF EXISTS #opsi;
+GO
+
+`)
+	return b.String()
 }
 
 // orkestrator: prosedur induk (kunci, jejak, staging, pemanggilan tujuh prosedur muat, pengaman, penggantian isi, pencatatan).
@@ -659,7 +736,7 @@ BEGIN
         EXEC (@sql);
 
         SELECT @sumber = LEFT(base_object_name, 400) FROM sys.synonyms WHERE schema_id = SCHEMA_ID(N'DJKN') AND name = N'SIMAN2_M_ASET';
-        INSERT dbo.datamart_digitalisasi_run (status, sumber) VALUES (N'berjalan', ISNULL(@sumber, N'langsung (database SLDK sendiri)'));
+        INSERT dbo.datamart_digitalisasi_run (status, sumber) VALUES (N'berjalan', ISNULL(@sumber, N'langsung: DJKN.SIMAN2_* di database ini'));
         SET @run = SCOPE_IDENTITY();
 
         -- Tabel staging (struktur sama dengan tabel hidup).
@@ -712,6 +789,9 @@ BEGIN
         IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
 
         SET @pesan = LEFT(ISNULL(ERROR_MESSAGE(), N'Galat tidak diketahui') + N' (' + ISNULL(ERROR_PROCEDURE(), N'-') + N', baris ' + CONVERT(NVARCHAR(10), ERROR_LINE()) + N'). Sumber SLDK: ' + ISNULL(@sumber, N'-') + N'.', 2000);
+        -- Prosedur muat yang tidak ada = pembuatannya gagal lebih dulu (kolom atau tabel sumber yang tidak ada tertangkap saat CREATE PROCEDURE, bukan saat dijalankan).
+        IF ERROR_NUMBER() = 2812
+            SET @pesan = LEFT(@pesan + N' Prosedur muat tidak berhasil dibuat: lihat galat SEBELUMNYA pada keluaran script (biasanya kolom atau tabel sumber SLDK yang tidak ada atau berubah nama).', 2000);
         IF @run IS NOT NULL
             UPDATE dbo.datamart_digitalisasi_run SET status = N'gagal', selesai = SYSUTCDATETIME(), pesan = @pesan WHERE id = @run;
 

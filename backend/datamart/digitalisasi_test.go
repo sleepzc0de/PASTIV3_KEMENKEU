@@ -218,13 +218,13 @@ func TestObjekSumberSesuaiQuery(t *testing.T) {
 	}
 	for _, o := range objek {
 		if !strings.Contains(skrip, "(N'"+o+"')") {
-			t.Errorf("objek SLDK %s dibaca query tetapi tidak dibuatkan sinonim", o)
+			t.Errorf("objek SLDK %s dibaca query tetapi tidak ada di pemetaan sumber", o)
 		}
 	}
-	// objek yang tak dikenal query tidak dibuatkan sinonim (hak akses seminimal mungkin)
-	m := regexp.MustCompile(`(?s)INSERT @objek \(nama\) VALUES\n(.*?);`).FindStringSubmatch(skrip)
+	// objek yang tak dikenal query tidak ada di pemetaan (hak akses seminimal mungkin)
+	m := regexp.MustCompile(`(?s)FROM \(VALUES\n(.*?)\n\) AS v\(nama\);`).FindStringSubmatch(skrip)
 	if m == nil || strings.Count(m[1], "(N'") != len(objek) {
-		t.Errorf("daftar sinonim tidak sama dengan objek yang dibaca query: %v", m)
+		t.Errorf("daftar pemetaan tidak sama dengan objek yang dibaca query: %v", m)
 	}
 }
 
@@ -255,9 +255,15 @@ func TestSkripDigitalisasiMemuatPengamanDanJejak(t *testing.T) {
 	if strings.Count(skrip, "THROW 50041") != len(digitalisasi.Datasets) {
 		t.Errorf("pengaman hasil kosong harus ada untuk tiap dataset")
 	}
-	// @Sumber punya nilai awal yang jelas dan satu-satunya yang perlu diubah
-	if !strings.Contains(skrip, "DECLARE @Sumber NVARCHAR(300) = N'"+SumberBawaan+"';") {
-		t.Error("baris @Sumber tidak ditemukan")
+	// konfigurasi di kepala script: bawaan tanpa sinonim (tabel SLDK dibaca langsung di database ini) dan pembersihan; satu penanda untuk pemetaan opsional
+	for _, baris := range []string{BarisSumber, BarisBersihkan, PenandaPemetaan} {
+		if strings.Count(skrip, baris) != 1 {
+			t.Errorf("script harus memuat tepat satu %q", baris)
+		}
+	}
+	// pemeriksaan awal sebelum ada yang dibuat: semua tabel sumber dicoba dibaca, kegagalan dikumpulkan lalu NOEXEC
+	if i, j := strings.Index(skrip, "tidak dapat dibaca dari database ini"), strings.Index(skrip, "CREATE SCHEMA DJKN"); i < 0 || j < 0 || i > j {
+		t.Error("pemeriksaan tabel sumber harus mendahului pembuatan objek apa pun")
 	}
 	// kolom manual satker dipertahankan
 	if !strings.Contains(skrip, "COALESCE(dbo.dm_teks(CONVERT(NVARCHAR(MAX), r.[Status_Gedung_Kantor]), 200), (SELECT TOP (1) o.[Status_Gedung_Kantor] FROM dbo.DIGITALISASI_SATKER AS o WHERE o.[Kode_Satker] = ") {

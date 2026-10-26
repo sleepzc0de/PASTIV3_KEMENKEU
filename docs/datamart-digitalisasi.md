@@ -3,30 +3,42 @@
 Alur data Digitalisasi Aset:
 
 ```
-SLDK  --(script datamart, dijadwalkan administrator database)-->  datamart: dbo.DIGITALISASI_*  --(sinkronisasi aplikasi)-->  database PASTI: DIGITALISASI_*
+tabel SLDK di data warehouse  --(script datamart, dijalankan tim Pusdatin)-->  dbo.DIGITALISASI_*  --(sinkronisasi aplikasi)-->  database PASTI: DIGITALISASI_*
 ```
 
-**Aplikasi tidak pernah mengakses SLDK untuk Digitalisasi Aset.** Yang membaca SLDK adalah satu script SQL, [`backend/datamart/buat_datamart_digitalisasi.sql`](../backend/datamart/buat_datamart_digitalisasi.sql),
-yang dijalankan di database **datamart** (milik administrator database, bukan aplikasi): ia menjalankan ketujuh query asli Digitalisasi Aset terhadap SLDK dan membentuk ketujuh tabel `DIGITALISASI_*` di datamart,
+**Aplikasi tidak pernah mengakses SLDK untuk Digitalisasi Aset.** Yang membaca tabel SLDK adalah satu script SQL, [`backend/datamart/buat_datamart_digitalisasi.sql`](../backend/datamart/buat_datamart_digitalisasi.sql),
+yang dijalankan **tim Pusdatin di data warehouse** (bukan aplikasi): ia menjalankan ketujuh query asli Digitalisasi Aset terhadap tabel SLDK (`DJKN.SIMAN2_*`) yang sudah ada di data warehouse itu dan membentuk ketujuh tabel `DIGITALISASI_*` di sana,
 dengan kolom, tipe, dan isi yang **sama dengan yang disimpan aplikasi saat sinkronisasi dahulu membaca SLDK langsung**. Sinkronisasi aplikasi lalu hanya menyalin tabel-tabel itu ke database PASTI.
 
-## Memasang dan menyegarkan datamart
+## Menjalankan script (tim Pusdatin)
 
-Di server datamart, pada database datamart yang **terpisah** dari database aplikasi PASTI dan dari SLDK:
+Script **hanya membentuk tabel**: tidak perlu mengubah apa pun bila tabel SLDK berada di database tempat script dijalankan dengan nama `DJKN.SIMAN2_M_ASET` dan seterusnya.
 
-1. Buka [`buat_datamart_digitalisasi.sql`](../backend/datamart/buat_datamart_digitalisasi.sql) di SSMS (atau pakai `sqlcmd`), pilih database datamart.
-2. Ubah **satu baris**: `DECLARE @Sumber NVARCHAR(300) = N'[Interchange]';` menjadi awalan database SLDK yang dapat dibaca dari server itu: `[Interchange]` (satu server), `[LNK_SLDK].[Interchange]` (linked server), atau kosong `N''` bila script dijalankan di dalam database SLDK sendiri.
-3. Jalankan seluruh script. Pertama kali ia membuat tabel dan mengisinya; menjalankannya lagi menyegarkan isinya.
+1. Buka database data warehouse yang berisi tabel SLDK (terpisah dari database aplikasi PASTI), buka [`buat_datamart_digitalisasi.sql`](../backend/datamart/buat_datamart_digitalisasi.sql) di SSMS (atau pakai `sqlcmd`).
+2. Jalankan seluruh script. Selesai: tabel `DIGITALISASI_*` terbentuk dan terisi.
+3. Untuk menyegarkan, jalankan script yang sama lagi (tabel tidak di-drop; hak akses tabel tetap). Jadwalkan di luar jam kerja, **sebelum** sinkronisasi PASTI (penjadwal aplikasi bawaan mulai 01.00-05.00 WIB tiap 7 hari), mis. pukul 23.00.
 
 ```bash
-sqlcmd -S <server> -d pasti_datamart -b -i backend/datamart/buat_datamart_digitalisasi.sql
+sqlcmd -S <server> -d <database_dwh> -b -i backend/datamart/buat_datamart_digitalisasi.sql
 ```
 
-**Penyegaran berikutnya**: `EXEC dbo.datamart_digitalisasi_segarkan;`. Jadwalkan sebagai langkah *Transact-SQL* biasa di SQL Agent, di luar jam kerja, **sebelum** sinkronisasi PASTI (penjadwal aplikasi bawaan mulai 01.00-05.00 WIB tiap 7 hari), mis. pukul 23.00.
-Beban berat ke SLDK ada di langkah ini; sinkronisasi aplikasi sendiri hanya menyalin tabel yang sudah jadi.
+Bawaan script (`@Bersihkan = 1`): setelah berhasil, fungsi, prosedur, dan sinonim sementara dibuang, **yang tersisa hanya tabel**: tujuh `DIGITALISASI_*` dan dua tabel jejak kecil (`datamart_digitalisasi_run`, `datamart_digitalisasi_tabel`).
+Bila lebih nyaman menjadwalkan satu perintah saja, ubah `@Bersihkan` menjadi `0`: rutin dipertahankan dan penyegaran berikutnya cukup `EXEC dbo.datamart_digitalisasi_segarkan;` (langkah Transact-SQL biasa di SQL Agent).
+Bila penyegaran gagal, rutin tidak dibuang supaya penyebabnya dapat diperiksa.
+
+**Bila tabel SLDK tidak ada di database ini dengan nama `DJKN.SIMAN2_*`**, script menolak dengan daftar tabel yang tidak terbaca beserta alasannya (sebelum membuat apa pun), mis.:
+
+```
+Tabel/view sumber SLDK berikut tidak dapat dibaca dari database ini. ...
+  - DJKN.SIMAN2_M_ASET  ->  Invalid object name 'DJKN.SIMAN2_M_ASET'.
+```
+
+Ada dua cara menunjuk lokasi yang benar, keduanya hanya di bagian atas script:
+- **Database lain** di server yang sama, atau linked server, dengan nama dan skema yang sama: isi `@Sumber`, mis. `N'[NamaDatabaseDWH]'` atau `N'[LinkedServer].[NamaDatabase]'`.
+- **Nama atau skema berbeda**: di bagian *PEMETAAN SUMBER* tulis nama sebenarnya per tabel di bawah penanda yang tersedia, mis. `UPDATE @peta SET sumber = N'SLDK.SIMAN2_M_ASET' WHERE nama = N'SIMAN2_M_ASET';`. Query asli tetap tidak diubah; script membuat sinonim `DJKN.<nama>` hanya untuk tabel yang dipetakan ke tempat lain.
 
 **Hak akses**: pengguna aplikasi di datamart cukup `GRANT SELECT ON dbo.DIGITALISASI_SATKER TO <pengguna>` dan seterusnya untuk ketujuh tabel, serta `SELECT` pada `dbo.datamart_digitalisasi_run`. Hak tabel **bertahan** saat penyegaran (isi diganti dengan `TRUNCATE` + `INSERT`, tabelnya tidak di-drop; diuji).
-Pemasang butuh `SELECT` pada tabel SLDK yang dibaca query serta hak membuat tabel, skema, prosedur, fungsi, dan sinonim di datamart. Syarat: SQL Server 2017 atau lebih baru (`STRING_AGG`, `TRIM`; tingkat kompatibilitas database 140+).
+Yang menjalankan script butuh `SELECT` pada tabel SLDK yang dibaca query serta hak membuat tabel, skema, prosedur, dan fungsi di database itu. Syarat: SQL Server 2017 atau lebih baru (`STRING_AGG`, `TRIM`; tingkat kompatibilitas database 140+).
 
 ## Konfigurasi aplikasi
 
@@ -51,7 +63,7 @@ Migrasi 064 menambah kolom `digitalisasi_sync_log.data_per`; `./deploy.sh` menja
 
 ## Cara kerja script
 
-- **Query asli apa adanya.** Skema `DJKN` di datamart hanya berisi *sinonim* ke objek SLDK (`DJKN.SIMAN2_M_ASET` → `<@Sumber>.DJKN.SIMAN2_M_ASET`, dan seterusnya). Ketujuh query (`backend/digitalisasi/queries/*.sql`) dijalankan di dalam prosedur `dbo.datamart_dg_muat_<dataset>`
+- **Query asli apa adanya.** Query membaca `DJKN.SIMAN2_M_ASET` dan seterusnya langsung dari data warehouse (atau lewat *sinonim* bila lokasinya dipetakan ke tempat lain, lihat atas). Ketujuh query (`backend/digitalisasi/queries/*.sql`) dijalankan di dalam prosedur `dbo.datamart_dg_muat_<dataset>`
   tanpa diubah satu karakter pun; satu-satunya tambahan adalah `INTO #raw_<dataset>` pada `SELECT` terakhir. Tes membuktikan teks query di script sama dengan berkas sumbernya.
 - **Konversi seperti aplikasi dahulu.** Hasil mentah query diubah oleh fungsi `dbo.dm_*` yang meniru implementasi acuan (`backend/digitalisasi/acuan`): spasi (semua spasi Unicode yang dipangkas Go) dipangkas, teks kosong menjadi `NULL`, teks dipotong sesuai panjang kolom (unit UTF-16, pasangan pengganti tidak dipecah),
   angka dengan koma desimal dibaca, bilangan bulat berpecahan menjadi `NULL`, koordinat harus berpasangan, di dalam rentang bumi, dan `(0,0)` dibuang. Kolom `FLOAT`/`REAL` di SLDK dibaca sebagai bilangan.
@@ -59,7 +71,7 @@ Migrasi 064 menambah kolom `digitalisasi_sync_log.data_per`; `./deploy.sh` menja
 - **Aman bila gagal.** Ketujuh dataset dimuat dulu ke tabel staging (`DIGITALISASI_STG`); tabel hidup baru diganti, dalam **satu transaksi**, setelah semuanya berhasil. Bila apa pun gagal (kolom atau tabel SLDK hilang, akses ditolak, SLDK tak terjangkau, `@Sumber` salah), isi datamart yang lama **tidak berubah**.
   Hasil kosong tidak pernah menggantikan isi yang ada, proses ganda ditolak (kunci aplikasi), proses yang mati di tengah ditandai gagal pada proses berikutnya.
 - **Terlihat jelas.** `dbo.datamart_digitalisasi_run` mencatat tiap proses (mulai/selesai UTC, `sukses`/`gagal`/`berjalan`, SLDK yang dibaca, pesan galat lengkap dengan prosedur dan barisnya); `dbo.datamart_digitalisasi_tabel` mencatat jumlah baris dan baris berkoordinat per tabel.
-- **Tidak menyentuh yang lain.** SLDK hanya dibaca. Script menolak berjalan di database yang berisi `digitalisasi_sync_log` (database aplikasi PASTI), baik saat dipasang maupun saat disegarkan, dan menolak `@Sumber` yang tidak cocok **sebelum** membuat apa pun. Tidak ada `GRANT`, pembuatan login/pengguna, atau pengaturan server.
+- **Tidak menyentuh yang lain.** SLDK hanya dibaca. Script menolak berjalan di database yang berisi `digitalisasi_sync_log` (database aplikasi PASTI), baik saat dipasang maupun saat disegarkan, dan memeriksa **sebelum membuat apa pun** bahwa semua tabel sumber terbaca. Tidak ada `GRANT`, pembuatan login/pengguna, atau pengaturan server.
 - **Data pribadi**: `DIGITALISASI_RUMAH_NEGARA.Nama_Penghuni` adalah nama penghuni. Batasi akses ke datamart seperti ke database PASTI.
 
 ## Seberapa sama dengan data dari SLDK langsung
@@ -101,10 +113,11 @@ Jangan menjalankan `go test ./...` dengan DSN itu: tes integrasi paket lain meng
 
 ## Yang belum diverifikasi terhadap SLDK asli
 
-Semua pengujian memakai SLDK palsu di SQL Server lokal (tipe kolomnya perkiraan); script belum pernah dijalankan ke `Interchange`.
+Semua pengujian memakai SLDK palsu di SQL Server lokal (tipe kolomnya perkiraan); script belum pernah dijalankan di data warehouse Pusdatin atau terhadap SLDK asli.
 
-- **Linked server**: bila SLDK di server lain (`10.216.121.1`), query yang menggabungkan banyak tabel besar lewat sinonim bisa lambat. Periksa lama proses pada percobaan pertama; bila terlalu berat, jalankan script di server yang sama dengan SLDK (database datamart terpisah).
+- **Linked server**: bila tabel SLDK dibaca lewat linked server, query yang menggabungkan banyak tabel besar bisa lambat. Periksa lama proses pada percobaan pertama; bila terlalu berat, jalankan script di server yang sama dengan tabel SLDK (data warehouse).
 - **Lama proses**: tiap query dijalankan sekali, lalu setiap nilai dikonversi oleh fungsi skalar (puluhan mikrodetik per nilai; SQL Server 2019+ menyisipkan fungsi itu ke query dan lebih cepat). Uji skala di mesin pengembang dengan SLDK palsu:
   100 ribu baris tanah tambahan selesai dalam kira-kira 1,5 sampai 2 menit di luar waktu query SLDK, dengan isi identik dengan hasil acuan (jumlah baris dan checksum). Waktu query asli terhadap SLDK 206 GB tidak terukur di sini; ukur pada percobaan pertama.
 - **Tipe dan *collation*** kolom SLDK diasumsikan seperti pada query asli. Bila ada kolom teks tujuan yang di SLDK bertipe `FLOAT`/tanggal/uang, script berhenti dengan galat yang menyebut kolomnya.
-- **Penjadwalan**: penyegaran datamart (SQL Agent) dan sinkronisasi PASTI (penjadwal aplikasi) berjalan terpisah; atur agar penyegaran datamart selesai sebelum jendela sinkronisasi PASTI.
+- **Penjadwalan**: penyegaran tabel oleh Pusdatin dan sinkronisasi PASTI (penjadwal aplikasi) berjalan terpisah; atur agar penyegaran tabel selesai sebelum jendela sinkronisasi PASTI.
+- **Nama tabel di data warehouse** diasumsikan `DJKN.SIMAN2_*` seperti di SLDK; bila berbeda, gunakan pemetaan di atas (script menyebut tabel mana yang tidak terbaca).
