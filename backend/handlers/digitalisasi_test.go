@@ -22,23 +22,23 @@ import (
 // Tes handler Digitalisasi Aset dengan database palsu: memeriksa perilaku (privasi, parameterisasi, bentuk
 // respons, kecocokan jumlah kolom SELECT dengan Scan), bukan keabsahan sintaks T-SQL di SQL Server.
 
-func setupDG(t *testing.T) (pasti, sldk *fakesql.DB) {
+func setupDG(t *testing.T) (pasti, datamart *fakesql.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pDB, p := fakesql.New(t)
-	sDB, s := fakesql.New(t)
-	oldDB, oldSLDK, oldMgr := database.DB, database.SLDKDB, digitalisasi.Default
-	database.DB, database.SLDKDB = pDB, sDB
-	digitalisasi.Default = digitalisasi.NewManager(pDB, sDB)
+	mDB, m := fakesql.New(t)
+	oldDB, oldMart, oldMgr := database.DB, database.DatamartDB, digitalisasi.Default
+	database.DB, database.DatamartDB = pDB, mDB
+	digitalisasi.Default = digitalisasi.NewManager(pDB, mDB)
 	t.Cleanup(func() {
 		digitalisasi.Default.Cancel()
 		deadline := time.Now().Add(2 * time.Second)
 		for digitalisasi.Default.Active() != nil && time.Now().Before(deadline) {
 			time.Sleep(5 * time.Millisecond)
 		}
-		database.DB, database.SLDKDB, digitalisasi.Default = oldDB, oldSLDK, oldMgr
+		database.DB, database.DatamartDB, digitalisasi.Default = oldDB, oldMart, oldMgr
 	})
-	return p, s
+	return p, m
 }
 
 func dgRouter(role string) *gin.Engine {
@@ -341,7 +341,7 @@ func TestRingkasanNotAvailableWhenNothingSynced(t *testing.T) {
 // sehingga ketidakcocokan (kolom SELECT vs Scan) muncul sebagai galat di tes ini.
 func ringkasanFake(p *fakesql.DB) {
 	logRow := []driver.Value{int64(3), "tanah", "sukses", time.Date(2026, 10, 3, 1, 0, 0, 0, time.UTC), nil,
-		time.Date(2026, 10, 3, 1, 5, 0, 0, time.UTC), int64(10), int64(6), "10 baris", "admin1", nil}
+		time.Date(2026, 10, 3, 1, 5, 0, 0, time.UTC), int64(10), int64(6), "10 baris", "admin1", "datamart", time.Date(2026, 10, 2, 17, 0, 0, 0, time.UTC)}
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
 		switch {
 		case strings.HasPrefix(q, "SELECT 'satker', COUNT(*) FROM"):
@@ -366,7 +366,7 @@ func ringkasanFake(p *fakesql.DB) {
 		case strings.HasPrefix(q, "SELECT ISNULL(SUM("), strings.HasPrefix(q, "SELECT COUNT(*) FROM [DIGITALISASI_SATKER]"):
 			return []string{"n"}, [][]driver.Value{{int64(4)}}, nil
 		case strings.Contains(q, "PARTITION BY dataset"):
-			return make([]string, 11), [][]driver.Value{logRow}, nil
+			return make([]string, 12), [][]driver.Value{logRow}, nil
 		case strings.Contains(q, "FROM ref_ue1 ORDER BY"): // referensi UE1: hanya DJP yang terdaftar
 			return make([]string, 7), [][]driver.Value{{"01504", "DIREKTORAT JENDERAL PAJAK", "DJP", int64(4), true, "admin1", time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)}}, nil
 		}
@@ -432,13 +432,13 @@ func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 	t.Cleanup(stop) // menghentikan penjadwal yang dinyalakan di bawah
 	digitalisasi.Default.MulaiPenjadwal(ctx, digitalisasi.NewJadwal(true, 7, 1, 5))
 	secret := "mssql: Login failed for user 'sa' (host 10.1.2.3)"
-	failed := []driver.Value{int64(5), "tanah", "gagal", time.Now(), nil, time.Now(), nil, nil, secret, "admin1", nil}
+	failed := []driver.Value{int64(5), "tanah", "gagal", time.Now(), nil, time.Now(), nil, nil, secret, "admin1", nil, nil}
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
 		switch {
 		case strings.HasPrefix(q, "SELECT 'satker', COUNT(*) FROM"):
 			return []string{"k", "n"}, [][]driver.Value{{"tanah", int64(4)}}, nil
 		case strings.Contains(q, "PARTITION BY dataset"), strings.HasPrefix(q, "SELECT TOP"):
-			return make([]string, 11), [][]driver.Value{failed}, nil
+			return make([]string, 12), [][]driver.Value{failed}, nil
 		}
 		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 	}
@@ -458,14 +458,19 @@ func TestStatusMasksFailureDetailsFromNonAdmin(t *testing.T) {
 		t.Errorf("admin harus melihat pesan lengkap: %s", raw)
 	}
 	d := dataOf(t, body)
-	if d["sldk_tersedia"] != true || len(d["datasets"].([]interface{})) != len(digitalisasi.Datasets) {
+	if len(d["datasets"].([]interface{})) != len(digitalisasi.Datasets) {
 		t.Errorf("status = %v", d)
 	}
-	// Sumber data: tanpa datamart terkonfigurasi, mode bawaan otomatis hanya memakai SLDK dan tidak ada cadangan.
+	if _, ada := d["sldk_tersedia"]; ada {
+		t.Error("sinkronisasi Digitalisasi Aset tidak lagi bergantung pada SLDK: sldk_tersedia tidak boleh dikirim")
+	}
+	// Sumber data: datamart dikonfigurasi, tetapi jejaknya tidak terbaca di tes ini (datamart palsu tanpa jawaban), jadi tidak terjangkau dan tanpa "data per".
 	sumber, _ := d["sumber"].(map[string]interface{})
-	if sumber["mode"] != "otomatis" || sumber["sldk"] != true || sumber["datamart"] != false || sumber["tersedia"] != true || sumber["cadangan"] != false ||
-		sumber["datamart_disegarkan"] != nil || sumber["datamart_terjangkau"] != false {
+	if sumber["tersedia"] != true || sumber["terjangkau"] != false || sumber["data_per"] != nil || sumber["penyegaran_terakhir"] != "" {
 		t.Errorf("sumber = %v", sumber)
+	}
+	if strings.Contains(string(raw), "OnQuery") || strings.Contains(string(raw), "fakesql") {
+		t.Errorf("galat mentah datamart bocor ke respons: %s", raw)
 	}
 
 	// Jadwal sinkronisasi otomatis ikut dikirim (terlihat oleh semua pengguna) beserta perkiraan berikutnya.
@@ -485,7 +490,7 @@ func TestStatusOtomatisNonaktif(t *testing.T) {
 		case strings.HasPrefix(q, "SELECT 'satker', COUNT(*) FROM"):
 			return []string{"k", "n"}, nil, nil
 		case strings.Contains(q, "PARTITION BY dataset"), strings.HasPrefix(q, "SELECT TOP"):
-			return make([]string, 11), nil, nil
+			return make([]string, 12), nil, nil
 		}
 		return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 	}

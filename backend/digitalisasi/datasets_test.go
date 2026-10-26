@@ -70,7 +70,7 @@ func TestDatasetDefinitions(t *testing.T) {
 			t.Errorf("%s: Keep butuh KeyColumn", ds.Key)
 		}
 
-		lat, lng := coordIndexes(ds)
+		lat, lng := ds.IndeksKoordinat()
 		if ds.Geo != (lat >= 0 && lng >= 0) {
 			t.Errorf("%s: Geo=%v tidak sejalan dengan kolom Latitude/Longitude", ds.Key, ds.Geo)
 		}

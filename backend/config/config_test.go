@@ -35,17 +35,6 @@ func TestGetEnvInt(t *testing.T) {
 	}
 }
 
-func TestSumberDigitalisasi(t *testing.T) {
-	for in, want := range map[string]string{
-		"": "otomatis", "otomatis": "otomatis", "OTOMATIS": "otomatis", "sldk": "sldk", " SLDK ": "sldk", "datamart": "datamart", "Datamart": "datamart",
-		"lain": "otomatis", "sldk,datamart": "otomatis", "0": "otomatis",
-	} {
-		if got := SumberDigitalisasi(in); got != want {
-			t.Errorf("SumberDigitalisasi(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // muatConfigUji memuat konfigurasi dengan rahasia wajib terisi, dan memulihkan Cfg sesudah tes.
 func muatConfigUji(t *testing.T) *Config {
 	t.Helper()
@@ -60,28 +49,24 @@ func muatConfigUji(t *testing.T) *Config {
 	return Cfg
 }
 
-func TestDatamartDanSumberDibacaDariEnv(t *testing.T) {
+func TestDatamartDibacaDariEnv(t *testing.T) {
 	t.Setenv("DATAMART_DB_HOST", "dm.example")
 	t.Setenv("DATAMART_DB_PORT", "1444")
 	t.Setenv("DATAMART_DB_USER", "pembaca")
 	t.Setenv("DATAMART_DB_PASSWORD", "rahasia")
 	t.Setenv("DATAMART_DB_NAME", "pasti_datamart")
-	t.Setenv("DIGITALISASI_SUMBER", " Datamart ")
 	c := muatConfigUji(t)
 	if c.DatamartDBHost != "dm.example" || c.DatamartDBPort != "1444" || c.DatamartDBUser != "pembaca" || c.DatamartDBPassword != "rahasia" || c.DatamartDBName != "pasti_datamart" {
 		t.Errorf("datamart = %+v", c)
 	}
-	if c.DigitalisasiSumber != "datamart" {
-		t.Errorf("DigitalisasiSumber = %q", c.DigitalisasiSumber)
-	}
 }
 
-func TestDatamartKosongBawaanTanpaCadanganDanModeOtomatis(t *testing.T) {
-	for _, k := range []string{"DATAMART_DB_HOST", "DATAMART_DB_PORT", "DATAMART_DB_USER", "DATAMART_DB_PASSWORD", "DATAMART_DB_NAME", "DIGITALISASI_SUMBER"} {
+func TestDatamartKosongBawaanTanpaSumber(t *testing.T) {
+	for _, k := range []string{"DATAMART_DB_HOST", "DATAMART_DB_PORT", "DATAMART_DB_USER", "DATAMART_DB_PASSWORD", "DATAMART_DB_NAME"} {
 		t.Setenv(k, "")
 	}
 	c := muatConfigUji(t)
-	if c.DatamartDBHost != "" || c.DigitalisasiSumber != "otomatis" {
-		t.Errorf("bawaan = host %q, sumber %q", c.DatamartDBHost, c.DigitalisasiSumber)
+	if c.DatamartDBHost != "" {
+		t.Errorf("bawaan = host %q", c.DatamartDBHost)
 	}
 }

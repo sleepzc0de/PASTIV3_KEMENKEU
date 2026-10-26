@@ -2,7 +2,7 @@
 -- Migration 063: riwayat sinkronisasi Digitalisasi Aset mencatat SUMBER datanya
 -- Aman dijalankan berulang kali (idempotent)
 --
--- Sinkronisasi membaca SLDK, dan bila SLDK gagal dibaca beralih ke datamart (docs/datamart-sldk.md). Kolom sumber mencatat dari mana data satu sinkronisasi dibaca:
+-- Sinkronisasi pernah membaca SLDK dengan datamart sebagai cadangan (kini hanya datamart: migrasi 064 dan docs/datamart-digitalisasi.md). Kolom sumber mencatat dari mana data satu sinkronisasi dibaca:
 -- 'sldk' atau 'datamart'. NULL pada riwayat lama = SLDK (sebelum ada datamart). Penjadwal memakainya untuk mencoba ulang lebih cepat sinkronisasi yang berasal dari datamart.
 -- ============================================================
 

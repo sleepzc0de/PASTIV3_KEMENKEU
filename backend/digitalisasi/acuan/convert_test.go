@@ -1,14 +1,16 @@
-package digitalisasi
+package acuan
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"pasti-v3-backend/digitalisasi"
 )
 
 func TestConvertText(t *testing.T) {
-	c := Column{Name: "X", Kind: Text, Size: 5}
-	var st convStats
+	c := digitalisasi.Column{Name: "X", Kind: digitalisasi.Text, Size: 5}
+	var st Statistik
 	cases := []struct {
 		in   interface{}
 		want interface{}
@@ -37,8 +39,8 @@ func TestConvertText(t *testing.T) {
 
 func TestConvertTextTruncatesByUTF16(t *testing.T) {
 	// "😀" memakai 2 unit UTF-16, jadi Size 3 hanya muat satu emoji ditambah satu huruf.
-	c := Column{Name: "X", Kind: Text, Size: 3}
-	var st convStats
+	c := digitalisasi.Column{Name: "X", Kind: digitalisasi.Text, Size: 3}
+	var st Statistik
 	got := convertValue(c, "😀😀a", &st).(string)
 	if got != "😀" {
 		t.Fatalf("got %q, want satu emoji (emoji kedua tidak muat)", got)
@@ -52,8 +54,8 @@ func TestConvertTextTruncatesByUTF16(t *testing.T) {
 }
 
 func TestConvertTextMaxHasNoLimit(t *testing.T) {
-	c := Column{Name: "X", Kind: Text}
-	var st convStats
+	c := digitalisasi.Column{Name: "X", Kind: digitalisasi.Text}
+	var st Statistik
 	long := strings.Repeat("a", 10000)
 	if got := convertValue(c, long, &st); got != long || st.Truncated != 0 {
 		t.Fatal("NVARCHAR(MAX) tidak boleh dipotong")
@@ -61,8 +63,8 @@ func TestConvertTextMaxHasNoLimit(t *testing.T) {
 }
 
 func TestConvertDecimalAndInt(t *testing.T) {
-	var st convStats
-	dec := Column{Name: "D", Kind: Decimal, Scale: 2}
+	var st Statistik
+	dec := digitalisasi.Column{Name: "D", Kind: digitalisasi.Decimal, Scale: 2}
 	if got := convertValue(dec, []byte("1234.5000"), &st); got != "1234.5" {
 		t.Errorf("decimal []byte = %#v", got)
 	}
@@ -76,7 +78,7 @@ func TestConvertDecimalAndInt(t *testing.T) {
 		t.Errorf("angka rusak: %#v, BadNumber=%d", got, st.BadNumber)
 	}
 
-	i := Column{Name: "I", Kind: Int}
+	i := digitalisasi.Column{Name: "I", Kind: digitalisasi.Int}
 	if got := convertValue(i, int64(7), &st); got != int64(7) {
 		t.Errorf("int64 = %#v", got)
 	}
@@ -95,9 +97,9 @@ func TestConvertDecimalAndInt(t *testing.T) {
 }
 
 func TestConvertCoordinates(t *testing.T) {
-	lat := Column{Name: "Latitude", Kind: Coord}
-	lng := Column{Name: "Longitude", Kind: Coord}
-	var st convStats
+	lat := digitalisasi.Column{Name: "Latitude", Kind: digitalisasi.Coord}
+	lng := digitalisasi.Column{Name: "Longitude", Kind: digitalisasi.Coord}
+	var st Statistik
 
 	if got := convertValue(lat, "-6,2", &st); got != -6.2 {
 		t.Errorf("lat koma = %#v", got)
@@ -123,7 +125,7 @@ func TestConvertCoordinates(t *testing.T) {
 }
 
 func TestFixCoordinates(t *testing.T) {
-	var st convStats
+	var st Statistik
 	row := []interface{}{-6.2, 106.8}
 	fixCoordinates(row, 0, 1, &st)
 	if row[0] == nil || row[1] == nil || st.BadCoord != 0 {

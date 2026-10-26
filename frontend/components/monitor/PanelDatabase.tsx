@@ -71,7 +71,7 @@ export function PanelDatabase({ data }: { data: RingkasanMonitor }) {
         {db.sldk && <KartuPool p={db.sldk} />}
         {!db.sldk && (
           <Panel judul="Database SLDK">
-            <p className="text-sm text-slate-600">Koneksi SLDK tidak dikonfigurasi (SLDK_DB_* kosong), jadi sinkronisasi data aset dari SLDK tidak berjalan.</p>
+            <p className="text-sm text-slate-600">Koneksi SLDK tidak dikonfigurasi (SLDK_DB_* kosong), jadi penarikan referensi Kanwil dari SLDK tidak berjalan. Sinkronisasi Digitalisasi Aset memakai datamart dan tidak terpengaruh.</p>
           </Panel>
         )}
       </div>

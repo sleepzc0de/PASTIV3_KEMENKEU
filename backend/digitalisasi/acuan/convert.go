@@ -1,4 +1,4 @@
-package digitalisasi
+package acuan
 
 import (
 	"fmt"
@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"pasti-v3-backend/digitalisasi"
 )
 
-// convStats mengumpulkan hal yang diperbaiki saat konversi, untuk dicatat di riwayat sinkronisasi.
-type convStats struct {
+// Statistik mengumpulkan hal yang diperbaiki saat konversi.
+type Statistik struct {
 	Truncated int // nilai teks yang dipotong karena melebihi panjang kolom
 	BadNumber int // angka yang tidak terbaca (dibuang jadi NULL)
 	BadCoord  int // koordinat yang ada isinya tetapi tidak valid (dibuang jadi NULL)
@@ -96,13 +98,13 @@ func parseNumber(s string) (float64, bool) {
 
 // convertValue mengubah nilai hasil query menjadi nilai yang aman dikirim ke kolom tujuan. NULL tetap NULL;
 // teks kosong juga menjadi NULL supaya "tidak ada foto" dan sejenisnya mudah dihitung.
-func convertValue(c Column, v interface{}, st *convStats) interface{} {
+func convertValue(c digitalisasi.Column, v interface{}, st *Statistik) interface{} {
 	s, ok := asString(v)
 	if !ok {
 		return nil
 	}
 	switch c.Kind {
-	case Int, BigInt:
+	case digitalisasi.Int, digitalisasi.BigInt:
 		f, ok := parseNumber(s)
 		if !ok || f != math.Trunc(f) {
 			if strings.TrimSpace(s) != "" {
@@ -111,7 +113,7 @@ func convertValue(c Column, v interface{}, st *convStats) interface{} {
 			return nil
 		}
 		return int64(f)
-	case Decimal:
+	case digitalisasi.Decimal:
 		f, ok := parseNumber(s)
 		if !ok {
 			if strings.TrimSpace(s) != "" {
@@ -121,7 +123,7 @@ func convertValue(c Column, v interface{}, st *convStats) interface{} {
 		}
 		// Dikirim sebagai teks: SQL Server mengubahnya ke DECIMAL tanpa melalui float.
 		return strconv.FormatFloat(f, 'f', -1, 64)
-	case Coord:
+	case digitalisasi.Coord:
 		f, ok := parseNumber(s)
 		limit := 180.0
 		if strings.EqualFold(c.Name, "Latitude") {
@@ -151,7 +153,7 @@ func convertValue(c Column, v interface{}, st *convStats) interface{} {
 }
 
 // fixCoordinates: lintang dan bujur harus berpasangan, dan (0, 0) adalah isian kosong, bukan lokasi.
-func fixCoordinates(row []interface{}, lat, lng int, st *convStats) {
+func fixCoordinates(row []interface{}, lat, lng int, st *Statistik) {
 	if lat < 0 || lng < 0 {
 		return
 	}
@@ -168,4 +170,11 @@ func fixCoordinates(row []interface{}, lat, lng int, st *convStats) {
 		row[lat], row[lng] = nil, nil
 		st.BadCoord++
 	}
+}
+
+// KonversiNilai mengubah satu nilai hasil query menjadi nilai yang disimpan ke kolom c (convertValue), tanpa statistik. Dipakai tes yang membandingkan implementasi lain (fungsi
+// dm_* pada script datamart di backend/datamart) dengan acuan ini.
+func KonversiNilai(c digitalisasi.Column, v interface{}) interface{} {
+	var st Statistik
+	return convertValue(c, v, &st)
 }

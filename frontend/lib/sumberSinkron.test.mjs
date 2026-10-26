@@ -1,81 +1,70 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// Tes fungsi murni sumber data sinkronisasi Digitalisasi Aset. Jalankan dari folder frontend (Node 22.18+ membaca .ts langsung):
+// Tes fungsi murni sumber data sinkronisasi Digitalisasi Aset (datamart). Jalankan dari folder frontend (Node 22.18+ membaca .ts langsung):
 //   node --test lib/sumberSinkron.test.mjs
 const S = await import(new URL("./sumberSinkron.ts", import.meta.url).href);
 
 const SEKARANG = Date.parse("2026-10-25T00:00:00Z");
 const fmt = (iso) => `<${iso.slice(0, 10)}>`;
 const info = (o = {}) => ({
-  mode: "otomatis",
-  sldk: true,
-  datamart: true,
   tersedia: true,
-  cadangan: true,
-  datamart_disegarkan: "2026-10-23T03:00:00Z",
-  datamart_terjangkau: true,
+  terjangkau: true,
+  data_per: "2026-10-23T03:00:00Z",
+  penyegaran_terakhir: "sukses",
   ...o,
 });
 const kunci = (l) => l.map((x) => x.kunci);
 
-test("backend lama tanpa info sumber: tidak ada pemberitahuan, dan sldk_tersedia menentukan", () => {
+test("tanpa info sumber (respons belum dimuat): tidak ada pemberitahuan dan tidak bisa mulai", () => {
   assert.deepEqual(S.pemberitahuanSumber(undefined, SEKARANG, fmt), []);
-  assert.equal(S.bisaMulai(undefined, true), true);
-  assert.equal(S.bisaMulai(undefined, false), false);
-  assert.equal(S.judulKonfirmasi(undefined), "Mulai sinkronisasi dari SLDK?");
+  assert.equal(S.bisaMulai(undefined), false);
 });
 
-test("cadangan aktif dan sehat: satu pemberitahuan informasi dengan kesegaran datamart", () => {
+test("datamart sehat: satu keterangan bahwa data disalin dari datamart beserta data per", () => {
   const l = S.pemberitahuanSumber(info(), SEKARANG, fmt);
-  assert.deepEqual(kunci(l), ["cadangan"]);
+  assert.deepEqual(kunci(l), ["datamart"]);
   assert.equal(l[0].nada, "info");
   assert.match(l[0].teks, /data per <2026-10-23>/);
-  assert.match(l[0].teks, /hanya dipakai bila lebih baru/);
+  assert.match(l[0].teks, /bukan langsung dari SLDK/);
+  assert.equal(S.bisaMulai(info()), true);
 });
 
-test("tanpa datamart: tidak ada pemberitahuan sama sekali", () => {
-  assert.deepEqual(S.pemberitahuanSumber(info({ datamart: false, cadangan: false, datamart_disegarkan: null, datamart_terjangkau: false }), SEKARANG, fmt), []);
+test("datamart tidak dikonfigurasi: peringatan yang menyebut DATAMART_DB_*, dan tidak bisa mulai", () => {
+  const l = S.pemberitahuanSumber(info({ tersedia: false, terjangkau: false, data_per: null, penyegaran_terakhir: "" }), SEKARANG, fmt);
+  assert.deepEqual(kunci(l), ["tidak_tersedia"]);
+  assert.equal(l[0].nada, "warning");
+  assert.match(l[0].teks, /DATAMART_DB_\*/);
+  assert.doesNotMatch(l[0].teks, /SLDK_DB_/);
+  assert.equal(S.bisaMulai(info({ tersedia: false })), false);
 });
 
-test("tidak ada sumber: peringatan yang menyebut penyebab menurut mode", () => {
-  const a = S.pemberitahuanSumber(info({ tersedia: false, sldk: false, datamart: false, cadangan: false }), SEKARANG, fmt);
-  assert.deepEqual(kunci(a), ["tidak_tersedia"]);
-  assert.equal(a[0].nada, "warning");
-  assert.match(a[0].teks, /SLDK_DB_\*/);
-  assert.match(S.pemberitahuanSumber(info({ tersedia: false, mode: "datamart", datamart: false }), SEKARANG, fmt)[0].teks, /DATAMART_DB_\*/);
-  assert.match(S.pemberitahuanSumber(info({ tersedia: false, mode: "sldk", sldk: false }), SEKARANG, fmt)[0].teks, /"sldk"/);
-});
-
-test("mode datamart dan SLDK tidak dikonfigurasi: dijelaskan bahwa datamart yang dibaca", () => {
-  const m = S.pemberitahuanSumber(info({ mode: "datamart", cadangan: false }), SEKARANG, fmt);
-  assert.deepEqual(kunci(m), ["mode_datamart"]);
-  assert.match(m[0].teks, /bukan SLDK/);
-  const h = S.pemberitahuanSumber(info({ sldk: false, cadangan: false }), SEKARANG, fmt);
-  assert.deepEqual(kunci(h), ["hanya_datamart"]);
-  assert.equal(S.judulKonfirmasi(info({ mode: "datamart" })), "Mulai sinkronisasi dari datamart?");
-  assert.equal(S.judulKonfirmasi(info({ sldk: false, cadangan: false })), "Mulai sinkronisasi dari datamart?");
-  assert.equal(S.judulKonfirmasi(info()), "Mulai sinkronisasi dari SLDK?");
-});
-
-test("datamart tak terjangkau atau belum pernah disegarkan: peringatan bahwa cadangan tidak bekerja", () => {
-  const l = S.pemberitahuanSumber(info({ datamart_terjangkau: false, datamart_disegarkan: null }), SEKARANG, fmt);
-  assert.deepEqual(kunci(l), ["cadangan", "datamart_bermasalah"]);
+test("datamart tak terjangkau: peringatan bahwa sinkronisasi akan gagal", () => {
+  const l = S.pemberitahuanSumber(info({ terjangkau: false, data_per: null, penyegaran_terakhir: "" }), SEKARANG, fmt);
+  assert.deepEqual(kunci(l), ["datamart", "tidak_terjangkau"]);
   assert.equal(l[1].nada, "warning");
   assert.doesNotMatch(l[0].teks, /data per/);
 });
 
-test("datamart usang melewati batas hari: peringatan dengan umurnya; tepat di batas belum", () => {
-  const usang = S.pemberitahuanSumber(info({ datamart_disegarkan: "2026-10-01T00:00:00Z" }), SEKARANG, fmt);
-  assert.deepEqual(kunci(usang), ["cadangan", "datamart_usang"]);
-  assert.match(usang[1].teks, /24 hari lalu/);
-  const batas = new Date(SEKARANG - S.BATAS_USANG_HARI * 24 * 3600 * 1000).toISOString();
-  assert.deepEqual(kunci(S.pemberitahuanSumber(info({ datamart_disegarkan: batas }), SEKARANG, fmt)), ["cadangan"]);
+test("datamart belum pernah berhasil disegarkan: peringatan bahwa belum ada data", () => {
+  const l = S.pemberitahuanSumber(info({ data_per: null, penyegaran_terakhir: "gagal" }), SEKARANG, fmt);
+  assert.deepEqual(kunci(l), ["datamart", "belum_disegarkan"]);
 });
 
-test("mode sldk: datamart yang ada tidak dipakai, jadi tidak diperingatkan walau usang", () => {
-  const l = S.pemberitahuanSumber(info({ mode: "sldk", cadangan: false, datamart_disegarkan: "2026-01-01T00:00:00Z", datamart_terjangkau: false }), SEKARANG, fmt);
-  assert.deepEqual(l, []);
+test("penyegaran terakhir gagal: peringatan bahwa data berasal dari penyegaran sukses sebelumnya", () => {
+  const l = S.pemberitahuanSumber(info({ penyegaran_terakhir: "gagal" }), SEKARANG, fmt);
+  assert.deepEqual(kunci(l), ["datamart", "penyegaran_gagal"]);
+  assert.match(l[1].teks, /sebelumnya/);
+  // sedang berjalan bukan masalah
+  assert.deepEqual(kunci(S.pemberitahuanSumber(info({ penyegaran_terakhir: "berjalan" }), SEKARANG, fmt)), ["datamart"]);
+});
+
+test("datamart usang melewati batas hari: peringatan dengan umurnya; tepat di batas belum", () => {
+  const usang = S.pemberitahuanSumber(info({ data_per: "2026-10-01T00:00:00Z" }), SEKARANG, fmt);
+  assert.deepEqual(kunci(usang), ["datamart", "datamart_usang"]);
+  assert.match(usang[1].teks, /24 hari lalu/);
+  const batas = new Date(SEKARANG - S.BATAS_USANG_HARI * 24 * 3600 * 1000).toISOString();
+  assert.deepEqual(kunci(S.pemberitahuanSumber(info({ data_per: batas }), SEKARANG, fmt)), ["datamart"]);
 });
 
 test("umurHari: hari penuh, tak pernah negatif, null bila tidak terbaca", () => {
@@ -86,9 +75,13 @@ test("umurHari: hari penuh, tak pernah negatif, null bila tidak terbaca", () => 
   assert.equal(S.umurHari("bukan tanggal", SEKARANG), null);
 });
 
-test("labelSumber: datamart atau SLDK (riwayat lama tanpa sumber = SLDK)", () => {
-  assert.equal(S.labelSumber("datamart"), "Datamart");
-  assert.equal(S.labelSumber("sldk"), "SLDK");
-  assert.equal(S.labelSumber(null), "SLDK");
-  assert.equal(S.labelSumber(undefined), "SLDK");
+test("labelSumberLama: hanya riwayat dari masa membaca SLDK langsung yang diberi tanda", () => {
+  assert.equal(S.labelSumberLama("sldk"), "SLDK (lama)");
+  assert.equal(S.labelSumberLama("datamart"), null);
+  assert.equal(S.labelSumberLama(null), null);
+  assert.equal(S.labelSumberLama(undefined), null);
+});
+
+test("judul konfirmasi menyebut datamart", () => {
+  assert.match(S.JUDUL_KONFIRMASI, /datamart/);
 });

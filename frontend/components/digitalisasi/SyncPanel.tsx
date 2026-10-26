@@ -2,8 +2,8 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { AlertTriangle, Ban, CheckCircle2, Clock, Database, Info, Loader2, RefreshCw, XCircle } from "lucide-react";
-import { DGAutoInfo, DGDatasetKey, DGSumberInfo, DGSyncLog, DGSyncOverview, cancelDGSync, startDGSync } from "@/lib/api";
-import { bisaMulai, judulKonfirmasi, pemberitahuanSumber } from "@/lib/sumberSinkron";
+import { DGAutoInfo, DGDatasetKey, DGSyncLog, DGSyncOverview, cancelDGSync, startDGSync } from "@/lib/api";
+import { JUDUL_KONFIRMASI, bisaMulai, labelSumberLama, pemberitahuanSumber } from "@/lib/sumberSinkron";
 import { Alert } from "@/components/ui/Alert";
 import { ModalShell } from "@/components/ui/ModalShell";
 import { formatNumber } from "@/lib/dasbor";
@@ -44,13 +44,14 @@ export function StatusBadge({ status }: { status: DGSyncLog["status"] }) {
   );
 }
 
-// Data yang dibaca dari datamart (bukan SLDK) selalu diberi tanda, supaya jelas bahwa isinya sebatas penyegaran datamart terakhir.
+// Sinkronisasi sekarang selalu dari datamart, jadi hanya riwayat LAMA (dari masa aplikasi masih membaca SLDK langsung) yang diberi tanda.
 export function SumberBadge({ sumber }: { sumber?: string | null }) {
-  if (sumber !== "datamart") return null;
+  const label = labelSumberLama(sumber);
+  if (!label) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800" title="Dibaca dari datamart, bukan langsung dari SLDK">
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" title="Dibaca langsung dari SLDK, sebelum aplikasi hanya memakai datamart">
       <Database className="h-3.5 w-3.5" aria-hidden="true" />
-      Datamart
+      {label}
     </span>
   );
 }
@@ -91,7 +92,7 @@ export function SyncPanel({ sync, isAdmin }: Props) {
     return <div role="status" aria-label="Memuat status sinkronisasi" className="h-40 animate-pulse rounded-xl bg-slate-100" />;
   }
 
-  const canStart = isAdmin && bisaMulai(data.sumber, data.sldk_tersedia) && !active;
+  const canStart = isAdmin && bisaMulai(data.sumber) && !active;
   const pemberitahuan = pemberitahuanSumber(data.sumber, Date.now(), formatDateTime);
   const toggle = (key: DGDatasetKey) =>
     setSelected((prev) => {
@@ -121,11 +122,6 @@ export function SyncPanel({ sync, isAdmin }: Props) {
 
   return (
     <div className="space-y-5">
-      {!data.sumber && !data.sldk_tersedia && (
-        <Notice tone="warning">
-          Koneksi ke SLDK belum tersedia di server ini, jadi sinkronisasi tidak bisa dijalankan. Periksa pengaturan <code>SLDK_DB_*</code> dan izin akses IP server di SLDK.
-        </Notice>
-      )}
       {pemberitahuan.map((n) => (
         <Notice key={n.kunci} tone={n.nada}>
           {n.teks}
@@ -179,7 +175,7 @@ export function SyncPanel({ sync, isAdmin }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Dataset</h3>
-            <p className="text-xs text-slate-500">Tiap dataset adalah satu query ke SLDK; isi tabelnya diganti penuh setelah seluruh data terbaca.</p>
+            <p className="text-xs text-slate-500">Tiap dataset adalah satu tabel DIGITALISASI_* di datamart yang disalin ke PASTI; isi tabelnya diganti penuh setelah seluruh data terbaca.</p>
             <p className="mt-0.5 text-xs text-slate-500">
               <Clock className="mr-1 inline h-3 w-3 align-[-1px]" aria-hidden="true" />
               {jadwalOtomatis(data.otomatis)}
@@ -248,7 +244,7 @@ export function SyncPanel({ sync, isAdmin }: Props) {
                       <span className="text-slate-400">
                         {" "}
                         · terakhir {formatDateTime(ok.selesai)}
-                        {ok.sumber === "datamart" ? " dari datamart" : ""}
+                        {ok.data_per ? ` · data per ${formatDateTime(ok.data_per)}` : ""}
                         {dur !== null ? ` (${formatDuration(dur)})` : ""}
                         {d.peta && ok.jumlah_koordinat !== null ? ` · ${formatNumber(ok.jumlah_koordinat, 0)} berkoordinat` : ""}
                       </span>
@@ -294,7 +290,6 @@ export function SyncPanel({ sync, isAdmin }: Props) {
       {pending && (
         <ConfirmModal
           pending={pending}
-          sumber={data.sumber}
           datasets={data.datasets.map((d) => ({ key: d.key, label: d.label }))}
           busy={busy}
           onCancel={() => setPending(null)}
@@ -327,14 +322,12 @@ function Notice({ tone, children }: { tone: "warning" | "info"; children: ReactN
 
 function ConfirmModal({
   pending,
-  sumber,
   datasets,
   busy,
   onCancel,
   onConfirm,
 }: {
   pending: NonNullable<Pending>;
-  sumber?: DGSumberInfo;
   datasets: { key: DGDatasetKey; label: string }[];
   busy: boolean;
   onCancel: () => void;
@@ -343,11 +336,11 @@ function ConfirmModal({
   const isCancel = pending === "cancel";
   const names = isCancel ? [] : pending.keys.map((k) => datasets.find((d) => d.key === k)?.label ?? k);
   return (
-    <ModalShell title={isCancel ? "Batalkan sinkronisasi?" : judulKonfirmasi(sumber)} onClose={onCancel}>
+    <ModalShell title={isCancel ? "Batalkan sinkronisasi?" : JUDUL_KONFIRMASI} onClose={onCancel}>
       <div className="space-y-4 px-4 py-4 sm:px-6">
         {isCancel ? (
           <p className="text-sm text-slate-600">
-            Query yang sedang berjalan dihentikan. Data yang sudah tersimpan tidak berubah; dataset yang belum selesai tetap berisi data sebelumnya.
+            Penyalinan yang sedang berjalan dihentikan. Data yang sudah tersimpan tidak berubah; dataset yang belum selesai tetap berisi data sebelumnya.
           </p>
         ) : (
           <>
@@ -355,11 +348,9 @@ function ConfirmModal({
               Dataset: <span className="font-medium text-slate-900">{names.join(", ")}</span>
             </p>
             <Notice tone="warning">
-              {judulKonfirmasi(sumber).includes("datamart")
-                ? "Data dibaca dari datamart (salinan data SLDK yang disegarkan terjadwal), bukan langsung dari SLDK, jadi isinya sebatas penyegaran datamart terakhir. "
-                : "Tiap dataset menjalankan query berat ke tabel aset SLDK (ratusan GB) dan dapat memakan waktu lama. Bila SLDK tidak dapat dibaca, sinkronisasi dapat beralih ke datamart. "}
-              Tidak ada batas waktu: sinkronisasi berjalan sampai selesai dan bisa dibatalkan kapan saja. Sebaiknya dijalankan di luar jam kerja. Isi tabel dataset diganti
-              penuh setelah seluruh data terbaca; bila gagal, data lama tetap utuh.
+              Data disalin dari datamart (tabel DIGITALISASI_* yang dibentuk dari SLDK), bukan dibaca langsung dari SLDK, jadi isinya sebatas penyegaran datamart terakhir; bila perlu,
+              minta administrator database menyegarkannya dulu (EXEC dbo.datamart_digitalisasi_segarkan). Tidak ada batas waktu: sinkronisasi berjalan sampai selesai dan bisa
+              dibatalkan kapan saja. Sebaiknya dijalankan di luar jam kerja. Isi tabel dataset diganti penuh setelah seluruh data terbaca; bila gagal, data lama tetap utuh.
             </Notice>
           </>
         )}
