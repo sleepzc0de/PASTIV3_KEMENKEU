@@ -22,13 +22,13 @@ const (
 
 var (
 	ErrBusy           = errors.New("sinkronisasi lain sedang berjalan")
-	ErrNoSLDK         = errors.New("koneksi ke SLDK tidak tersedia")
+	ErrNoSumber       = errors.New("tidak ada sumber data: datamart belum dikonfigurasi (DATAMART_DB_*)")
 	ErrUnknownDataset = errors.New("dataset tidak dikenal")
 	ErrNothingToRun   = errors.New("tidak ada dataset yang dipilih")
 )
 
-// syncFunc dipisah supaya pengelola antrean bisa diuji tanpa SLDK.
-type syncFunc func(ctx context.Context, sldkDB, pastiDB *sql.DB, ds Dataset, opt Options) (Result, error)
+// syncFunc dipisah supaya pengelola antrean bisa diuji tanpa datamart.
+type syncFunc func(ctx context.Context, datamartDB, pastiDB *sql.DB, ds Dataset, opt Options) (Result, error)
 
 // RunInfo: sinkronisasi yang sedang berjalan (satu antrean berisi satu atau lebih dataset).
 type RunInfo struct {
@@ -45,11 +45,14 @@ type activeRun struct {
 }
 
 // Manager menjalankan sinkronisasi di latar belakang (di luar permintaan HTTP) dan menjaga agar hanya satu
-// antrean berjalan pada satu waktu, karena tiap query membebani server SLDK.
+// antrean berjalan pada satu waktu, karena menyalin tabel besar dari datamart ke PASTI.
 type Manager struct {
-	pasti, sldk *sql.DB
-	// Timeout: batas waktu per dataset. 0 (bawaan) = tanpa batas: query ke tabel aset SLDK (ratusan GB) boleh berjalan sampai
-	// selesai, baik dijalankan manual maupun otomatis. Sinkronisasi yang macet bisa dibatalkan lewat Cancel (tombol Batalkan).
+	pasti *sql.DB
+	// datamart: database datamart tempat tabel DIGITALISASI_* dibaca (nil = tidak dikonfigurasi). Satu-satunya sumber data; aplikasi tidak pernah mengakses SLDK.
+	datamart    *sql.DB
+	cacheSumber cacheInfoSumber
+	// Timeout: batas waktu per dataset. 0 (bawaan) = tanpa batas: menyalin tabel besar boleh berjalan sampai selesai, baik dijalankan manual maupun otomatis.
+	// Sinkronisasi yang macet bisa dibatalkan lewat Cancel (tombol Batalkan).
 	Timeout time.Duration
 	run     syncFunc
 
@@ -58,15 +61,15 @@ type Manager struct {
 	jadwal Jadwal // sinkronisasi otomatis; diisi MulaiPenjadwal
 }
 
-func NewManager(pasti, sldk *sql.DB) *Manager {
-	return &Manager{pasti: pasti, sldk: sldk, run: Sync}
+func NewManager(pasti, datamart *sql.DB) *Manager {
+	return &Manager{pasti: pasti, datamart: datamart, run: Sync}
 }
 
 // Default dipakai handler HTTP; diisi oleh Init saat server dimulai.
 var Default *Manager
 
-func Init(pasti, sldk *sql.DB) {
-	Default = NewManager(pasti, sldk)
+func Init(pasti, datamart *sql.DB) {
+	Default = NewManager(pasti, datamart)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if n, err := Default.RecoverOrphans(ctx); err != nil {
@@ -100,7 +103,7 @@ func (m *Manager) Active() *RunInfo {
 	return &cp
 }
 
-// Cancel menghentikan antrean yang sedang berjalan (query SLDK yang sedang dibaca ikut dibatalkan).
+// Cancel menghentikan antrean yang sedang berjalan (pembacaan datamart yang sedang berlangsung ikut dibatalkan).
 func (m *Manager) Cancel() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -114,8 +117,8 @@ func (m *Manager) Cancel() bool {
 // Start memasukkan dataset terpilih ke antrean dan langsung kembali; pekerjaannya berjalan di goroutine.
 // Urutan antrean selalu mengikuti urutan Datasets, apa pun urutan masukan.
 func (m *Manager) Start(keys []string, user string) (RunInfo, error) {
-	if m.sldk == nil {
-		return RunInfo{}, ErrNoSLDK
+	if !m.AdaSumber() {
+		return RunInfo{}, ErrNoSumber
 	}
 	want := map[string]bool{}
 	for _, k := range keys {
@@ -222,25 +225,26 @@ func (m *Manager) execute(ctx context.Context, run *activeRun, queue []Dataset) 
 			dctx, dcancel = context.WithTimeout(ctx, m.Timeout)
 		}
 		lastWrite := time.Time{}
-		res, err := m.run(dctx, m.sldk, m.pasti, ds, Options{
-			RunID: logID,
-			Progress: func(msg string) {
-				// Pesan kemajuan ditulis paling cepat tiap 3 detik.
-				if time.Since(lastWrite) < 3*time.Second {
-					return
-				}
-				lastWrite = time.Now()
-				m.setMessage(logID, msg)
-			},
+		res, err := m.sinkronDataset(dctx, ds, logID, func(msg string) {
+			// Pesan kemajuan ditulis paling cepat tiap 3 detik.
+			if time.Since(lastWrite) < 3*time.Second {
+				return
+			}
+			lastWrite = time.Now()
+			m.setMessage(logID, msg)
 		})
 		timedOut := errors.Is(dctx.Err(), context.DeadlineExceeded)
 		dcancel()
 
 		switch {
 		case err == nil:
-			rows, coords := int64(res.Rows), int64(res.WithCoords)
-			m.finishLog(logID, StatusSukses, &logCounts{Rows: rows, Coords: coords}, res.Summary())
-			log.Printf("[DIGITALISASI] %s: %s", ds.Key, res.Summary())
+			dataPer := res.DataPer
+			ringkas := res.Summary() + " · dari datamart, data per " + waktuWIB(dataPer)
+			if res.SamaDenganSebelumnya {
+				ringkas += " (sama dengan sinkronisasi sebelumnya: datamart belum disegarkan lagi)"
+			}
+			m.finishLog(logID, StatusSukses, &logCounts{Rows: int64(res.Rows), Coords: int64(res.WithCoords), DataPer: &dataPer}, ringkas)
+			log.Printf("[DIGITALISASI] %s: %s", ds.Key, ringkas)
 		case ctx.Err() != nil:
 			m.finishLog(logID, StatusDibatalkan, nil, "Dibatalkan oleh pengguna")
 			log.Printf("[DIGITALISASI] %s dibatalkan", ds.Key)
@@ -256,7 +260,10 @@ func (m *Manager) execute(ctx context.Context, run *activeRun, queue []Dataset) 
 
 // ---- riwayat (digitalisasi_sync_log) ----
 
-type logCounts struct{ Rows, Coords int64 }
+type logCounts struct {
+	Rows, Coords int64
+	DataPer      *time.Time // awal penyegaran datamart yang menjadi sumber data (UTC)
+}
 
 func bgCtx() (context.Context, context.CancelFunc) {
 	// Pencatatan hasil harus tetap berhasil walau konteks sinkronisasi sudah dibatalkan.
@@ -286,7 +293,7 @@ func (m *Manager) markRunning(id int64) {
 	defer cancel()
 	if _, err := m.pasti.ExecContext(ctx,
 		`UPDATE digitalisasi_sync_log SET status = @p1, mulai = SYSUTCDATETIME(), pesan = @p2 WHERE id = @p3`,
-		StatusBerjalan, "Membaca dari SLDK...", id); err != nil {
+		StatusBerjalan, "Membaca dari datamart...", id); err != nil {
 		log.Println("[DIGITALISASI WARN] gagal mencatat status berjalan:", err)
 	}
 }
@@ -303,13 +310,16 @@ func (m *Manager) setMessage(id int64, msg string) {
 func (m *Manager) finishLog(id int64, status string, counts *logCounts, msg string) {
 	ctx, cancel := bgCtx()
 	defer cancel()
-	var rows, coords interface{}
+	var rows, coords, dataPer interface{}
 	if counts != nil {
 		rows, coords = counts.Rows, counts.Coords
+		if counts.DataPer != nil {
+			dataPer = counts.DataPer.UTC()
+		}
 	}
 	if _, err := m.pasti.ExecContext(ctx,
-		`UPDATE digitalisasi_sync_log SET status = @p1, selesai = SYSUTCDATETIME(), jumlah_baris = @p2, jumlah_koordinat = @p3, pesan = @p4 WHERE id = @p5`,
-		status, rows, coords, clip(msg, 1000), id); err != nil {
+		`UPDATE digitalisasi_sync_log SET status = @p1, selesai = SYSUTCDATETIME(), jumlah_baris = @p2, jumlah_koordinat = @p3, pesan = @p4, data_per = @p5 WHERE id = @p6`,
+		status, rows, coords, clip(msg, 1000), dataPer, id); err != nil {
 		log.Println("[DIGITALISASI WARN] gagal mencatat hasil sinkronisasi:", err)
 	}
 }
@@ -326,17 +336,28 @@ type LogEntry struct {
 	JumlahKoordinat *int64     `json:"jumlah_koordinat"`
 	Pesan           *string    `json:"pesan"`
 	DijalankanOleh  *string    `json:"dijalankan_oleh"`
+	// Sumber: dari mana data dibaca; "datamart" untuk semua sinkronisasi sekarang. nil pada riwayat lama, dari masa aplikasi masih membaca SLDK langsung.
+	Sumber *string `json:"sumber"`
+	// DataPer: awal penyegaran datamart yang menjadi sumber data sinkronisasi sukses ini (UTC); nil pada riwayat lama dan pada sinkronisasi yang tidak sukses.
+	DataPer *time.Time `json:"data_per"`
 }
 
-const logColumns = `id, dataset, status, dibuat, mulai, selesai, jumlah_baris, jumlah_koordinat, pesan, dijalankan_oleh`
+const logColumns = `id, dataset, status, dibuat, mulai, selesai, jumlah_baris, jumlah_koordinat, pesan, dijalankan_oleh, sumber, data_per`
 
 func scanLog(rows *sql.Rows) (LogEntry, error) {
 	var e LogEntry
-	var mulai, selesai sql.NullTime
+	var mulai, selesai, dataPer sql.NullTime
 	var baris, koord sql.NullInt64
-	var pesan, oleh sql.NullString
-	if err := rows.Scan(&e.ID, &e.Dataset, &e.Status, &e.Dibuat, &mulai, &selesai, &baris, &koord, &pesan, &oleh); err != nil {
+	var pesan, oleh, sumber sql.NullString
+	if err := rows.Scan(&e.ID, &e.Dataset, &e.Status, &e.Dibuat, &mulai, &selesai, &baris, &koord, &pesan, &oleh, &sumber, &dataPer); err != nil {
 		return e, err
+	}
+	if sumber.Valid {
+		e.Sumber = &sumber.String
+	}
+	if dataPer.Valid {
+		t := dataPer.Time.UTC()
+		e.DataPer = &t
 	}
 	if mulai.Valid {
 		e.Mulai = &mulai.Time

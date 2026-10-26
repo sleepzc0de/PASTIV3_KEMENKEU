@@ -47,8 +47,17 @@ type Config struct {
 	SLDKDBPassword string
 	SLDKDBName     string
 
+	// ============ Datamart Digitalisasi Aset ============
+	// Database datamart tempat tabel DIGITALISASI_* dibaca; SATU-SATUNYA sumber sinkronisasi Digitalisasi Aset (aplikasi tidak mengakses SLDK untuk itu). Dibentuk script
+	// backend/datamart/buat_datamart_digitalisasi.sql, lihat docs/datamart-digitalisasi.md. Kosong = sinkronisasi Digitalisasi Aset tidak berjalan.
+	DatamartDBHost     string
+	DatamartDBPort     string
+	DatamartDBUser     string
+	DatamartDBPassword string
+	DatamartDBName     string
+
 	// ============ Sinkronisasi otomatis Digitalisasi Aset ============
-	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Hanya berjalan bila SLDK tersambung.
+	// Aktif bawaan: tiap 7 hari, mulai antara pukul 01.00 dan 05.00 WIB (di luar jam kerja). Berjalan bila datamart dikonfigurasi (DATAMART_DB_HOST).
 	DigitalisasiAutoSync         bool
 	DigitalisasiAutoIntervalHari int
 	DigitalisasiAutoJamMulai     int
@@ -173,6 +182,12 @@ func LoadConfig() {
 		SLDKDBUser:     getEnv("SLDK_DB_USER", ""),
 		SLDKDBPassword: getEnv("SLDK_DB_PASSWORD", ""),
 		SLDKDBName:     getEnv("SLDK_DB_NAME", ""),
+
+		DatamartDBHost:     getEnv("DATAMART_DB_HOST", ""),
+		DatamartDBPort:     getEnv("DATAMART_DB_PORT", "1433"),
+		DatamartDBUser:     getEnv("DATAMART_DB_USER", ""),
+		DatamartDBPassword: getEnv("DATAMART_DB_PASSWORD", ""),
+		DatamartDBName:     getEnv("DATAMART_DB_NAME", ""),
 
 		DigitalisasiAutoSync:         getEnvBool("DIGITALISASI_AUTO_SYNC", true),
 		DigitalisasiAutoIntervalHari: getEnvInt("DIGITALISASI_AUTO_INTERVAL_HARI", 7),

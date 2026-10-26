@@ -1,7 +1,8 @@
 # Digitalisasi Aset
 
-Halaman **Digitalisasi Aset** (`/dashboard/digitalisasi`) menampilkan analitik, peta, dan daftar aset KL 015 yang **disalin dari
-SLDK ke database PASTI**. Halaman tidak membaca SLDK langsung; SLDK hanya dibaca saat superadmin menjalankan sinkronisasi.
+Halaman **Digitalisasi Aset** (`/dashboard/digitalisasi`) menampilkan analitik, peta, dan daftar aset KL 015 yang **disalin ke database PASTI dari datamart**,
+yaitu tujuh tabel `DIGITALISASI_*` yang dibentuk dari SLDK oleh satu script di sisi database ([datamart-digitalisasi.md](datamart-digitalisasi.md)). Halaman tidak membaca
+SLDK, dan **aplikasi pun tidak pernah mengakses SLDK untuk fitur ini**: sinkronisasi (dijalankan superadmin atau penjadwal) hanya membaca datamart.
 
 | Tab | Isi |
 |---|---|
@@ -27,12 +28,12 @@ Label UE1 (mis. `01504 · DJP`) dan uraiannya dibaca dari referensi UE1 (lihat [
 menghubungkan data aset dengan data pengadaan per satker.
 
 > Fitur **Data Aset (SLDK)** yang lama (pencarian langsung ke tabel aset SLDK, Ringkasan, Pemantauan, dan perintah `pasti-sldk-sync`) sudah
-> dihapus, termasuk variabel `.env` `SLDK_ASSET_TABLE`, `SLDK_ASSET_SEARCH_COLUMNS`, dan `SLDK_KL_KODE`. Koneksi `SLDK_DB_*` tetap dipakai
-> sinkronisasi di sini. Tabel `sldk_agregat`, `sldk_sync_log`, dan `sldk_pengaturan` (migrasi 019) tidak dipakai lagi; migrasinya sengaja
+> dihapus, termasuk variabel `.env` `SLDK_ASSET_TABLE`, `SLDK_ASSET_SEARCH_COLUMNS`, dan `SLDK_KL_KODE`. Koneksi `SLDK_DB_*` tidak
+> dipakai Digitalisasi Aset lagi (sinkronisasinya memakai `DATAMART_DB_*`); ia tinggal dipakai penarikan referensi Kanwil. Tabel `sldk_agregat`, `sldk_sync_log`, dan `sldk_pengaturan` (migrasi 019) tidak dipakai lagi; migrasinya sengaja
 > tidak dihapus dan tabelnya tidak di-DROP otomatis. Bila datanya tidak diperlukan, hapus manual.
 ## Tabel dan query
 
-Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
+Tujuh dataset, masing-masing satu query SLDK (dijalankan oleh script datamart, bukan aplikasi) dan satu tabel di datamart yang disalin ke database PASTI:
 
 | Dataset (key) | Tabel | Query |
 |---|---|---|
@@ -44,7 +45,8 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 | `rumah_negara` | `DIGITALISASI_RUMAH_NEGARA` | `rumah_negara.sql` |
 | `mess_rumah_negara` | `DIGITALISASI_MESS_RUMAH_NEGARA` | `mess_rumah_negara.sql` |
 
-- Query adalah query asli dari pengelola data, dibaca apa adanya (tertanam di biner backend). **Satu-satunya tambahan** adalah dua kolom
+- Query adalah query asli dari pengelola data, disisipkan apa adanya ke script datamart (`backend/datamart/buat_datamart_digitalisasi.sql`) yang dihasilkan dari berkas-berkas
+  ini; aplikasi tidak menjalankannya. **Satu-satunya tambahan** adalah dua kolom
   koordinat (`A.gps_latitude`, `A.gps_longitude` dari `SIMAN2_M_ASET`) di enam dataset aset supaya peta bisa dibuat; barisnya diberi
   komentar `-- [PASTI]`. Dataset `satker` tidak diubah.
 - Kolom tabel sama dengan alias kolom query (mis. `Kode_Satker`, `Luas_Tanah`), ditambah `id` (kunci), `Latitude`/`Longitude`
@@ -58,25 +60,29 @@ Tujuh dataset, masing-masing satu query SLDK dan satu tabel di database PASTI:
 2. Jalankan `go test ./digitalisasi -run TestMigrationFile -update` di folder `backend` untuk menghasilkan ulang migrasi.
    Untuk tabel yang **sudah ada** di database, buat migrasi baru (`ALTER TABLE`) alih-alih menyunting 020: file yang sudah
    diterapkan tidak dijalankan lagi.
-3. Jalankan `go test ./...`. Tes menjaga agar query, definisi kolom, migrasi, dan kolom yang dipakai frontend tetap sejalan.
+3. Jalankan `go test ./datamart -run TestSkripDigitalisasiSesuaiGenerator -update` untuk menghasilkan ulang script datamart, lalu pasang ulang script itu di datamart
+   (administrator database) sebelum menyinkronkan.
+4. Jalankan `go test ./...`. Tes menjaga agar query, definisi kolom, migrasi, script datamart, dan kolom yang dipakai frontend tetap sejalan.
 
 ## Cara kerja sinkronisasi
 
 1. Superadmin memilih dataset (atau "Sinkronkan semua") dan mengonfirmasi. Permintaan langsung dijawab; pekerjaan berjalan di server,
    jadi halaman boleh ditinggalkan. Hanya **satu antrean** berjalan pada satu waktu; dataset dijalankan berurutan.
-2. Per dataset: query dijalankan di SLDK pada satu koneksi (query memakai tabel `#sementara`), seluruh hasil dibaca ke memori
-   (maks. 500.000 baris, **tanpa batas waktu**: berjalan sampai selesai atau sampai superadmin menekan Batalkan), lalu **dalam satu
-   transaksi singkat** isi tabel tujuan dikosongkan dan diisi ulang. Pembaca tidak terkunci selama query SLDK berjalan; bila ada
-   yang gagal, tabel tidak berubah.
-3. Perlindungan: hasil **0 baris tidak menimpa** tabel yang sudah berisi; kolom hasil yang hilang dari query menghentikan
-   sinkronisasi dengan pesan yang jelas; nilai teks yang melebihi panjang kolom dipotong dan dicatat; koordinat di luar rentang bumi,
-   tidak berpasangan, atau (0, 0) dibuang (NULL).
-4. `DIGITALISASI_SATKER`: kolom `Status_Gedung_Kantor` dan `Foto` selalu NULL dari query, jadi dianggap **diisi manual**. Nilai yang ada
-   dipertahankan per `Kode_Satker` bila sumber mengirim NULL.
-5. Kemajuan dan hasil dicatat di `digitalisasi_sync_log` (status `antri` → `berjalan` → `sukses`/`gagal`/`dibatalkan`). Saat server
-   dimulai ulang, baris yang masih `antri`/`berjalan` ditandai `gagal` karena prosesnya sudah hilang.
+2. Per dataset: seluruh isi tabel `DIGITALISASI_*` di **datamart** dibaca ke memori (maks. 500.000 baris, **tanpa batas waktu**: berjalan sampai selesai atau sampai
+   superadmin menekan Batalkan), lalu **dalam satu transaksi singkat** isi tabel tujuan di PASTI dikosongkan dan diisi ulang. Pembaca tidak terkunci selama penyalinan
+   berjalan; bila ada yang gagal, tabel tidak berubah. Nilai disalin **apa adanya** (DECIMAL dan koordinat sebagai teks, tanpa melewati `float64`): datamart sudah menyaring dan
+   mengonversinya persis seperti yang dahulu dilakukan aplikasi (spasi dipangkas, teks dipotong sesuai panjang kolom, koordinat divalidasi dan berpasangan, (0, 0) dibuang).
+3. Perlindungan: hasil **0 baris tidak menimpa** tabel yang sudah berisi; kolom yang hilang atau bertipe tak terduga di datamart menghentikan sinkronisasi dengan pesan yang
+   jelas; datamart yang **lebih lama** daripada data PASTI saat ini (mis. dipulihkan dari cadangan lama) ditolak, jadi data tidak mundur.
+4. `DIGITALISASI_SATKER`: kolom `Status_Gedung_Kantor` dan `Foto` selalu NULL dari sumber, jadi dianggap **diisi manual**. Nilai yang ada di PASTI
+   dipertahankan per `Kode_Satker` bila datamart mengirim NULL.
+5. Kemajuan dan hasil dicatat di `digitalisasi_sync_log` (status `antri` → `berjalan` → `sukses`/`gagal`/`dibatalkan`), termasuk **data per** kapan: awal penyegaran
+   datamart yang menjadi sumber (kolom `data_per`, migrasi 064). Saat server dimulai ulang, baris yang masih `antri`/`berjalan` ditandai `gagal` karena prosesnya sudah hilang.
 
-> Tiap query membaca tabel aset SLDK (sekitar 206 GB). Jalankan di luar jam kerja (sinkronisasi otomatis sudah dibatasi ke jam malam, lihat di bawah).
+> Sinkronisasi hanya menyalin data sebatas **penyegaran datamart terakhir**. Datamart disegarkan terjadwal oleh administrator database (`EXEC dbo.datamart_digitalisasi_segarkan`,
+> beban beratnya ke SLDK ada di sana, di luar jam kerja); sinkronisasi aplikasi sendiri ringan. Bila datamart belum disegarkan sejak sinkronisasi sebelumnya, sinkronisasi tetap
+> berjalan dan riwayatnya ditandai "sama dengan sinkronisasi sebelumnya". Halaman Sinkronisasi memperingatkan bila datamart tak terjangkau, belum pernah disegarkan,
+> penyegaran terakhirnya gagal, atau sudah lebih dari 14 hari tidak disegarkan.
 
 ### Sinkronisasi otomatis mingguan
 
@@ -85,13 +91,13 @@ membaca riwayat `digitalisasi_sync_log`, jadi keadaannya bertahan saat server di
 
 - Sebuah dataset **jatuh tempo** bila sinkronisasi suksesnya yang terakhir sudah lebih tua dari 7 hari (atau belum pernah ada). Yang
   jatuh tempo diantrekan bersama, berurutan, sebagai satu antrean (dicatat `dijalankan_oleh = otomatis (mingguan)`).
-- Hanya **dimulai** di jendela jam malam, bawaan **01.00-05.00 WIB**, supaya query berat ke SLDK tidak berjalan di jam kerja. Yang sudah
+- Hanya **dimulai** di jendela jam malam, bawaan **01.00-05.00 WIB**, supaya penyalinan tabel besar tidak berjalan di jam kerja. Yang sudah
   berjalan boleh melewati jendela itu sampai selesai. Penjadwal memeriksa tiap 15 menit.
 - Percobaan yang **gagal** (atau terhenti karena server dimulai ulang) tidak diulang langsung: dataset yang sama baru dicoba lagi
-  paling cepat 20 jam kemudian, yaitu pada malam berikutnya, supaya SLDK tidak dibebani berulang saat ada masalah.
+  paling cepat 20 jam kemudian, yaitu pada malam berikutnya, supaya datamart tidak dibebani berulang saat ada masalah.
 - Tidak pernah bersamaan dengan sinkronisasi lain: bila superadmin sedang menyinkronkan manual, penjadwal menunggu putaran berikutnya.
 - **Tanpa batas waktu**, baik manual maupun otomatis; sinkronisasi yang macet dihentikan lewat tombol *Batalkan*.
-- Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila `SLDK_DB_*` terisi (koneksi SLDK ada).
+- Halaman Sinkronisasi menampilkan jadwal dan perkiraan jalan berikutnya. Hanya berjalan bila datamart dikonfigurasi (`DATAMART_DB_*` terisi).
 - Dataset yang belum pernah disinkronkan ikut diantrekan pada malam pertama setelah deploy; sebelum itu, coba satu dataset kecil dulu
   secara manual (lihat *Menjalankan pertama kali*), atau matikan otomatis dulu.
 
@@ -104,6 +110,15 @@ Pengaturan opsional di `backend/.env` (tanpa mengisinya: aktif, 7 hari, 01-05 WI
 | `DIGITALISASI_AUTO_JAM_MULAI` / `DIGITALISASI_AUTO_JAM_AKHIR` | jendela jam (WIB, 0-23) sinkronisasi boleh dimulai; sama = sepanjang hari | `1` / `5` |
 
 Nilai di luar rentang diganti bawaannya. Restart backend setelah mengubahnya.
+
+### Sumber data: datamart
+
+Satu-satunya sumber sinkronisasi adalah database **datamart** (`DATAMART_DB_HOST`, `DATAMART_DB_PORT`, `DATAMART_DB_USER`, `DATAMART_DB_PASSWORD`, `DATAMART_DB_NAME` di `backend/.env`; pengguna cukup berhak
+`SELECT` pada tujuh tabel `dbo.DIGITALISASI_*` dan `dbo.datamart_digitalisasi_run`). Tanpa `DATAMART_DB_HOST`, sinkronisasi tidak berjalan dan halaman Sinkronisasi menjelaskannya.
+Tidak ada lagi pilihan sumber atau peralihan otomatis: variabel `DIGITALISASI_SUMBER` dari versi sebelumnya diabaikan (server mencatat peringatan bila masih terisi).
+
+Datamart dibentuk dan disegarkan oleh satu script di sisi database, [`backend/datamart/buat_datamart_digitalisasi.sql`](../backend/datamart/buat_datamart_digitalisasi.sql); cara memasangnya, jaminan kesamaan
+dengan data yang dahulu disimpan aplikasi langsung dari SLDK, batas-batasnya, dan pembuktian tesnya ada di [datamart-digitalisasi.md](datamart-digitalisasi.md).
 
 ## Peta
 
@@ -143,17 +158,17 @@ terlihat superadmin.
 
 ## Menjalankan pertama kali
 
-1. `./deploy.sh` (migrasi 020 berjalan otomatis; image backend tidak berubah selain kodenya).
-2. Pastikan `SLDK_DB_*` terisi dan IP server diizinkan di SLDK (halaman Sinkronisasi menampilkan peringatan bila koneksi SLDK tidak ada).
-3. Buka Digitalisasi Aset → Sinkronisasi → mulai dari satu dataset kecil (mis. *Mess Rumah Negara*) untuk memastikan query dan
-   koordinat benar, baru "Sinkronkan semua".
+1. `./deploy.sh` (migrasi 020, 063, dan 064 berjalan otomatis; image backend tidak berubah selain kodenya).
+2. Administrator database memasang datamart ([datamart-digitalisasi.md](datamart-digitalisasi.md)) dan menjadwalkan penyegarannya. Isi `DATAMART_DB_*` di `backend/.env` (atau lewat
+   `./deploy.sh --kredensial`) lalu mulai ulang backend; halaman Sinkronisasi menampilkan peringatan bila datamart belum dikonfigurasi atau belum pernah disegarkan.
+3. Buka Digitalisasi Aset → Sinkronisasi → mulai dari satu dataset kecil (mis. *Mess Rumah Negara*) untuk memastikan datanya benar, baru "Sinkronkan semua".
 
 ## Hal yang belum diverifikasi terhadap SLDK asli
 
-Seluruh pengujian memakai database palsu; belum ada yang dijalankan ke SLDK:
+Seluruh pengujian memakai SLDK palsu dan database palsu; belum ada yang dijalankan ke SLDK asli (script datamart juga belum). Penyalinan datamart → PASTI diuji ujung ke ujung terhadap SQL Server lokal:
 
 - kolom `gps_latitude`/`gps_longitude` pada `SIMAN2_M_ASET` dan tipenya (dibaca longgar: angka, atau teks dengan koma desimal);
 - arti nilai `SIMAN2_PENGELOLAAN.is_asuransi` (grafik asuransi memetakan `1/Y/YA/TRUE` dan `0/T/N/TIDAK/FALSE`, selain itu ditampilkan apa adanya);
-- jumlah baris tiap dataset terhadap batas 500.000 dan berapa lama query berjalan (kini tanpa batas waktu; sinkronisasi otomatis
-  mingguan belum pernah berjalan terhadap SLDK asli, hanya diuji dengan database palsu dan jam yang disimulasikan);
+- jumlah baris tiap dataset terhadap batas 500.000 dan berapa lama script datamart berjalan terhadap SLDK asli (penyalinan datamart → PASTI tanpa batas waktu; sinkronisasi otomatis
+  mingguan belum pernah berjalan sungguhan, hanya diuji dengan database palsu dan jam yang disimulasikan);
 - nama UE1: hanya empat yang diketahui dari komentar query (01504 DJP, 01505 DJBC, 01508 DJPb, 01515 BATII); sisanya tampil "UE1 <kode>".

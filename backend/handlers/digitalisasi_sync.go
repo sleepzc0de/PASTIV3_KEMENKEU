@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,9 +18,12 @@ import (
 )
 
 // InitDigitalisasi menyiapkan pengelola sinkronisasi dan penjadwal sinkronisasi otomatis; dipanggil sekali saat server dimulai,
-// setelah koneksi database tersedia.
+// setelah koneksi database tersedia. Sumber datanya hanya datamart (DatamartDB); aplikasi tidak mengakses SLDK untuk Digitalisasi Aset.
 func InitDigitalisasi() {
-	digitalisasi.Init(database.DB, database.SLDKDB)
+	digitalisasi.Init(database.DB, database.DatamartDB)
+	if v := strings.TrimSpace(os.Getenv("DIGITALISASI_SUMBER")); v != "" {
+		log.Printf("[DIGITALISASI WARN] DIGITALISASI_SUMBER=%q diabaikan: sinkronisasi hanya membaca datamart (DATAMART_DB_*); hapus variabel ini dari .env", v)
+	}
 	c := config.Cfg
 	digitalisasi.Default.MulaiPenjadwal(context.Background(),
 		digitalisasi.NewJadwal(c.DigitalisasiAutoSync, c.DigitalisasiAutoIntervalHari, c.DigitalisasiAutoJamMulai, c.DigitalisasiAutoJamAkhir))
@@ -32,7 +37,7 @@ func dgReady(c *gin.Context) bool {
 	return true
 }
 
-// maskLog menyembunyikan isi galat dari non-admin: pesan galat SLDK/SQL bisa memuat nama server atau tabel.
+// maskLog menyembunyikan isi galat dari non-admin: pesan galat SQL bisa memuat nama server atau tabel.
 func maskLog(e digitalisasi.LogEntry, admin bool) digitalisasi.LogEntry {
 	if !admin {
 		if e.Status == digitalisasi.StatusGagal {
@@ -99,16 +104,16 @@ func GetDigitalisasiSinkronisasi(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, http.StatusOK, "Berhasil mengambil status sinkronisasi", gin.H{
-		"sldk_tersedia": database.SLDKDB != nil,
-		"aktif":         m.Active(),
-		"otomatis":      m.InfoOtomatis(time.Now(), latest, lastOK), // jadwal sinkronisasi otomatis dan perkiraan berikutnya
-		"datasets":      list,
-		"riwayat":       history,
+		"sumber":   m.InfoSumber(ctx), // datamart: dikonfigurasi, terjangkau, data per kapan, dan status penyegaran terakhir
+		"aktif":    m.Active(),
+		"otomatis": m.InfoOtomatis(time.Now(), latest, lastOK), // jadwal sinkronisasi otomatis dan perkiraan berikutnya
+		"datasets": list,
+		"riwayat":  history,
 	})
 }
 
 // StartDigitalisasiSync (admin): memasukkan dataset terpilih ke antrean dan langsung kembali; sinkronisasi
-// berjalan di latar belakang karena query ke SLDK bisa memakan waktu lama.
+// berjalan di latar belakang karena menyalin tabel besar dari datamart bisa memakan waktu.
 func StartDigitalisasiSync(c *gin.Context) {
 	if !dgReady(c) {
 		return
@@ -134,8 +139,8 @@ func StartDigitalisasiSync(c *gin.Context) {
 		c.JSON(http.StatusAccepted, gin.H{"success": true, "message": "Sinkronisasi dimulai", "data": gin.H{"aktif": info}})
 	case errors.Is(err, digitalisasi.ErrBusy):
 		utils.ErrorResponse(c, http.StatusConflict, "Sinkronisasi lain sedang berjalan. Tunggu sampai selesai atau batalkan dulu.")
-	case errors.Is(err, digitalisasi.ErrNoSLDK):
-		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Koneksi ke SLDK belum tersedia. Periksa pengaturan SLDK_DB_* di server.")
+	case errors.Is(err, digitalisasi.ErrNoSumber):
+		utils.ErrorResponse(c, http.StatusServiceUnavailable, "Datamart belum dikonfigurasi. Isi DATAMART_DB_* di server (lihat docs/datamart-digitalisasi.md).")
 	case errors.Is(err, digitalisasi.ErrUnknownDataset), errors.Is(err, digitalisasi.ErrNothingToRun):
 		utils.ErrorResponse(c, http.StatusBadRequest, "Pilih minimal satu dataset yang valid")
 	default:

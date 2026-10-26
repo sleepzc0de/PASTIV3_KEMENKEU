@@ -702,8 +702,10 @@ create_backend_env() {
       printf '# Kunci enkripsi token SSO: base64 dari TEPAT 32 byte. JANGAN diganti setelah dipakai.\n'
       printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$(gen_key_b64)"
       printf '# Integrasi Inaproc\nINAPROC_BASE_URL=https://data.inaproc.id\nINAPROC_TOKEN=\n'
-      printf '# Integrasi SLDK untuk Digitalisasi Aset (opsional; kosongkan SLDK_DB_HOST untuk menonaktifkan)\n'
+      printf '# Integrasi SLDK (opsional; hanya penarikan referensi Kanwil; kosongkan SLDK_DB_HOST untuk menonaktifkan)\n'
       printf 'SLDK_DB_HOST=\nSLDK_DB_PORT=1433\nSLDK_DB_USER=\nSLDK_DB_PASSWORD=\nSLDK_DB_NAME=\n'
+      printf '# Datamart Digitalisasi Aset = SATU-SATUNYA sumber sinkronisasi Digitalisasi Aset (opsional; kosong = sinkronisasi nonaktif; lihat docs/datamart-digitalisasi.md)\n'
+      printf 'DATAMART_DB_HOST=\nDATAMART_DB_PORT=1433\nDATAMART_DB_USER=\nDATAMART_DB_PASSWORD=\nDATAMART_DB_NAME=\n'
       printf '# Peran data (Pengguna Barang, UE1, Kanwil, Satker): true = pengguna yang belum diberi peran tidak melihat data apa pun. Nyalakan setelah semua pengguna diberi peran.\nPERAN_DATA_WAJIB=false\n'
     } >> "$BACKEND_ENV"
   )
@@ -839,7 +841,7 @@ buat_profil_backend_dari_lain() {
     cp "$sumber" "$BACKEND_ENV"
   )
   isi_nilai_environment diam
-  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME SLDK_DB_HOST SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
+  for key in DB_HOST DB_USER DB_PASSWORD DB_NAME SLDK_DB_HOST SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME DATAMART_DB_HOST DATAMART_DB_USER DATAMART_DB_PASSWORD DATAMART_DB_NAME; do env_set "$BACKEND_ENV" "$key" ""; done
   # Kredensial SSO terikat ke SSO_ENV: development memakai client SSO demo (nilai contoh di repo) sebagai bawaan; production diisi sendiri.
   if [ "$ENVIRONMENT" = "dev" ]; then
     env_set "$BACKEND_ENV" SSO_CLIENT_ID "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_ID)"
@@ -859,7 +861,8 @@ buat_profil_backend_dari_lain() {
     atau isi di ${NAMA_BACKEND_ENV} (nano ${NAMA_BACKEND_ENV}) lalu jalankan ulang ./deploy.sh ${ENVIRONMENT}:
 
       DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME   (dikosongkan; DB_PORT ikut ${nama_sumber})
-      SLDK_DB_HOST / SLDK_DB_USER / SLDK_DB_PASSWORD / SLDK_DB_NAME   (opsional; kosong = sinkronisasi SLDK nonaktif)
+      SLDK_DB_HOST / SLDK_DB_USER / SLDK_DB_PASSWORD / SLDK_DB_NAME   (opsional; kosong = penarikan referensi dari SLDK nonaktif)
+      DATAMART_DB_HOST / DATAMART_DB_USER / DATAMART_DB_PASSWORD / DATAMART_DB_NAME   (opsional; sumber sinkronisasi Digitalisasi Aset; kosong = sinkronisasi nonaktif)
 EOF
   if [ "$ENVIRONMENT" = "prod" ]; then
     printf '      SSO_CLIENT_ID / SSO_CLIENT_SECRET   kredensial SSO Kemenkeu PRODUCTION\n'
@@ -937,15 +940,16 @@ tanya_nilai() {
 }
 
 isi_kredensial() {  # isi_kredensial 1 = profil baru (tanyakan semuanya)
-  local semua=${1:-0} db=0 sso=0 sldk=0 inaproc=0 alamat_lama nama_lama
+  local semua=${1:-0} db=0 sso=0 sldk=0 datamart=0 inaproc=0 alamat_lama nama_lama
   [ "$ATUR_KREDENSIAL" -eq 0 ] || semua=1
-  if [ "$semua" -eq 1 ]; then db=1; sso=1; sldk=1; inaproc=1; fi
+  if [ "$semua" -eq 1 ]; then db=1; sso=1; sldk=1; datamart=1; inaproc=1; fi
   if kredensial_kosong DB_HOST DB_USER DB_PASSWORD DB_NAME; then db=1; fi
   if kredensial_kosong SSO_CLIENT_ID SSO_CLIENT_SECRET; then sso=1; fi
   if [ "$ENVIRONMENT" = "prod" ] && [ "$(env_get "$BACKEND_ENV" SSO_CLIENT_SECRET)" = "$(env_get "$BACKEND_ENV_EXAMPLE" SSO_CLIENT_SECRET)" ]; then sso=1; fi
   if [ -n "$(env_get "$BACKEND_ENV" SLDK_DB_HOST)" ] && kredensial_kosong SLDK_DB_USER SLDK_DB_PASSWORD SLDK_DB_NAME; then sldk=1; fi
+  if [ -n "$(env_get "$BACKEND_ENV" DATAMART_DB_HOST)" ] && kredensial_kosong DATAMART_DB_USER DATAMART_DB_PASSWORD DATAMART_DB_NAME; then datamart=1; fi
   if [ "$ENVIRONMENT" = "prod" ] && kredensial_kosong INAPROC_TOKEN; then inaproc=1; fi
-  [ $((db + sso + sldk + inaproc)) -gt 0 ] || return 0
+  [ $((db + sso + sldk + datamart + inaproc)) -gt 0 ] || return 0
   if ! terminal_interaktif; then
     [ "$ATUR_KREDENSIAL" -eq 0 ] || die "--kredensial membutuhkan terminal interaktif (jalankan langsung di terminal server, tanpa pipe)."
     return 0   # yang kurang disebutkan validate_backend_env
@@ -968,8 +972,18 @@ isi_kredensial() {  # isi_kredensial 1 = profil baru (tanyakan semuanya)
     tanya_nilai SSO_CLIENT_ID "Client ID" teks 1
     tanya_nilai SSO_CLIENT_SECRET "Client secret" rahasia 1
   fi
+  if [ "$datamart" -eq 1 ]; then
+    log "Datamart Digitalisasi Aset (opsional; satu-satunya sumber sinkronisasi Digitalisasi Aset; alamat kosong = sinkronisasi nonaktif; lihat docs/datamart-digitalisasi.md):"
+    tanya_nilai DATAMART_DB_HOST "Alamat server datamart (IP/host)" host 0
+    if [ -n "$(env_get "$BACKEND_ENV" DATAMART_DB_HOST)" ]; then
+      tanya_nilai DATAMART_DB_PORT "Port" port 1
+      tanya_nilai DATAMART_DB_NAME "Nama database datamart" teks 1
+      tanya_nilai DATAMART_DB_USER "Login (cukup hak SELECT)" teks 1
+      tanya_nilai DATAMART_DB_PASSWORD "Sandi" rahasia 1
+    fi
+  fi
   if [ "$sldk" -eq 1 ]; then
-    log "SLDK untuk Digitalisasi Aset (opsional; alamat kosong = sinkronisasi SLDK nonaktif):"
+    log "SLDK (opsional; hanya untuk penarikan referensi Kanwil, bukan Digitalisasi Aset; alamat kosong = nonaktif):"
     tanya_nilai SLDK_DB_HOST "Alamat server SLDK (IP/host)" host 0
     if [ -n "$(env_get "$BACKEND_ENV" SLDK_DB_HOST)" ]; then
       tanya_nilai SLDK_DB_PORT "Port" port 1

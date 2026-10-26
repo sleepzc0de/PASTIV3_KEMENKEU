@@ -39,7 +39,7 @@ var katalog = map[string]Aturan{
 	"DELETE " + awalan + "/users/:id/peran/:peranId": {KatPeran, "peran.cabut", "Mencabut peran dari pengguna {id}", "pengguna", "id", false, false},
 
 	// ---- Digitalisasi Aset
-	"POST " + awalan + "/digitalisasi/sinkronisasi":       {KatDigitalisasi, "digitalisasi.sinkron.mulai", "Memulai sinkronisasi data aset dari SLDK", "", "", false, false},
+	"POST " + awalan + "/digitalisasi/sinkronisasi":       {KatDigitalisasi, "digitalisasi.sinkron.mulai", "Memulai sinkronisasi data aset dari datamart", "", "", false, false},
 	"POST " + awalan + "/digitalisasi/sinkronisasi/batal": {KatDigitalisasi, "digitalisasi.sinkron.batal", "Membatalkan sinkronisasi data aset", "", "", false, false},
 	"GET " + awalan + "/digitalisasi/ekspor/:dataset":     {KatEkspor, "ekspor.digitalisasi", "Mengekspor data aset ({dataset})", "dataset", "dataset", true, true},
 

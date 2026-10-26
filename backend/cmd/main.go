@@ -33,6 +33,7 @@ func main() {
 	database.Connect()
 	handlers.SinkronkanSuperadmin()
 	database.ConnectSLDK()
+	database.ConnectDatamart()
 	handlers.InitServerLog()
 	handlers.InitAudit()
 	handlers.InitMonitor()

@@ -82,3 +82,6 @@ END;
 	}
 	return b.String()
 }
+
+// IndexedColumns: kolom yang diberi index pada tabel dataset (sama dengan yang dibuat migrasi); dipakai script datamart agar tabelnya identik.
+func IndexedColumns(ds Dataset) []string { return indexedColumns(ds) }

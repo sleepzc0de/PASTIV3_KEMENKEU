@@ -203,14 +203,20 @@ type envJadwal struct {
 }
 
 func logRow(e LogEntry) []driver.Value {
-	var mulai, selesai, baris, koord, pesan, oleh driver.Value
+	var mulai, selesai, baris, koord, pesan, oleh, sumber, dataPer driver.Value
 	if e.Mulai != nil {
 		mulai = *e.Mulai
 	}
 	if e.Selesai != nil {
 		selesai = *e.Selesai
 	}
-	return []driver.Value{e.ID, e.Dataset, e.Status, e.Dibuat, mulai, selesai, baris, koord, pesan, oleh}
+	if e.Sumber != nil {
+		sumber = *e.Sumber
+	}
+	if e.DataPer != nil {
+		dataPer = *e.DataPer
+	}
+	return []driver.Value{e.ID, e.Dataset, e.Status, e.Dibuat, mulai, selesai, baris, koord, pesan, oleh, sumber, dataPer}
 }
 
 func newEnvJadwal(t *testing.T, j Jadwal) *envJadwal {
@@ -222,6 +228,8 @@ func newEnvJadwal(t *testing.T, j Jadwal) *envJadwal {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		switch {
+		case strings.HasPrefix(q, "SELECT TOP (1) data_per FROM digitalisasi_sync_log"):
+			return []string{"data_per"}, nil, nil // belum pernah ada sinkronisasi sukses
 		case strings.HasPrefix(q, "INSERT INTO digitalisasi_sync_log"):
 			nextID++
 			e.inserted = append(e.inserted, args[2].Value.(string))
@@ -234,7 +242,7 @@ func newEnvJadwal(t *testing.T, j Jadwal) *envJadwal {
 			if strings.Contains(q, "WHERE status = 'sukses'") {
 				src = e.lastOK
 			}
-			cols := []string{"id", "dataset", "status", "dibuat", "mulai", "selesai", "jumlah_baris", "jumlah_koordinat", "pesan", "dijalankan_oleh"}
+			cols := []string{"id", "dataset", "status", "dibuat", "mulai", "selesai", "jumlah_baris", "jumlah_koordinat", "pesan", "dijalankan_oleh", "sumber", "data_per"}
 			var rows [][]driver.Value
 			for _, ds := range Datasets {
 				if en, has := src[ds.Key]; has {
@@ -298,12 +306,12 @@ func TestPenjadwalTidakBerjalanDiLuarJendelaAtauBilaTidakAktif(t *testing.T) {
 	if len(e.ran()) != 0 || e.pasti.Count("QUERY") != 0 {
 		t.Errorf("tidak aktif tidak boleh melakukan apa pun: %v", e.pasti.Events())
 	}
-	// Tanpa koneksi SLDK.
+	// Tanpa datamart.
 	e = newEnvJadwal(t, NewJadwal(true, 7, 1, 5))
-	e.m.sldk = nil
+	e.m.datamart = nil
 	e.m.cekOtomatis(context.Background(), wib(2026, 10, 10, 2, 0))
 	if len(e.ran()) != 0 || e.pasti.Count("QUERY") != 0 {
-		t.Errorf("tanpa SLDK tidak boleh melakukan apa pun: %v", e.pasti.Events())
+		t.Errorf("tanpa datamart tidak boleh melakukan apa pun: %v", e.pasti.Events())
 	}
 }
 
@@ -354,10 +362,10 @@ func TestInfoOtomatis(t *testing.T) {
 	if !info.Aktif || info.IntervalHari != 7 || info.JamMulai != 1 || info.JamAkhir != 5 || info.Zona != "WIB" || info.Berikutnya == nil || !info.Berikutnya.Equal(wib(2026, 10, 21, 1, 0)) {
 		t.Errorf("info = %+v", info)
 	}
-	// Tanpa SLDK atau dimatikan: tidak ada jadwal yang dijanjikan.
-	e.m.sldk = nil
+	// Tanpa datamart atau dimatikan: tidak ada jadwal yang dijanjikan.
+	e.m.datamart = nil
 	if info := e.m.InfoOtomatis(now, nil, nil); info.Aktif || info.Berikutnya != nil {
-		t.Errorf("tanpa SLDK: %+v", info)
+		t.Errorf("tanpa datamart: %+v", info)
 	}
 	e2 := newEnvJadwal(t, NewJadwal(false, 7, 1, 5))
 	if info := e2.m.InfoOtomatis(now, nil, nil); info.Aktif || info.Berikutnya != nil {

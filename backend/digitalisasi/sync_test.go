@@ -4,86 +4,106 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
-	"pasti-v3-backend/internal/fakesql"
 	"strings"
 	"testing"
+	"time"
+
+	"pasti-v3-backend/internal/fakesql"
 )
 
-// sourceRows membentuk hasil query SLDK palsu untuk satu dataset: satu baris per elemen rows, kolom menurut
-// nama sumbernya. override memberi nilai khusus per nama kolom sumber; sisanya diisi nilai wajar.
-func sourceRows(ds Dataset, n int, override func(i int, source string) (driver.Value, bool)) ([]string, [][]driver.Value) {
-	cols := make([]string, len(ds.Columns))
-	for i, c := range ds.Columns {
-		cols[i] = c.SourceName()
+// Tes Sync: menyalin tabel DIGITALISASI_* dari datamart ke PASTI. Tanpa SQL Server (fakesql); bukti terhadap SQL Server sungguhan ada di backend/datamart.
+
+const idPenyegaran = 41 // nomor proses penyegaran datamart palsu (id_sinkron di tabel datamart)
+
+var dataPerUji = time.Date(2026, 10, 25, 17, 0, 0, 0, time.UTC)
+
+// datamartBaris membentuk hasil SELECT tabel DIGITALISASI_* datamart palsu: kolom menurut ds.Columns lalu id_sinkron. override memberi nilai khusus per nama kolom.
+func datamartBaris(ds Dataset, n int, override func(i int, nama string) (driver.Value, bool)) ([]string, [][]driver.Value) {
+	cols := make([]string, 0, len(ds.Columns)+1)
+	for _, c := range ds.Columns {
+		cols = append(cols, c.Name)
 	}
+	cols = append(cols, "id_sinkron")
 	rows := make([][]driver.Value, n)
 	for r := 0; r < n; r++ {
-		row := make([]driver.Value, len(ds.Columns))
-		for i, c := range ds.Columns {
-			if v, ok := override(r, c.SourceName()); ok {
-				row[i] = v
+		row := make([]driver.Value, 0, len(cols))
+		for _, c := range ds.Columns {
+			if v, ok := override(r, c.Name); ok {
+				row = append(row, v)
 				continue
 			}
 			switch c.Kind {
 			case Int, BigInt:
-				row[i] = int64(r + 1)
+				row = append(row, int64(r+1))
 			case Decimal:
-				row[i] = []byte("1500.2500") // decimal datang sebagai []byte dari driver SQL Server
+				row = append(row, []byte("1500.2500")) // DECIMAL datang sebagai []byte dari driver SQL Server
 			case Coord:
 				if strings.EqualFold(c.Name, "Latitude") {
-					row[i] = -6.2
+					row = append(row, []byte("-6.2000000"))
 				} else {
-					row[i] = 106.8
+					row = append(row, []byte("106.8000000"))
 				}
 			default:
-				row[i] = "teks"
+				row = append(row, "teks")
 			}
 		}
-		rows[r] = row
+		rows[r] = append(row, int64(idPenyegaran))
 	}
 	return cols, rows
 }
 
-// sourceResult: sama dengan sourceRows tetapi dengan bentuk kembalian hook onQuery.
-func sourceResult(ds Dataset, n int, override func(i int, source string) (driver.Value, bool)) ([]string, [][]driver.Value, error) {
-	cols, rows := sourceRows(ds, n, override)
-	return cols, rows, nil
-}
+func tanpaOverride(int, string) (driver.Value, bool) { return nil, false }
 
-func noOverride(int, string) (driver.Value, bool) { return nil, false }
+// pasangDatamart memasang jawaban datamart palsu untuk satu dataset: isi tabel (n baris), jejak penyegaran #idPenyegaran, dan penyegaran sukses terakhir (segar).
+func pasangDatamart(f *fakesql.DB, ds Dataset, n int, override func(i int, nama string) (driver.Value, bool), segar time.Time) {
+	f.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		switch {
+		case strings.HasPrefix(q, "SELECT ["):
+			if !strings.Contains(q, "FROM dbo.["+ds.Table+"] ORDER BY [id]") {
+				return nil, nil, errors.New("tabel tak terduga: " + q)
+			}
+			cols, rows := datamartBaris(ds, n, override)
+			return cols, rows, nil
+		case strings.Contains(q, "WHERE id = @p1"):
+			if got := args[0].Value; got != int64(idPenyegaran) {
+				return nil, nil, errors.New("nomor proses tak terduga")
+			}
+			return []string{"mulai"}, [][]driver.Value{{segar}}, nil
+		case strings.Contains(q, "MAX(mulai)"):
+			return []string{"mulai"}, [][]driver.Value{{segar}}, nil
+		}
+		return nil, nil, errors.New("query tak terduga ke datamart: " + q)
+	}
+}
 
 func TestSyncWritesRowsInOneTransaction(t *testing.T) {
 	ds, _ := ByKey("tanah")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		if !strings.Contains(q, "#AsetTarget") {
-			t.Errorf("query tanah.sql tidak terkirim apa adanya")
+	pasangDatamart(mart, ds, 200, func(i int, nama string) (driver.Value, bool) {
+		if nama == "Latitude" && i == 0 {
+			return nil, true // baris pertama tanpa koordinat: pasangannya ikut kosong di datamart
 		}
-		cols, rows := sourceRows(ds, 200, func(i int, s string) (driver.Value, bool) {
-			if s == "GPS_Latitude" && i == 0 {
-				return "bukan angka", true // koordinat rusak pada baris pertama
-			}
-			return nil, false
-		})
-		return cols, rows, nil
-	}
+		if nama == "Longitude" && i == 0 {
+			return nil, true
+		}
+		return nil, false
+	}, dataPerUji)
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
 		t.Errorf("tidak ada query baca ke PASTI yang diharapkan pada dataset tanpa Keep: %s", q)
 		return nil, nil, errors.New("tak terduga")
 	}
 
 	var progress []string
-	res, err := Sync(context.Background(), sldkDB, pasti, ds, Options{RunID: 77, Progress: func(m string) { progress = append(progress, m) }})
+	res, err := Sync(context.Background(), martDB, pasti, ds, Options{RunID: 77, Progress: func(m string) { progress = append(progress, m) }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Rows != 200 {
-		t.Fatalf("Rows = %d", res.Rows)
+	if res.Rows != 200 || res.WithCoords != 199 {
+		t.Fatalf("Rows = %d, WithCoords = %d", res.Rows, res.WithCoords)
 	}
-	if res.WithCoords != 199 || res.Stats.BadCoord < 1 {
-		t.Fatalf("WithCoords = %d, BadCoord = %d; baris pertama harus kehilangan koordinatnya", res.WithCoords, res.Stats.BadCoord)
+	if !res.DataPer.Equal(dataPerUji) || res.SamaDenganSebelumnya {
+		t.Fatalf("DataPer = %v, Sama = %v", res.DataPer, res.SamaDenganSebelumnya)
 	}
 
 	ev := p.Events()
@@ -104,7 +124,7 @@ func TestSyncWritesRowsInOneTransaction(t *testing.T) {
 			t.Fatalf("jumlah parameter %d bukan kelipatan %d kolom", len(e.Args), width)
 		}
 		total += len(e.Args) / width
-		// kolom terakhir tiap baris = id_sinkron
+		// kolom terakhir tiap baris = id_sinkron milik PASTI (nomor riwayat), bukan nomor proses datamart
 		if got := e.Args[width-1].Value; got != int64(77) {
 			t.Fatalf("id_sinkron = %#v", got)
 		}
@@ -118,56 +138,60 @@ func TestSyncWritesRowsInOneTransaction(t *testing.T) {
 	if len(progress) == 0 {
 		t.Fatal("Progress tidak pernah dipanggil")
 	}
+}
 
-	// Decimal dikirim sebagai string (bukan []byte, yang akan dibaca SQL Server sebagai varbinary).
-	first := inserts[0].Args
+// Nilai disalin APA ADANYA: DECIMAL dan koordinat dikirim sebagai teks (bukan []byte, yang akan dibaca SQL Server sebagai varbinary, dan bukan float64 yang kehilangan digit).
+func TestSyncCopiesValuesVerbatim(t *testing.T) {
+	ds, _ := ByKey("tanah")
+	martDB, mart := fakesql.New(t)
+	pasti, p := fakesql.New(t)
+	pasangDatamart(mart, ds, 1, func(i int, nama string) (driver.Value, bool) {
+		switch nama {
+		case "Nilai_Tanah":
+			return []byte("12345678901234567890123.45"), true // 25 digit: float64 tidak sanggup
+		case "Luas_Tanah":
+			return []byte("0.0001"), true
+		case "Latitude":
+			return []byte("-6.1234568"), true
+		case "Uraian_tanah":
+			return "  tidak dipangkas lagi  ", true // pangkas spasi sudah dikerjakan datamart; aplikasi tidak mengubah nilai
+		case "RTRW_tanah":
+			return "", true // string kosong tidak diubah jadi NULL oleh aplikasi
+		}
+		return nil, false
+	}, dataPerUji)
+
+	if _, err := Sync(context.Background(), martDB, pasti, ds, Options{RunID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	args := p.Execs()[1].Args
+	nilai := map[string]interface{}{}
 	for i, c := range ds.Columns {
-		if c.Kind == Decimal {
-			if s, ok := first[i].Value.(string); !ok || s != "1500.25" {
-				t.Fatalf("kolom %s = %#v, want string \"1500.25\"", c.Name, first[i].Value)
-			}
+		nilai[c.Name] = args[i].Value
+	}
+	for nama, want := range map[string]interface{}{
+		"Nilai_Tanah": "12345678901234567890123.45", "Luas_Tanah": "0.0001", "Latitude": "-6.1234568",
+		"Uraian_tanah": "  tidak dipangkas lagi  ", "RTRW_tanah": "", "id_aset_tanah": int64(1), "Jumlah_Bangunan": int64(1),
+	} {
+		if nilai[nama] != want {
+			t.Errorf("%s = %#v, want %#v", nama, nilai[nama], want)
 		}
 	}
 }
 
-func TestSyncMissingColumnFailsBeforeTouchingTable(t *testing.T) {
-	ds, _ := ByKey("rusunara")
-	sldkDB, sldk := fakesql.New(t)
+func TestSyncRejectsUnexpectedColumnType(t *testing.T) {
+	ds, _ := ByKey("tanah")
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		cols, rows := sourceRows(ds, 3, noOverride)
-		// Query yang disunting tanpa kolom Kamar_tipe_C dan koordinat.
-		var keep []int
-		for i, c := range cols {
-			if c != "Kamar_tipe_C" && c != "GPS_Latitude" {
-				keep = append(keep, i)
-			}
+	pasangDatamart(mart, ds, 3, func(i int, nama string) (driver.Value, bool) {
+		if nama == "Luas_Tanah" {
+			return 12.5, true // FLOAT: tabel datamart bukan buatan script
 		}
-		pick := func(s []string) []string {
-			var o []string
-			for _, i := range keep {
-				o = append(o, s[i])
-			}
-			return o
-		}
-		var outRows [][]driver.Value
-		for _, r := range rows {
-			var o []driver.Value
-			for _, i := range keep {
-				o = append(o, r[i])
-			}
-			outRows = append(outRows, o)
-		}
-		return pick(cols), outRows, nil
-	}
-	_, err := Sync(context.Background(), sldkDB, pasti, ds, Options{})
-	if err == nil {
-		t.Fatal("seharusnya gagal")
-	}
-	for _, want := range []string{"Kamar_tipe_C", "GPS_Latitude", "rusunara.sql"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("pesan galat %q tidak menyebut %q", err, want)
-		}
+		return nil, false
+	}, dataPerUji)
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{})
+	if err == nil || !strings.Contains(err.Error(), "Luas_Tanah") || !strings.Contains(err.Error(), "float64") {
+		t.Fatalf("err = %v", err)
 	}
 	if len(p.Events()) != 0 {
 		t.Fatalf("PASTI tidak boleh disentuh: %v", p.Events())
@@ -176,12 +200,9 @@ func TestSyncMissingColumnFailsBeforeTouchingTable(t *testing.T) {
 
 func TestSyncEmptyResultNeverOverwritesExistingData(t *testing.T) {
 	ds, _ := ByKey("tanah")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		cols, _ := sourceRows(ds, 0, noOverride)
-		return cols, nil, nil
-	}
+	pasangDatamart(mart, ds, 0, tanpaOverride, dataPerUji)
 	existing := int64(10)
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
 		if !strings.HasPrefix(q, "SELECT COUNT(*) FROM [DIGITALISASI_TANAH]") {
@@ -190,7 +211,7 @@ func TestSyncEmptyResultNeverOverwritesExistingData(t *testing.T) {
 		return []string{"n"}, [][]driver.Value{{existing}}, nil
 	}
 
-	_, err := Sync(context.Background(), sldkDB, pasti, ds, Options{})
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{})
 	if err == nil || !strings.Contains(err.Error(), "TIDAK diganti") {
 		t.Fatalf("err = %v", err)
 	}
@@ -200,7 +221,7 @@ func TestSyncEmptyResultNeverOverwritesExistingData(t *testing.T) {
 
 	// Tabel masih kosong: hasil kosong sah (mis. belum ada mess), tidak ada yang perlu dilindungi.
 	existing = 0
-	res, err := Sync(context.Background(), sldkDB, pasti, ds, Options{})
+	res, err := Sync(context.Background(), martDB, pasti, ds, Options{})
 	if err != nil || res.Rows != 0 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -208,23 +229,20 @@ func TestSyncEmptyResultNeverOverwritesExistingData(t *testing.T) {
 
 func TestSyncKeepsManualColumnsWhenSourceIsNull(t *testing.T) {
 	ds, _ := ByKey("satker")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return sourceResult(ds, 3, func(i int, s string) (driver.Value, bool) {
-			switch s {
-			case "Kode_Satker":
-				return []string{"S1", "S2", "S3"}[i], true
-			case "Status_Gedung_Kantor", "Foto":
-				if i == 2 {
-					return "dari-sldk", true // sumber mengisi: tidak boleh ditimpa nilai lama
-				}
-				return nil, true // query selalu mengirim NULL
+	pasangDatamart(mart, ds, 3, func(i int, nama string) (driver.Value, bool) {
+		switch nama {
+		case "Kode_Satker":
+			return []string{"S1", "S2", "S3"}[i], true
+		case "Status_Gedung_Kantor", "Foto":
+			if i == 2 {
+				return "dari-datamart", true // sumber mengisi: tidak boleh ditimpa nilai lama
 			}
-			return nil, false
-		})
-	}
+			return nil, true // datamart tidak punya nilai manual untuk satker ini
+		}
+		return nil, false
+	}, dataPerUji)
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
 		if !strings.HasPrefix(q, "SELECT [Kode_Satker], [Status_Gedung_Kantor], [Foto] FROM [DIGITALISASI_SATKER]") {
 			t.Errorf("query tak terduga: %s", q)
@@ -236,7 +254,7 @@ func TestSyncKeepsManualColumnsWhenSourceIsNull(t *testing.T) {
 		}, nil
 	}
 
-	if _, err := Sync(context.Background(), sldkDB, pasti, ds, Options{RunID: 1}); err != nil {
+	if _, err := Sync(context.Background(), martDB, pasti, ds, Options{RunID: 1}); err != nil {
 		t.Fatal(err)
 	}
 	ev := p.Events()
@@ -258,7 +276,7 @@ func TestSyncKeepsManualColumnsWhenSourceIsNull(t *testing.T) {
 	if got := byKode["S2"]; got[0] != nil || got[1] != nil {
 		t.Errorf("S2 baru, tidak punya nilai manual: %v", got)
 	}
-	if got := byKode["S3"]; got[0] != "dari-sldk" || got[1] != "dari-sldk" {
+	if got := byKode["S3"]; got[0] != "dari-datamart" || got[1] != "dari-datamart" {
 		t.Errorf("nilai dari sumber tidak boleh ditimpa nilai lama: %v", got)
 	}
 	if _, ok := byKode["HILANG"]; ok {
@@ -268,18 +286,16 @@ func TestSyncKeepsManualColumnsWhenSourceIsNull(t *testing.T) {
 
 func TestSyncRollsBackWhenInsertFails(t *testing.T) {
 	ds, _ := ByKey("mess_rumah_negara")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return sourceResult(ds, 5, noOverride)
-	}
+	pasangDatamart(mart, ds, 5, tanpaOverride, dataPerUji)
 	p.OnExec = func(q string, args []driver.NamedValue) error {
 		if strings.HasPrefix(q, "INSERT") {
 			return errors.New("String or binary data would be truncated")
 		}
 		return nil
 	}
-	_, err := Sync(context.Background(), sldkDB, pasti, ds, Options{})
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{})
 	if err == nil || !strings.Contains(err.Error(), "DIGITALISASI_MESS_RUMAH_NEGARA") {
 		t.Fatalf("err = %v", err)
 	}
@@ -290,12 +306,10 @@ func TestSyncRollsBackWhenInsertFails(t *testing.T) {
 
 func TestSyncRowLimit(t *testing.T) {
 	ds, _ := ByKey("satker")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return sourceResult(ds, 10, noOverride)
-	}
-	_, err := Sync(context.Background(), sldkDB, pasti, ds, Options{MaxRows: 5})
+	pasangDatamart(mart, ds, 10, tanpaOverride, dataPerUji)
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{MaxRows: 5})
 	if err == nil || !strings.Contains(err.Error(), "melebihi 5 baris") {
 		t.Fatalf("err = %v", err)
 	}
@@ -304,15 +318,15 @@ func TestSyncRowLimit(t *testing.T) {
 	}
 }
 
-func TestSyncReportsSLDKQueryError(t *testing.T) {
+func TestSyncReportsDatamartQueryError(t *testing.T) {
 	ds, _ := ByKey("tanah")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		return nil, nil, errors.New("mssql: Invalid column name 'gps_latitude'.")
+	mart.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		return nil, nil, errors.New("mssql: Invalid object name 'dbo.DIGITALISASI_TANAH'.")
 	}
-	_, err := Sync(context.Background(), sldkDB, pasti, ds, Options{})
-	if err == nil || !strings.Contains(err.Error(), "Invalid column name 'gps_latitude'") {
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{})
+	if err == nil || !strings.Contains(err.Error(), "Invalid object name") || !strings.Contains(err.Error(), "DIGITALISASI_TANAH") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(p.Events()) != 0 {
@@ -322,19 +336,112 @@ func TestSyncReportsSLDKQueryError(t *testing.T) {
 
 func TestSyncStopsWhenContextCancelled(t *testing.T) {
 	ds, _ := ByKey("tanah")
-	sldkDB, sldk := fakesql.New(t)
+	martDB, mart := fakesql.New(t)
 	pasti, p := fakesql.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	sldk.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
-		cancel() // pengguna menekan Batalkan saat query SLDK berjalan
+	mart.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		cancel() // pengguna menekan Batalkan saat tabel datamart dibaca
 		<-ctx.Done()
 		return nil, nil, ctx.Err()
 	}
-	_, err := Sync(ctx, sldkDB, pasti, ds, Options{})
+	_, err := Sync(ctx, martDB, pasti, ds, Options{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if len(p.Events()) != 0 {
 		t.Fatal("PASTI tidak boleh disentuh")
+	}
+}
+
+// Data PASTI tidak boleh mundur: datamart yang LEBIH LAMA daripada sinkronisasi sukses terakhir ditolak; yang sama atau lebih baru dipakai.
+func TestSyncRefusesOlderDatamartThanLastSync(t *testing.T) {
+	ds, _ := ByKey("tanah")
+	martDB, mart := fakesql.New(t)
+	pasti, p := fakesql.New(t)
+	pasangDatamart(mart, ds, 3, tanpaOverride, dataPerUji)
+
+	lebihBaru := dataPerUji.Add(2 * time.Hour)
+	_, err := Sync(context.Background(), martDB, pasti, ds, Options{Sebelumnya: &lebihBaru})
+	if err == nil || !strings.Contains(err.Error(), "lebih lama daripada data PASTI") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(p.Events()) != 0 {
+		t.Fatalf("PASTI tidak boleh disentuh: %v", p.Events())
+	}
+
+	sama := dataPerUji
+	res, err := Sync(context.Background(), martDB, pasti, ds, Options{Sebelumnya: &sama})
+	if err != nil || !res.SamaDenganSebelumnya {
+		t.Fatalf("data per sama harus boleh dan ditandai: res=%+v err=%v", res, err)
+	}
+	lebihLama := dataPerUji.Add(-48 * time.Hour)
+	res, err = Sync(context.Background(), martDB, pasti, ds, Options{Sebelumnya: &lebihLama})
+	if err != nil || res.SamaDenganSebelumnya {
+		t.Fatalf("datamart yang lebih baru harus dipakai: res=%+v err=%v", res, err)
+	}
+}
+
+func TestSyncNeedsRefreshTraceOfDatamart(t *testing.T) {
+	ds, _ := ByKey("tanah")
+	pasti, _ := fakesql.New(t)
+
+	// baris datamart menunjuk proses #41 yang tidak ada di jejak
+	martDB, mart := fakesql.New(t)
+	mart.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		if strings.HasPrefix(q, "SELECT [") {
+			cols, rows := datamartBaris(ds, 2, tanpaOverride)
+			return cols, rows, nil
+		}
+		return []string{"mulai"}, nil, nil // tidak ada baris
+	}
+	if _, err := Sync(context.Background(), martDB, pasti, ds, Options{}); err == nil || !strings.Contains(err.Error(), "#41 tidak ditemukan") {
+		t.Fatalf("err = %v", err)
+	}
+
+	// tabel kosong dan belum pernah ada penyegaran sukses
+	martDB2, mart2 := fakesql.New(t)
+	mart2.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		if strings.HasPrefix(q, "SELECT [") {
+			cols, _ := datamartBaris(ds, 0, tanpaOverride)
+			return cols, nil, nil
+		}
+		return []string{"mulai"}, [][]driver.Value{{nil}}, nil // MAX(mulai) = NULL
+	}
+	if _, err := Sync(context.Background(), martDB2, pasti, ds, Options{}); err == nil || !strings.Contains(err.Error(), "belum pernah berhasil disegarkan") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestDataPerFromRowsOfTableNotLatestRun(t *testing.T) {
+	// penyegaran #41 menulis baris-baris ini; ada penyegaran lebih baru (#42) yang sedang berjalan atau gagal. Data per mengikuti baris yang dibaca.
+	ds, _ := ByKey("tanah")
+	martDB, mart := fakesql.New(t)
+	pasti, _ := fakesql.New(t)
+	lama := dataPerUji.Add(-72 * time.Hour)
+	pasangDatamart(mart, ds, 1, tanpaOverride, lama)
+	res, err := Sync(context.Background(), martDB, pasti, ds, Options{})
+	if err != nil || !res.DataPer.Equal(lama) {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestNilaiDatamart(t *testing.T) {
+	txt, dec, big := Column{Name: "T", Kind: Text}, Column{Name: "D", Kind: Decimal, Scale: 2}, Column{Name: "B", Kind: BigInt}
+	for _, tc := range []struct {
+		c    Column
+		in   interface{}
+		want interface{}
+	}{
+		{txt, nil, nil}, {txt, "abc", "abc"}, {txt, "", ""}, {dec, []byte("1.50"), "1.50"}, {big, int64(7), int64(7)}, {big, nil, nil},
+	} {
+		got, err := nilaiDatamart(tc.c, tc.in)
+		if err != nil || got != tc.want {
+			t.Errorf("nilaiDatamart(%v, %#v) = %#v, %v; want %#v", tc.c.Name, tc.in, got, err, tc.want)
+		}
+	}
+	for _, in := range []interface{}{1.5, true, time.Now(), int32(3)} {
+		if _, err := nilaiDatamart(dec, in); err == nil {
+			t.Errorf("tipe %T harus ditolak", in)
+		}
 	}
 }

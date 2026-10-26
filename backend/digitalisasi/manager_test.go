@@ -29,10 +29,13 @@ func (e *managerEnv) ran() []string {
 func newManagerEnv(t *testing.T, fn func(ctx context.Context, ds Dataset) (Result, error)) *managerEnv {
 	t.Helper()
 	pastiDB, p := fakesql.New(t)
-	sldkDB, _ := fakesql.New(t)
+	datamartDB, _ := fakesql.New(t)
 	var nextID int64
 	var idMu sync.Mutex
 	p.OnQuery = func(ctx context.Context, q string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		if strings.HasPrefix(q, "SELECT TOP (1) data_per FROM digitalisasi_sync_log") {
+			return []string{"data_per"}, nil, nil // belum pernah ada sinkronisasi sukses
+		}
 		if !strings.HasPrefix(q, "INSERT INTO digitalisasi_sync_log") {
 			return nil, nil, fmt.Errorf("query tak terduga: %s", q)
 		}
@@ -43,7 +46,7 @@ func newManagerEnv(t *testing.T, fn func(ctx context.Context, ds Dataset) (Resul
 		return []string{"id"}, [][]driver.Value{{id}}, nil
 	}
 	env := &managerEnv{pasti: p}
-	env.m = NewManager(pastiDB, sldkDB)
+	env.m = NewManager(pastiDB, datamartDB)
 	env.m.run = func(ctx context.Context, _, _ *sql.DB, ds Dataset, opt Options) (Result, error) {
 		env.mu.Lock()
 		env.runs = append(env.runs, ds.Key)
@@ -73,7 +76,7 @@ func (e *managerEnv) finals() (status map[int64]string, message map[int64]string
 		}
 		switch {
 		case strings.Contains(ex.Query, "selesai = SYSUTCDATETIME(), jumlah_baris"): // finishLog
-			id := ex.Args[4].Value.(int64)
+			id := ex.Args[5].Value.(int64)
 			status[id] = ex.Args[0].Value.(string)
 			message[id] = ex.Args[3].Value.(string)
 		case strings.Contains(ex.Query, "mulai = SYSUTCDATETIME()"): // markRunning
@@ -86,8 +89,13 @@ func (e *managerEnv) finals() (status map[int64]string, message map[int64]string
 	return status, message
 }
 
+// waktuUji: awal penyegaran datamart palsu pada tes.
+var waktuUji = time.Date(2026, 10, 25, 17, 0, 0, 0, time.UTC)
+
 func ok(rows int) func(context.Context, Dataset) (Result, error) {
-	return func(context.Context, Dataset) (Result, error) { return Result{Rows: rows, WithCoords: rows / 2}, nil }
+	return func(context.Context, Dataset) (Result, error) {
+		return Result{Rows: rows, WithCoords: rows / 2, DataPer: waktuUji}, nil
+	}
 }
 
 func TestManagerRunsQueueInDatasetOrder(t *testing.T) {
@@ -239,9 +247,9 @@ func TestManagerValidation(t *testing.T) {
 		t.Errorf("validasi gagal tidak boleh menulis riwayat: %v", env.pasti.Events())
 	}
 
-	noSLDK := NewManager(env.m.pasti, nil)
-	if _, err := noSLDK.Start([]string{"satker"}, "a"); !errors.Is(err, ErrNoSLDK) {
-		t.Errorf("tanpa SLDK: %v", err)
+	tanpaDatamart := NewManager(env.m.pasti, nil)
+	if _, err := tanpaDatamart.Start([]string{"satker"}, "a"); !errors.Is(err, ErrNoSumber) {
+		t.Errorf("tanpa datamart: %v", err)
 	}
 }
 
@@ -260,9 +268,9 @@ func TestRecoverOrphans(t *testing.T) {
 }
 
 func TestResultSummary(t *testing.T) {
-	r := Result{Rows: 120, WithCoords: 100, Duration: 90 * time.Second, Stats: convStats{BadCoord: 3, Truncated: 2}}
+	r := Result{Rows: 120, WithCoords: 100, Duration: 90 * time.Second}
 	got := r.Summary()
-	for _, want := range []string{"120 baris", "100 berkoordinat", "3 koordinat tidak valid dibuang", "2 teks dipotong", "1m30s"} {
+	for _, want := range []string{"120 baris", "100 berkoordinat", "1m30s"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Summary %q tidak memuat %q", got, want)
 		}
