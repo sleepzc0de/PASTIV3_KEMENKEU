@@ -61,7 +61,7 @@ Tujuh dataset, masing-masing satu query SLDK (dijalankan oleh script datamart, b
    Untuk tabel yang **sudah ada** di database, buat migrasi baru (`ALTER TABLE`) alih-alih menyunting 020: file yang sudah
    diterapkan tidak dijalankan lagi.
 3. Jalankan `go test ./datamart -run TestSkripDigitalisasiSesuaiGenerator -update` untuk menghasilkan ulang script datamart, lalu pasang ulang script itu di datamart
-   (administrator database) sebelum menyinkronkan.
+   (tim Pusdatin) sebelum menyinkronkan.
 4. Jalankan `go test ./...`. Tes menjaga agar query, definisi kolom, migrasi, script datamart, dan kolom yang dipakai frontend tetap sejalan.
 
 ## Cara kerja sinkronisasi
@@ -79,7 +79,7 @@ Tujuh dataset, masing-masing satu query SLDK (dijalankan oleh script datamart, b
 5. Kemajuan dan hasil dicatat di `digitalisasi_sync_log` (status `antri` → `berjalan` → `sukses`/`gagal`/`dibatalkan`), termasuk **data per** kapan: awal penyegaran
    datamart yang menjadi sumber (kolom `data_per`, migrasi 064). Saat server dimulai ulang, baris yang masih `antri`/`berjalan` ditandai `gagal` karena prosesnya sudah hilang.
 
-> Sinkronisasi hanya menyalin data sebatas **penyegaran datamart terakhir**. Datamart disegarkan terjadwal oleh administrator database (`EXEC dbo.datamart_digitalisasi_segarkan`,
+> Sinkronisasi hanya menyalin data sebatas **penyegaran datamart terakhir**. Datamart disegarkan terjadwal oleh tim Pusdatin (menjalankan ulang script, atau `EXEC dbo.datamart_digitalisasi_segarkan` bila `@Bersihkan = 0`;
 > beban beratnya ke SLDK ada di sana, di luar jam kerja); sinkronisasi aplikasi sendiri ringan. Bila datamart belum disegarkan sejak sinkronisasi sebelumnya, sinkronisasi tetap
 > berjalan dan riwayatnya ditandai "sama dengan sinkronisasi sebelumnya". Halaman Sinkronisasi memperingatkan bila datamart tak terjangkau, belum pernah disegarkan,
 > penyegaran terakhirnya gagal, atau sudah lebih dari 14 hari tidak disegarkan.
@@ -159,7 +159,7 @@ terlihat superadmin.
 ## Menjalankan pertama kali
 
 1. `./deploy.sh` (migrasi 020, 063, dan 064 berjalan otomatis; image backend tidak berubah selain kodenya).
-2. Administrator database memasang datamart ([datamart-digitalisasi.md](datamart-digitalisasi.md)) dan menjadwalkan penyegarannya. Isi `DATAMART_DB_*` di `backend/.env` (atau lewat
+2. Tim Pusdatin menjalankan script datamart di data warehouse ([datamart-digitalisasi.md](datamart-digitalisasi.md)) dan menjadwalkan penyegarannya. Isi `DATAMART_DB_*` di `backend/.env` (atau lewat
    `./deploy.sh --kredensial`) lalu mulai ulang backend; halaman Sinkronisasi menampilkan peringatan bila datamart belum dikonfigurasi atau belum pernah disegarkan.
 3. Buka Digitalisasi Aset → Sinkronisasi → mulai dari satu dataset kecil (mis. *Mess Rumah Negara*) untuk memastikan datanya benar, baru "Sinkronkan semua".
 

@@ -64,15 +64,29 @@ func siapkanParitas(t *testing.T, sesuaikanSLDK ...string) *lingkParitas {
 	return l
 }
 
-// skripDigitalisasi: isi script dengan @Sumber menunjuk SLDK palsu.
+// skripDigitalisasi: script dengan @Sumber menunjuk SLDK palsu dan @Bersihkan = 0 (prosedur tetap ada supaya tes dapat memakai EXEC dbo.datamart_digitalisasi_segarkan).
 func (l *lingkParitas) skripDigitalisasi(t *testing.T) string {
 	t.Helper()
-	asli := "N'" + SumberBawaan + "'"
+	return l.skripDengan(t, kutipDB(l.sldkNama), false)
+}
+
+// skripDengan: script dengan nilai @Sumber (teks apa adanya, mis. "[nama_db]" atau "") dan @Bersihkan tertentu; pemetaan opsional ditulis tepat di bawah penanda pemetaan.
+func (l *lingkParitas) skripDengan(t *testing.T, sumber string, bersihkan bool, pemetaan ...string) string {
+	t.Helper()
 	s := bacaBerkas(t, BerkasDigitalisasi)
-	if !strings.Contains(s, asli) {
-		t.Fatalf("script tidak memuat %s", asli)
+	for _, baris := range []string{BarisSumber, BarisBersihkan, PenandaPemetaan} {
+		if strings.Count(s, baris) != 1 {
+			t.Fatalf("script harus memuat tepat satu %q", baris)
+		}
 	}
-	return strings.Replace(s, asli, "N'"+kutipDB(l.sldkNama)+"'", 1)
+	s = strings.Replace(s, BarisSumber, "DECLARE @Sumber NVARCHAR(300) = N'"+sumber+"';", 1)
+	if !bersihkan {
+		s = strings.Replace(s, BarisBersihkan, "DECLARE @Bersihkan BIT = 0;", 1)
+	}
+	if len(pemetaan) > 0 {
+		s = strings.Replace(s, PenandaPemetaan, PenandaPemetaan+"\n"+strings.Join(pemetaan, "\n"), 1)
+	}
+	return s
 }
 
 func (l *lingkParitas) pasangDatamart(t *testing.T) {

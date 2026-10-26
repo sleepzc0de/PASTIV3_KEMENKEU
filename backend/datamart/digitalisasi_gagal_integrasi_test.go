@@ -129,23 +129,26 @@ func TestDatamartDigitalisasiGagalDiTengahTidakMenimpa(t *testing.T) {
 	l.stagingKosong(t)
 }
 
-func TestDatamartDigitalisasiSumberSalahTercatat(t *testing.T) {
+func TestDatamartDigitalisasiSumberSalahDitolakSebelumMembuatApaPun(t *testing.T) {
 	l := siapkanParitas(t)
-	// @Sumber menunjuk database yang tidak ada: pemasangan pertama gagal, tabel hidup dibuat tetapi kosong, kegagalan tercatat jelas
-	salah := strings.Replace(l.skripDigitalisasi(t), "N'"+kutipDB(l.sldkNama)+"'", "N'[uji_dm_tidak_ada_sama_sekali]'", 1)
-	galat := l.jalankanSemuaBatch(t, l.martNama, salah)
+	// @Sumber menunjuk database yang tidak ada: ditolak SEBELUM ada yang dibuat, dengan daftar tabel yang tidak terbaca beserta alasannya (bukan galat samar saat memuat)
+	galat := l.jalankanSemuaBatch(t, l.martNama, l.skripDengan(t, "[uji_dm_tidak_ada_sama_sekali]", false))
 	if len(galat) == 0 {
 		t.Fatal("sumber yang salah harus menghasilkan galat")
 	}
-	if st, pesan := l.statusRunTerakhir(t); st != "gagal" || !strings.Contains(pesan, "uji_dm_tidak_ada_sama_sekali") {
-		t.Errorf("jejak proses: %s / %s", st, pesan)
+	pesan := galat[0].Error()
+	for _, perlu := range []string{"tidak dapat dibaca dari database ini", "[uji_dm_tidak_ada_sama_sekali].DJKN.SIMAN2_M_ASET", "[uji_dm_tidak_ada_sama_sekali].DJKN.SIMAN2_R_SATKER", "TIDAK ADA yang diubah"} {
+		if !strings.Contains(pesan, perlu) {
+			t.Errorf("pesan tidak memuat %q: %s", perlu, pesan)
+		}
 	}
-	if n := angka(t, l.srv, l.martNama, "SELECT COUNT_BIG(*) FROM dbo.DIGITALISASI_TANAH"); n != 0 {
-		t.Errorf("tabel hidup berisi %d baris padahal tidak ada proses yang berhasil", n)
+	for _, objek := range []string{"SCHEMA_ID(N'DJKN')", "SCHEMA_ID(N'DIGITALISASI_STG')", "OBJECT_ID(N'dbo.DIGITALISASI_TANAH')", "OBJECT_ID(N'dbo.datamart_digitalisasi_run')", "OBJECT_ID(N'dbo.dm_pangkas')"} {
+		if l.ada(t, l.martNama, objek) {
+			t.Errorf("%s dibuat padahal pemasangan ditolak", objek)
+		}
 	}
-	l.stagingKosong(t)
 
-	// pemasangan ulang dengan sumber yang benar memperbaiki sinonim dan berhasil
+	// pemasangan dengan sumber yang benar berhasil dan hasilnya sama dengan acuan
 	l.pasangDatamart(t)
 	if st, _ := l.statusRunTerakhir(t); st != "sukses" {
 		t.Errorf("status setelah memperbaiki sumber: %s", st)
@@ -309,12 +312,11 @@ func (l *lingkParitas) ada(t *testing.T, db, ekspresi string) bool {
 }
 
 func TestDatamartDigitalisasiSumberKosongDiDalamSLDK(t *testing.T) {
-	// @Sumber kosong = script dijalankan di dalam database yang sudah berisi DJKN.SIMAN2_*; di sini database SLDK palsu itu sendiri (pada kenyataannya datamart yang terpisah lebih baik)
+	// @Sumber kosong = script dijalankan di dalam database yang sudah berisi DJKN.SIMAN2_*; di sini database SLDK palsu itu sendiri (di data warehouse, itulah keadaan sebenarnya)
 	l := siapkanParitas(t)
 	l.sinkronAcuan(t, 1)
-	kosong := strings.Replace(l.skripDigitalisasi(t), "N'"+kutipDB(l.sldkNama)+"'", "N''", 1)
-	if err := jalankanBerkas(t, l.srv, l.sldkNama, kosong, nil); err != nil {
-		t.Fatalf("pemasangan di dalam database SLDK gagal: %v", err)
+	if err := jalankanBerkas(t, l.srv, l.sldkNama, l.skripDengan(t, "", false), nil); err != nil {
+		t.Fatalf("pemasangan di dalam database yang berisi tabel SLDK gagal: %v", err)
 	}
 	if st := baca(t, l.srv, l.sldkNama, "SELECT TOP (1) status FROM dbo.datamart_digitalisasi_run ORDER BY id DESC")[0][0]; st != "sukses" {
 		t.Errorf("status: %s", st)
@@ -322,15 +324,15 @@ func TestDatamartDigitalisasiSumberKosongDiDalamSLDK(t *testing.T) {
 	if n := angka(t, l.srv, l.sldkNama, "SELECT COUNT(*) FROM sys.synonyms"); n != 0 {
 		t.Errorf("@Sumber kosong tidak boleh membuat sinonim, ada %d", n)
 	}
-	l.martNama, l.mart = l.sldkNama, l.sldk // bandingkan tabel yang terbentuk di database itu dengan hasil aplikasi
+	l.martNama, l.mart = l.sldkNama, l.sldk // bandingkan tabel yang terbentuk di database itu dengan hasil acuan
 	l.bandingkanSemua(t)
 }
 
 func TestDatamartDigitalisasiSumberKosongTanpaObjekTidakMengubahApaPun(t *testing.T) {
+	// database tempat script dijalankan tidak berisi tabel SLDK (DJKN.SIMAN2_*) dan @Sumber kosong: ditolak dengan daftar tabel yang tidak terbaca, tanpa membuat apa pun
 	l := siapkanParitas(t)
-	kosong := strings.Replace(l.skripDigitalisasi(t), "N'"+kutipDB(l.sldkNama)+"'", "N''", 1)
-	galat := l.jalankanSemuaBatch(t, l.martNama, kosong)
-	if len(galat) == 0 || !strings.Contains(galat[0].Error(), "@Sumber kosong") {
+	galat := l.jalankanSemuaBatch(t, l.martNama, l.skripDengan(t, "", false))
+	if len(galat) == 0 || !strings.Contains(galat[0].Error(), "tidak dapat dibaca dari database ini") || !strings.Contains(galat[0].Error(), "DJKN.SIMAN2_M_ASET") {
 		t.Fatalf("harus ditolak dengan penjelasan: %v", galat)
 	}
 	for _, objek := range []string{"SCHEMA_ID(N'DJKN')", "SCHEMA_ID(N'DIGITALISASI_STG')", "OBJECT_ID(N'dbo.DIGITALISASI_TANAH')", "OBJECT_ID(N'dbo.datamart_digitalisasi_run')", "OBJECT_ID(N'dbo.dm_pangkas')"} {
@@ -357,5 +359,107 @@ func TestDatamartDigitalisasiSkemaDJKNSungguhanDitolak(t *testing.T) {
 		if l.ada(t, l.martNama, objek) {
 			t.Errorf("%s dibuat padahal pemasangan ditolak", objek)
 		}
+	}
+}
+
+// Tabel SLDK di data warehouse bernama lain (skema dan nama berbeda): pemetaan per tabel, tanpa menyunting query.
+func TestDatamartDigitalisasiPemetaanSumberUntukNamaBerbeda(t *testing.T) {
+	l := siapkanParitas(t)
+	l.sinkronAcuan(t, 1) // acuan dibentuk lebih dulu, selagi tabel masih bernama asli
+	pindah := "EXEC (N'CREATE SCHEMA DWH'); ALTER SCHEMA DWH TRANSFER DJKN.SIMAN2_R_KONDISI; EXEC sp_rename N'DWH.SIMAN2_R_KONDISI', N'REF_KONDISI';"
+	if err := ekse(t, l.srv, l.sldkNama, pindah); err != nil {
+		t.Fatal(err)
+	}
+
+	// tanpa pemetaan: ditolak dengan menyebut tabel yang hilang
+	galat := l.jalankanSemuaBatch(t, l.martNama, l.skripDengan(t, kutipDB(l.sldkNama), false))
+	if len(galat) == 0 || !strings.Contains(galat[0].Error(), "SIMAN2_R_KONDISI") {
+		t.Fatalf("tabel yang berpindah harus disebut: %v", galat)
+	}
+	if l.ada(t, l.martNama, "OBJECT_ID(N'dbo.DIGITALISASI_TANAH')") {
+		t.Error("tabel dibuat padahal pemasangan ditolak")
+	}
+
+	// dengan pemetaan: berhasil, dan hasilnya sama dengan acuan
+	peta := "UPDATE @peta SET sumber = N'" + kutipDB(l.sldkNama) + ".DWH.REF_KONDISI' WHERE nama = N'SIMAN2_R_KONDISI';"
+	if err := jalankanBerkas(t, l.srv, l.martNama, l.skripDengan(t, kutipDB(l.sldkNama), false, peta), nil); err != nil {
+		t.Fatalf("pemasangan dengan pemetaan gagal: %v", err)
+	}
+	if n := angka(t, l.srv, l.martNama, "SELECT COUNT(*) FROM sys.synonyms WHERE name = N'SIMAN2_R_KONDISI' AND base_object_name LIKE N'%DWH%REF_KONDISI%'"); n != 1 {
+		t.Errorf("sinonim untuk tabel yang dipetakan: %d", n)
+	}
+	l.bandingkanSemua(t)
+}
+
+// Bawaan script (tanpa diubah sedikit pun) di data warehouse: yang tersisa hanya tabel, dan menjalankannya lagi menyegarkan isinya.
+func TestDatamartDigitalisasiBawaanMenyisakanHanyaTabel(t *testing.T) {
+	l := siapkanParitas(t)
+	l.sinkronAcuan(t, 1)
+	utuh := bacaBerkas(t, BerkasDigitalisasi) // tanpa penyuntingan apa pun: @Sumber kosong, @Bersihkan = 1
+	if err := jalankanBerkas(t, l.srv, l.sldkNama, utuh, nil); err != nil {
+		t.Fatalf("pemasangan bawaan gagal: %v", err)
+	}
+	l.martNama, l.mart = l.sldkNama, l.sldk
+
+	l.bandingkanSemua(t)
+	for nama, query := range map[string]string{
+		"rutin sementara":     "SELECT COUNT(*) FROM sys.objects WHERE type IN (N'P', N'FN', N'IF', N'TF') AND (name LIKE N'dm[_]%' OR name LIKE N'datamart[_]%')",
+		"sinonim":             "SELECT COUNT(*) FROM sys.synonyms",
+		"tabel staging/skema": "SELECT COUNT(*) FROM sys.schemas WHERE name = N'DIGITALISASI_STG'",
+	} {
+		if n := angka(t, l.srv, l.sldkNama, query); n != 0 {
+			t.Errorf("%s tersisa: %d", nama, n)
+		}
+	}
+	if n := angka(t, l.srv, l.sldkNama, "SELECT COUNT(*) FROM sys.tables WHERE name LIKE N'DIGITALISASI[_]%' OR name LIKE N'datamart[_]digitalisasi[_]%'"); n != 9 {
+		t.Errorf("tabel hasil: %d, seharusnya 7 DIGITALISASI_* dan 2 tabel jejak", n)
+	}
+	// tabel SLDK asli tidak tersentuh
+	if n := angka(t, l.srv, l.sldkNama, "SELECT COUNT(*) FROM DJKN.SIMAN2_M_ASET"); n == 0 {
+		t.Error("tabel SLDK kosong")
+	}
+
+	// jalankan lagi: menyegarkan (dua proses sukses), isi tetap sama dengan acuan
+	if err := jalankanBerkas(t, l.srv, l.sldkNama, utuh, nil); err != nil {
+		t.Fatalf("pemasangan ulang gagal: %v", err)
+	}
+	if n := angka(t, l.srv, l.sldkNama, "SELECT COUNT(*) FROM dbo.datamart_digitalisasi_run WHERE status = N'sukses'"); n != 2 {
+		t.Errorf("proses sukses: %d, seharusnya 2", n)
+	}
+	l.bandingkanSemua(t)
+}
+
+// Penyegaran yang gagal tidak membuang apa pun (rutin dipertahankan untuk diagnosis) dan tabel lama tetap.
+func TestDatamartDigitalisasiBawaanMempertahankanRutinBilaGagal(t *testing.T) {
+	l := siapkanParitas(t)
+	utuh := bacaBerkas(t, BerkasDigitalisasi)
+	if err := jalankanBerkas(t, l.srv, l.sldkNama, utuh, nil); err != nil {
+		t.Fatalf("pemasangan awal gagal: %v", err)
+	}
+	l.martNama, l.mart = l.sldkNama, l.sldk
+	sebelum := l.fotoDatamart(t)
+
+	if err := ekse(t, l.srv, l.sldkNama, "EXEC sp_rename N'DJKN.SIMAN2_M_ASET.nm_unit_pengguna', N'nm_unit_pengguna_lama', N'COLUMN'"); err != nil {
+		t.Fatal(err)
+	}
+	// SSMS tetap mengirim batch berikutnya setelah galat; pembersihan harus melihat bahwa penyegaran terakhir gagal
+	galat := l.jalankanSemuaBatch(t, l.sldkNama, utuh)
+	if len(galat) == 0 {
+		t.Fatal("penyegaran dengan kolom hilang seharusnya gagal")
+	}
+	// penyebab sebenarnya tampil pada keluaran script (galat pembuatan prosedur), dan jejak menunjuk ke sana
+	semua := ""
+	for _, e := range galat {
+		semua += e.Error() + " | "
+	}
+	if !strings.Contains(semua, "nm_unit_pengguna") {
+		t.Errorf("galat kolom yang hilang tidak tampil pada keluaran script: %s", semua)
+	}
+	samaFoto(t, sebelum, l.fotoDatamart(t))
+	if n := angka(t, l.srv, l.sldkNama, "SELECT COUNT(*) FROM sys.objects WHERE type = N'P' AND name = N'datamart_digitalisasi_segarkan'"); n != 1 {
+		t.Error("prosedur harus dipertahankan bila penyegaran gagal")
+	}
+	if st, pesan := l.statusRunTerakhir(t); st != "gagal" || !strings.Contains(pesan, "lihat galat SEBELUMNYA") {
+		t.Errorf("jejak: %s / %s", st, pesan)
 	}
 }
