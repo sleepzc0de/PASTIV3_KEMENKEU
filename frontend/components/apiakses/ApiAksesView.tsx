@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Settings2, Users } from "lucide-react";
+import { Activity, BookOpen, Settings2, Users } from "lucide-react";
 import { type Pengaturan, getPengaturan } from "@/lib/apiAkses";
 import { adalahSuperadmin } from "@/lib/peran";
 import { useDashboard } from "@/lib/dashboard-context";
@@ -10,18 +10,20 @@ import { Alert } from "@/components/ui/Alert";
 import { buttonClasses } from "@/components/ui/Button";
 import { SkeletonCards } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
+import { DokumentasiApi } from "./DokumentasiApi";
 import { KlienManager } from "./KlienManager";
 import { PengaturanPanel } from "./PengaturanPanel";
 
-type Tab = "klien" | "pengaturan";
+type Tab = "klien" | "pengaturan" | "dokumentasi";
 
 const TAB = [
   { key: "klien" as const, label: "Klien", icon: Users },
   { key: "pengaturan" as const, label: "Batas laju dan kuota", icon: Settings2 },
+  { key: "dokumentasi" as const, label: "Dokumentasi", icon: BookOpen },
 ];
 
-// Pengelolaan API Akses Data: daftar klien (persetujuan, scope, kunci) dan pengaturan global batas laju/kuota. Khusus superadmin (backend menolak peran lain dengan
-// 403; halaman ini juga menolak menampilkan isinya).
+// Pengelolaan API Akses Data: daftar klien (persetujuan, scope, kunci), pengaturan global batas laju/kuota, dan dokumentasi pemakaian API. Khusus superadmin (backend menolak
+// peran lain dengan 403; halaman ini juga menolak menampilkan isinya).
 export function ApiAksesView() {
   const { profile, isLoadingProfile } = useDashboard();
   const bolehLihat = adalahSuperadmin(profile?.peran, profile?.role);
@@ -47,6 +49,7 @@ export function ApiAksesView() {
       </div>
       {tab === "klien" && <KlienManager bawaan={bawaan} />}
       {tab === "pengaturan" && <PengaturanPanel onTersimpan={setBawaan} />}
+      {tab === "dokumentasi" && <DokumentasiApi />}
     </div>
   );
 }

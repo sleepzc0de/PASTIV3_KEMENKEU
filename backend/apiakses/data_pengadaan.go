@@ -170,7 +170,7 @@ func (d DatasetPengadaan) BacaDaftar(ctx context.Context, db *sql.DB, f FilterPe
 	}
 	per := f.PerHalaman
 	if per < 1 {
-		per = 100
+		per = HalamanBawaan
 	}
 	if halamanMaks < 1 {
 		halamanMaks = 500

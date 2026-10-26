@@ -107,21 +107,23 @@ func GetAksesKatalog(c *gin.Context) {
 			items = append(items, itemKatalogPengadaan(d))
 		}
 	}
-	utils.SuccessResponse(c, http.StatusOK, "OK", gin.H{
-		"dataset": items,
-		"parameter": []gin.H{
-			{"nama": "per_halaman", "uraian": "Jumlah baris per permintaan (bawaan 100, maksimal sesuai pengaturan PASTI)"},
-			{"nama": "kursor", "uraian": "Nilai kursor_berikutnya dari respons sebelumnya; kosongkan untuk mulai dari awal. Dataset aset: bilangan; dataset pengadaan: teks buram (sama dengan id baris terakhir)"},
-			{"nama": "hitung", "uraian": "1 untuk menyertakan total baris yang cocok (lebih lambat)"},
-			{"nama": "q", "uraian": "Pencarian teks (minimal 3 karakter) pada nama, alamat, dan kode (aset) atau nama paket, satker, dan kode paket (pengadaan)"},
-			{"nama": "kode_satker", "uraian": "Dataset aset: kode satker 6 digit, atau awalan kode satker lengkap. Dataset pengadaan: kode satker 6 digit"},
-			{"nama": "kode_ue1", "uraian": "Kode UE1 5 digit. Dataset pengadaan memakai daftar satker data aset untuk menentukan satker milik UE1 itu"},
-			{"nama": "provinsi", "uraian": "Nama provinsi persis (hanya dataset aset yang punya kolomnya)"},
-			{"nama": "kab_kota", "uraian": "Nama kabupaten/kota persis (hanya dataset aset yang punya kolomnya)"},
-			{"nama": "kode_klpd", "uraian": "Kode KLPD Inaproc, mis. K10 (hanya dataset pengadaan)"},
-			{"nama": "tahun", "uraian": "Tahun anggaran empat digit (hanya dataset pengadaan yang punya kolom tahun)"},
-		},
-	})
+	utils.SuccessResponse(c, http.StatusOK, "OK", gin.H{"dataset": items, "parameter": parameterKatalog()})
+}
+
+// parameterKatalog: uraian parameter daftar data. Dipakai /katalog (untuk klien) dan dokumentasi di aplikasi (untuk superadmin) supaya keduanya selalu sama.
+func parameterKatalog() []gin.H {
+	return []gin.H{
+		{"nama": "per_halaman", "uraian": "Jumlah baris per permintaan (bawaan " + strconv.Itoa(apiakses.HalamanBawaan) + ", maksimal sesuai pengaturan PASTI)"},
+		{"nama": "kursor", "uraian": "Nilai kursor_berikutnya dari respons sebelumnya; kosongkan untuk mulai dari awal. Dataset aset: bilangan; dataset pengadaan: teks buram (sama dengan id baris terakhir)"},
+		{"nama": "hitung", "uraian": "1 untuk menyertakan total baris yang cocok (lebih lambat)"},
+		{"nama": "q", "uraian": "Pencarian teks (minimal " + strconv.Itoa(apiakses.MinPencarian) + " karakter) pada nama, alamat, dan kode (aset) atau nama paket, satker, dan kode paket (pengadaan)"},
+		{"nama": "kode_satker", "uraian": "Dataset aset: kode satker 6 digit, atau awalan kode satker lengkap. Dataset pengadaan: kode satker 6 digit"},
+		{"nama": "kode_ue1", "uraian": "Kode UE1 5 digit. Dataset pengadaan memakai daftar satker data aset untuk menentukan satker milik UE1 itu"},
+		{"nama": "provinsi", "uraian": "Nama provinsi persis (hanya dataset aset yang punya kolomnya)"},
+		{"nama": "kab_kota", "uraian": "Nama kabupaten/kota persis (hanya dataset aset yang punya kolomnya)"},
+		{"nama": "kode_klpd", "uraian": "Kode KLPD Inaproc, mis. K10 (hanya dataset pengadaan)"},
+		{"nama": "tahun", "uraian": "Tahun anggaran empat digit (hanya dataset pengadaan yang punya kolom tahun)"},
+	}
 }
 
 // akses dataset: dataset dari rute, dalam scope kunci ini. false bila jawaban sudah ditulis.

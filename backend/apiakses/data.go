@@ -23,6 +23,9 @@ const (
 	maksWilayah   = 200
 )
 
+// HalamanBawaan: baris per permintaan bila per_halaman tidak diisi (aset dan pengadaan).
+const HalamanBawaan = 100
+
 var reKodeSatker = regexp.MustCompile(`^[0-9A-Za-z.\-]{1,40}$`)
 
 // FilterData: penyaring dan paginasi daftar data. Paginasi memakai kursor (id baris terakhir yang sudah diterima), bukan nomor halaman: stabil dan tetap cepat pada
@@ -158,7 +161,7 @@ func (d DatasetAPI) BacaDaftar(ctx context.Context, db *sql.DB, f FilterData, ha
 	}
 	per := f.PerHalaman
 	if per < 1 {
-		per = 100
+		per = HalamanBawaan
 	}
 	if halamanMaks < 1 {
 		halamanMaks = 500
