@@ -156,9 +156,113 @@ satker, "belum punya koordinat"), bukan hanya halaman yang tampil. Berkas yang d
 daftar, detail, pencarian, maupun unduhan Excel/CSV/PDF untuk pengguna lain. Pesan galat sinkronisasi (bisa memuat nama server/tabel) juga hanya
 terlihat superadmin.
 
+## Riwayat bulanan (`DIGITALISASI_ASET_ALL`)
+
+Tabel `DIGITALISASI_*` selalu berisi data **terbaru** (diganti penuh tiap sinkronisasi). Untuk melihat perubahan data dari bulan ke bulan, tabel `DIGITALISASI_ASET_ALL` menampung **potret akhir tiap bulan**
+dari ketujuh tabel itu dalam satu tabel: satu baris = satu baris tabel sumber pada satu periode.
+
+**Status: tabel sudah disiapkan (migrasi `065_create_digitalisasi_aset_all.sql`), tetapi penyimpanan otomatis tiap akhir bulan belum dibuat** dan aplikasi belum menampilkannya. Yang sudah ada dan diuji:
+tabelnya, dan SQL penyimpanan potret (`digitalisasi.HistorySQL`, `backend/digitalisasi/riwayat.go`) yang kelak dipicu otomatis. Kode keduanya satu sumber: migrasi 065 **dihasilkan** dari `riwayat.go`
+(`go test ./digitalisasi -run TestHistoryMigrationFile -update`).
+
+### Struktur
+
+Ketujuh tabel sumber kolomnya berbeda, jadi tabel riwayat memakai **kolom inti seragam bertipe asli** (dipetakan lewat `Roles` tiap dataset: `Alamat_tanah`, `Alamat_bangunan`, dan seterusnya sama-sama menjadi
+`alamat`) dan satu **kolom JSON** untuk kolom khusus jenis aset, tanpa puluhan kolom kosong.
+
+| Kolom | Isi |
+|---|---|
+| `periode` | **tanggal terakhir** bulan yang ditutup: posisi akhir Oktober 2026 = `2026-10-31`. Tabel menolak tanggal lain (CHECK `periode = EOMONTH(periode)`) |
+| `jenis_aset` | kunci dataset: `satker`, `tanah`, `gedung_kantor_utama`, `gedung_lainnya`, `rusunara`, `rumah_negara`, `mess_rumah_negara` |
+| `kode_ue1`, `kode_satker`, `nama_satker` | satker pemilik |
+| `kode_register`, `kode_barang`, `nup`, `uraian` | identitas aset (`kode_register` hanya pada tanah, gedung, dan rumah negara; `kode_barang` dan `nup` kosong pada jenis `satker`) |
+| `alamat`, `kelurahan_desa`, `kecamatan`, `kab_kota`, `provinsi` | lokasi |
+| `luas`, `nilai` | luas tanah (jenis `tanah`) atau luas bangunan; nilai perolehan (kosong pada jenis yang tidak punya nilai, mis. `rumah_negara`) |
+| `kondisi`, `status_hukum`, `status_asuransi`, `status_penghuni` | status (kosong bila jenis aset tidak punya) |
+| `latitude`, `longitude` | koordinat bila ada |
+| `data_tambahan` | JSON kolom khusus jenis aset, kunci = nama kolom huruf kecil: mis. `kamar_tipe_e`, `kamar_tipe_d`, `kamar_tipe_c` (rusunara, mess), `jumlah_bangunan` dan `luas_bangunan` (tanah), `jumlah_kdj`, `jumlah_kdo` (satker), `fungsi` (gedung lainnya). Nilai kosong tidak ditulis |
+| `data_per` | "data per" sumber: awal penyegaran datamart yang menghasilkan data itu (UTC) |
+| `diambil_pada` | waktu potret disimpan (UTC) |
+
+Tidak ada kunci unik karena kunci aset berbeda per jenis; gunakan `kode_register`, atau `kode_satker` + `kode_barang` + `nup`, untuk mengikuti satu aset antarbulan (kolom `id` pada tabel `DIGITALISASI_*`
+berubah setiap sinkronisasi dan tidak boleh dipakai). Indeks berkelompok pada `(periode, jenis_aset, id)` membuat penambahan tiap bulan berurutan di ujung tabel dan pembacaan satu bulan berurutan; ada
+indeks tambahan per satker, per UE1, dan per kode register.
+
+**Yang tidak disalin:** data pribadi (`Nama_Penghuni`), tautan foto (`Foto*`), dan nama pengguna bangunan (`Nama_Pengguna`): riwayat tidak boleh menyimpan lebih banyak daripada yang boleh keluar lewat API Akses
+Data. Kolom baru di `datasets.go` otomatis masuk JSON kecuali dikecualikan di `Column.HistoryExcluded`; tes menjaga setiap kolom punya tepat satu tujuan (inti, JSON, atau dikecualikan) dan bahwa kolom yang ditutup API
+juga dikecualikan di sini.
+
+### Menyimpan potret
+
+`digitalisasi.HistorySQL(ds)` menghasilkan satu batch per dataset dengan parameter bernama `@periode` (`DATE`, tanggal terakhir bulan) dan `@data_per` (`DATETIME2(3)`, boleh `NULL`); hasilnya satu angka
+(jumlah baris yang disimpan). Batch ini **aman diulang**: potret lama untuk periode dan jenis aset yang sama dibuang dalam satu transaksi dengan penyisipan (gagal = tidak ada yang berubah), sedangkan periode dan jenis
+aset lain tidak disentuh. Potret yang sudah ada bisa diperbarui dengan mengulangnya, dan dipakai ulang oleh tahap otomatis nanti.
+
+### Contoh pembacaan deret waktu
+
+Total tiap bulan per jenis aset:
+
+```sql
+SELECT periode, jenis_aset, COUNT(*) AS jumlah, SUM(luas) AS total_luas, SUM(nilai) AS total_nilai
+FROM DIGITALISASI_ASET_ALL
+GROUP BY periode, jenis_aset
+ORDER BY jenis_aset, periode;
+```
+
+Satker yang jumlah, luas, atau nilai tanahnya berubah antara dua bulan:
+
+```sql
+WITH per_satker AS (
+    SELECT periode, kode_satker, COUNT(*) AS jumlah, SUM(luas) AS luas, SUM(nilai) AS nilai
+    FROM DIGITALISASI_ASET_ALL
+    WHERE jenis_aset = N'tanah' AND periode IN ('2026-10-31', '2026-11-30')
+    GROUP BY periode, kode_satker
+)
+SELECT COALESCE(b.kode_satker, a.kode_satker) AS kode_satker,
+       ISNULL(b.jumlah, 0) - ISNULL(a.jumlah, 0) AS selisih_jumlah,
+       ISNULL(b.luas, 0) - ISNULL(a.luas, 0) AS selisih_luas,
+       ISNULL(b.nilai, 0) - ISNULL(a.nilai, 0) AS selisih_nilai
+FROM (SELECT * FROM per_satker WHERE periode = '2026-10-31') AS a
+FULL JOIN (SELECT * FROM per_satker WHERE periode = '2026-11-30') AS b ON b.kode_satker = a.kode_satker
+WHERE ISNULL(b.jumlah, 0) <> ISNULL(a.jumlah, 0) OR ISNULL(b.luas, 0) <> ISNULL(a.luas, 0) OR ISNULL(b.nilai, 0) <> ISNULL(a.nilai, 0)
+ORDER BY kode_satker;
+```
+
+Tanah yang kondisinya berubah antara dua bulan (aset yang sama dikenali dari `kode_register`):
+
+```sql
+SELECT a.kode_satker, a.kode_register, a.kondisi AS kondisi_awal, b.kondisi AS kondisi_akhir
+FROM DIGITALISASI_ASET_ALL AS a
+JOIN DIGITALISASI_ASET_ALL AS b ON b.jenis_aset = a.jenis_aset AND b.kode_register = a.kode_register
+WHERE a.jenis_aset = N'tanah' AND a.periode = '2026-10-31' AND b.periode = '2026-11-30'
+  AND ISNULL(a.kondisi, N'') <> ISNULL(b.kondisi, N'');
+```
+
+Kolom khusus jenis aset dari JSON, mis. jumlah kamar rusunara per bulan:
+
+```sql
+SELECT periode,
+       SUM(CAST(JSON_VALUE(data_tambahan, '$.kamar_tipe_e') AS INT)) AS kamar_tipe_e,
+       SUM(CAST(JSON_VALUE(data_tambahan, '$.kamar_tipe_d') AS INT)) AS kamar_tipe_d,
+       SUM(CAST(JSON_VALUE(data_tambahan, '$.kamar_tipe_c') AS INT)) AS kamar_tipe_c
+FROM DIGITALISASI_ASET_ALL
+WHERE jenis_aset = N'rusunara'
+GROUP BY periode
+ORDER BY periode;
+```
+
+Keempat contoh di atas dijalankan oleh tes integrasi terhadap data uji, jadi sintaksnya dijamin benar. `JSON_VALUE` mengembalikan teks maksimal 4.000 karakter; untuk kolom teks panjang pakai `OPENJSON ... WITH`.
+
+### Penyimpanan otomatis (tahap berikutnya)
+
+Yang masih harus diputuskan dan dibuat: pemicu (mis. penjadwal aplikasi pada awal bulan menyimpan periode `EOMONTH` bulan sebelumnya), sumbernya (tabel `DIGITALISASI_*` PASTI sesudah sinkronisasi sukses terakhir, dengan
+`@data_per` dari riwayat sinkronisasi `digitalisasi_sync_log.data_per`), penanganan bulan yang terlewat, dan penolakan menyimpan potret bila tabel sumber kosong atau sinkronisasi terakhir gagal (supaya riwayat tidak
+berisi bulan kosong).
+Perkiraan ukuran: tiap bulan menambah sebanyak jumlah seluruh baris ketujuh tabel sumber.
+
 ## Menjalankan pertama kali
 
-1. `./deploy.sh` (migrasi 020, 063, dan 064 berjalan otomatis; image backend tidak berubah selain kodenya).
+1. `./deploy.sh` (migrasi 020, 063, 064, dan 065 berjalan otomatis; image backend tidak berubah selain kodenya).
 2. Tim Pusdatin menjalankan script datamart di data warehouse ([datamart-digitalisasi.md](datamart-digitalisasi.md)) dan menjadwalkan penyegarannya. Isi `DATAMART_DB_*` di `backend/.env` (atau lewat
    `./deploy.sh --kredensial`) lalu mulai ulang backend; halaman Sinkronisasi menampilkan peringatan bila datamart belum dikonfigurasi atau belum pernah disegarkan.
 3. Buka Digitalisasi Aset → Sinkronisasi → mulai dari satu dataset kecil (mis. *Mess Rumah Negara*) untuk memastikan datanya benar, baru "Sinkronkan semua".

@@ -35,6 +35,7 @@ var migrasiPASTI = []string{
 	"../migrations/020_create_digitalisasi.sql",
 	"../migrations/063_digitalisasi_sync_log_sumber.sql",
 	"../migrations/064_digitalisasi_sync_log_data_per.sql",
+	"../migrations/065_create_digitalisasi_aset_all.sql",
 }
 
 // siapkanParitas membuat database-database di atas. Fixture SLDK = sldk_palsu.sql + sldk_palsu_tepi.sql, lalu penyesuaian opsional (SQL) pada SLDK sebelum script dipasang.
