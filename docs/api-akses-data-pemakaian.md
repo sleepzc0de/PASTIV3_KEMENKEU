@@ -139,7 +139,8 @@ curl -H "Authorization: Bearer $PASTI_API_KEY" \
   "https://pasti.kemenkeu.go.id/api/data/v1/aset/tanah?kode_ue1=01504&per_halaman=500&hitung=1"
 
 # data pengadaan: pengumuman tender KLPD K10 tahun 2025
-curl -H "Authorization: Bearer $PASTI_API_KEY" \n  "https://pasti.kemenkeu.go.id/api/data/v1/pengadaan/tender_pengumuman?kode_klpd=K10&tahun=2025&per_halaman=500"
+curl -H "Authorization: Bearer $PASTI_API_KEY" \
+  "https://pasti.kemenkeu.go.id/api/data/v1/pengadaan/tender_pengumuman?kode_klpd=K10&tahun=2025&per_halaman=500"
 ```
 
 ```python

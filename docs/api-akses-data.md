@@ -123,6 +123,18 @@ khusus (kosong = ikut bawaan). Rentang yang diterima: 1–100.000 permintaan, je
 - Halaman: ringkasan (permintaan, berhasil, galat, ditolak, 429 laju dan kuota, 5xx, latensi), grafik per jam/hari, **pemakaian kuota saat ini** per klien, tabel per klien dan per endpoint, riwayat dengan filter
   (hasil, IP, pencarian) dan rentang (1 jam sampai 1 tahun atau tanggal sendiri). Pemilik klien melihat ringkasan miliknya sendiri lewat `GET /api/data/v1/saya/penggunaan` (dengan kuncinya).
 
+## Dokumentasi di aplikasi
+
+Tab **Dokumentasi** pada `Administrasi > API Akses Data` (bersama tab *Klien* dan *Batas laju dan kuota*) menjelaskan cara memakai API kepada pengembang aplikasi klien: mulai cepat, autentikasi, endpoint, parameter, respons dan paginasi,
+batas laju dan kuota, kode galat, contoh kode (curl, Python, Node.js; satu halaman atau tarik semua data, untuk dataset pilihan), dan referensi semua dataset (alamat, penyaring yang didukung dan yang ditolak 400, kolom beserta tipenya, dan kolom yang
+sengaja tidak diberikan; bisa dicari). Panduan tertulis untuk dibagikan ke pihak luar tetap [api-akses-data-pemakaian.md](api-akses-data-pemakaian.md).
+
+**Rujukan teknis dibaca dari kode, bukan ditulis ulang.** `GET /api/v1/api-akses/dokumentasi` (`handlers/api_akses_dokumentasi.go`, superadmin) menyusun jawabannya dari katalog dataset yang sama dengan `/katalog` milik klien (`itemKatalog*`, tetapi **semua**
+dataset, bukan hanya yang dalam scope satu kunci), uraian parameter yang sama dengan `/katalog` (`parameterKatalog`), konstanta kode galat gerbang, daftar header, daftar endpoint, dan pengaturan global yang berlaku (batas laju, kuota, halaman maksimal). Hanya uraian
+dan contoh yang ditulis di frontend (`components/apiakses/Dokumentasi*.tsx`, fungsi murni di `lib/apiAksesDokumentasi.ts`). Tes `handlers/api_akses_dokumentasi_test.go` menjaga agar dokumentasi tidak menyimpang: setiap parameter yang dibaca handler, setiap kode
+galat (`apiakses/gerbang.go`), setiap header yang dikirim atau dibaca gerbang, dan setiap rute klien di `routes/routes.go` (termasuk apakah menghabiskan kuota) harus terdokumentasi, dan sebaliknya. Menambah rute, parameter, header, atau kode galat tanpa
+memperbarui dokumentasi membuat tes gagal.
+
 ## API pengelolaan (superadmin, `/api/v1/api-akses`)
 
 | Rute | Fungsi |
@@ -136,6 +148,7 @@ khusus (kosong = ikut bawaan). Rentang yang diterima: 1–100.000 permintaan, je
 | `DELETE /klien/:id/kunci/:kunciId` | cabut satu kunci |
 | `GET`/`PUT /pengaturan` | bawaan global (batas laju, kuota, masa berlaku kunci, tenggang rotasi, halaman maksimal, retensi) |
 | `GET /pantau/ringkasan`, `/pantau/riwayat`, `/pantau/opsi` | pemantauan |
+| `GET /dokumentasi` | bahan tab Dokumentasi: semua dataset beserta kolom dan penyaring, parameter, header, kode galat, endpoint, dan bawaan batas (dari kode, tanpa database selain pengaturan global) |
 
 **Semua** rute di grup ini memakai `AuthRequired` + `RequireSuperadmin` (superadmin yang bertindak sebagai peran data tidak punya hak ini); tidak ada pengecualian publik. Tes tabel rute
 (`routes/api_akses_test.go`) memeriksa bahwa setiap rute di bawah `/api/v1/api-akses/` menolak permintaan tanpa login (401).
@@ -153,7 +166,8 @@ khusus (kosong = ikut bawaan). Rentang yang diterima: 1–100.000 permintaan, je
 
 ```bash
 cd backend && go test ./apiakses/ ./routes/ ./audit/ ./middleware/        # unit dan rute (tanpa database)
-cd frontend && node --test lib/apiAkses.test.mjs
+cd backend && go test ./handlers/ -run Dokumentasi                        # dokumentasi sama dengan kode (parameter, galat, header, rute, dataset)
+cd frontend && node --test lib/apiAkses.test.mjs lib/apiAksesDokumentasi.test.mjs
 ```
 
 Tes integrasi SQL Server (dilewati bila `PASTI_UJI_MSSQL_DSN` kosong; gunakan database KHUSUS TES yang sudah dimigrasi sampai 062, lihat contoh DSN di `apiakses/store_integrasi_test.go`):

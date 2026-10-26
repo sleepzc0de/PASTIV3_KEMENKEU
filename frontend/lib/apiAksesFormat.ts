@@ -254,16 +254,16 @@ export function contohCurl(alamatDasar: string, kunci: string, kodeDataset?: str
 
 // ---------------------------------------------------------------- pilihan dataset per kelompok
 
-export interface BagianDataset {
+export interface BagianDataset<T extends InfoDataset = InfoDataset> {
   judul: string; // subkelompok; kosong bila kelompok tidak punya subkelompok
-  dataset: InfoDataset[];
+  dataset: T[];
 }
 
-export interface KelompokDataset {
+export interface KelompokDataset<T extends InfoDataset = InfoDataset> {
   kelompok: string;
   judul: string;
   kode: string[]; // semua kode dataset di kelompok ini
-  bagian: BagianDataset[];
+  bagian: BagianDataset<T>[];
 }
 
 export const JUDUL_KELOMPOK_DATA: Record<string, string> = {
@@ -275,8 +275,8 @@ const URUTAN_KELOMPOK_DATA = ["aset", "pengadaan"];
 
 // Mengelompokkan dataset untuk pilihan scope: kelompok menurut urutan tetap (aset, lalu pengadaan, lalu yang tidak dikenal), subkelompok menurut urutan kemunculan, dan
 // dataset dalam subkelompok menurut urutan dari backend. Dataset tanpa kelompok (backend lama) masuk kelompok aset.
-export function kelompokkanDataset(dataset: InfoDataset[]): KelompokDataset[] {
-  const peta = new Map<string, KelompokDataset>();
+export function kelompokkanDataset<T extends InfoDataset>(dataset: T[]): KelompokDataset<T>[] {
+  const peta = new Map<string, KelompokDataset<T>>();
   for (const d of dataset) {
     const kel = d.kelompok ?? "aset";
     let g = peta.get(kel);

@@ -118,6 +118,7 @@ func SetupRoutes(r *gin.Engine) {
 			apiAksesGrup.GET("/pantau/ringkasan", handlers.GetApiAksesPantauRingkasan)
 			apiAksesGrup.GET("/pantau/riwayat", handlers.GetApiAksesPantauRiwayat)
 			apiAksesGrup.GET("/pantau/opsi", handlers.GetApiAksesPantauOpsi)
+			apiAksesGrup.GET("/dokumentasi", handlers.GetApiAksesDokumentasi)
 		}
 
 		// Seluruh fitur HRIS2 (pencarian & detail pegawai) khusus superadmin.

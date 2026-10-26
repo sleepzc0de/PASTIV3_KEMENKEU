@@ -148,7 +148,7 @@ func TestAPIAksesAlurLengkapDenganSQLServer(t *testing.T) {
 		if tok == "" {
 			want = 401
 		}
-		for _, p := range []string{"/api/v1/api-akses/klien", "/api/v1/api-akses/pengaturan", "/api/v1/api-akses/pantau/ringkasan", "/api/v1/api-akses/pantau/riwayat", "/api/v1/api-akses/pantau/opsi"} {
+		for _, p := range []string{"/api/v1/api-akses/klien", "/api/v1/api-akses/pengaturan", "/api/v1/api-akses/pantau/ringkasan", "/api/v1/api-akses/pantau/riwayat", "/api/v1/api-akses/pantau/opsi", "/api/v1/api-akses/dokumentasi"} {
 			if code, _, _, _ := u.panggil("GET", p, bearer(tok), ""); code != want {
 				t.Errorf("GET %s token=%q: %d, want %d", p, tok[:min(len(tok), 8)], code, want)
 			}

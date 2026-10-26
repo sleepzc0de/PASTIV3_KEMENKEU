@@ -287,6 +287,76 @@ export async function putPengaturan(p: Pengaturan) {
   return res.data;
 }
 
+// ---------------------------------------------------------------- dokumentasi (superadmin)
+
+export type TipeKolom = "teks" | "bilangan" | "desimal" | "waktu" | "logika";
+
+export interface KolomDok {
+  nama: string;
+  tipe: TipeKolom;
+}
+
+export interface DatasetDok {
+  kode: string;
+  label: string;
+  deskripsi: string;
+  kelompok: KelompokData;
+  subkelompok?: string;
+  alamat: string;
+  geo: boolean;
+  penyaring: string[];
+  kolom: KolomDok[];
+  tertutup?: string[];
+}
+
+export interface ParameterDok {
+  nama: string;
+  uraian: string;
+}
+
+export interface HeaderDok {
+  nama: string;
+  arah: "permintaan" | "respons";
+  arti: string;
+}
+
+export interface GalatDok {
+  http: number;
+  kode?: string;
+  arti: string;
+}
+
+export interface EndpointDok {
+  metode: string;
+  path: string; // relatif terhadap alamat_dasar; bagian rute ditulis {nama}
+  isi: string;
+  kuota: boolean;
+}
+
+// Bahan dokumentasi yang dibaca backend dari kode yang sama dengan yang melayani klien (dataset, kolom, penyaring, header, kode galat, bawaan batas).
+export interface Dokumentasi {
+  alamat_dasar: string;
+  bawaan: {
+    limit_permintaan: number;
+    limit_jendela_detik: number;
+    kuota_permintaan: number;
+    kuota_periode_detik: number;
+    halaman_bawaan: number;
+    halaman_maks: number;
+    min_pencarian: number;
+  };
+  endpoint: EndpointDok[];
+  parameter: ParameterDok[];
+  header: HeaderDok[];
+  galat: GalatDok[];
+  dataset: DatasetDok[];
+}
+
+export async function getDokumentasi() {
+  const res = await api.get<Res<Dokumentasi>>("/api-akses/dokumentasi");
+  return res.data.data;
+}
+
 // ---------------------------------------------------------------- pemantauan (superadmin)
 
 export async function getPantau(params: Record<string, string>, signal?: AbortSignal) {

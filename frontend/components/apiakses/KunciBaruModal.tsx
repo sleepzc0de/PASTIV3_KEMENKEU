@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Copy, KeyRound, TriangleAlert } from "lucide-react";
+import { alamatDasarData } from "@/lib/apiAksesDokumentasi";
 import { contohCurl } from "@/lib/apiAksesFormat";
 import { Button } from "@/components/ui/Button";
 import { ModalShell } from "@/components/ui/ModalShell";
@@ -30,8 +31,7 @@ async function salin(teks: string): Promise<boolean> {
 }
 
 function alamatDasar(): string {
-  const akar = process.env.NEXT_PUBLIC_API_ROOT_URL || (typeof window !== "undefined" ? window.location.origin : "");
-  return `${akar.replace(/\/$/, "")}/api/data/v1`;
+  return alamatDasarData(process.env.NEXT_PUBLIC_API_ROOT_URL, typeof window !== "undefined" ? window.location.origin : "");
 }
 
 // Menampilkan kunci API yang baru diterbitkan. Kunci hanya ada di layar ini: server hanya menyimpan hash-nya, jadi tidak dapat ditampilkan lagi. Modal tidak ditutup
